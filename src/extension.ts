@@ -6,10 +6,243 @@ import * as path from 'path';
 import axios from "axios";
 import * as child_process from "child_process";
 import * as util from "util";
+import { TLVerilogSemanticTokensProvider, legend } from './semanticTokenProvider';
+
+
+//@ts-ignore
+class SandPiperButton implements vscode.StatusBarItem {
+  private statusBarItem: vscode.StatusBarItem;
+  private activeEditor: vscode.TextEditor | undefined;
+
+  alignment: vscode.StatusBarAlignment;
+  priority: number;
+  text: string;
+  tooltip: string;
+  color: string;
+  command: string | undefined;
+
+  constructor(
+    alignment: vscode.StatusBarAlignment = vscode.StatusBarAlignment.Left,
+    priority: number = 0
+  ) {
+    this.statusBarItem = vscode.window.createStatusBarItem(alignment, priority);
+    this.statusBarItem.command = "extension.sandpiperSaas";
+    this.statusBarItem.text = "$(rocket) SandPiper";
+    this.statusBarItem.tooltip = "Compile TL-Verilog using SandPiper SaaS";
+    this.text = "$(rocket) SandPiper";
+    this.tooltip = "Compile TL-Verilog using SandPiper SaaS";
+    this.alignment = alignment;
+    this.priority = priority;
+    this.activeEditor = vscode.window.activeTextEditor;
+    vscode.window.onDidChangeActiveTextEditor((editor) => {
+      this.activeEditor = editor;
+      this.updateVisibility();
+    });
+  }
+
+  show() {
+    this.statusBarItem.show();
+  }
+
+  hide() {
+    this.statusBarItem.hide();
+  }
+
+  dispose() {
+    this.statusBarItem.dispose();
+  }
+  private updateVisibility() {
+    if (this.activeEditor && this.activeEditor.document.languageId === "tlverilog") {
+      this.show();
+    } else {
+      this.hide();
+    }
+  }
+}
+
+//@ts-ignore
+class SvgButton implements vscode.StatusBarItem {
+  private statusBarItem: vscode.StatusBarItem;
+  private activeEditor: vscode.TextEditor | undefined;
+
+  alignment: vscode.StatusBarAlignment;
+  priority: number;
+  text: string;
+  tooltip: string;
+  color: string;
+  command: string | undefined;
+
+  constructor(
+    alignment: vscode.StatusBarAlignment = vscode.StatusBarAlignment.Left,
+    priority: number = 1
+  ) {
+    this.statusBarItem = vscode.window.createStatusBarItem(alignment, priority);
+    this.statusBarItem.command = "extension.showSvg";
+    this.statusBarItem.text = "$(file-media) SVG";
+    this.statusBarItem.tooltip = "Generate and view TL-Verilog SVG diagram";
+    this.text = "$(file-media) SVG";
+    this.tooltip = "Generate and view TL-Verilog SVG diagram";
+    this.alignment = alignment;
+    this.priority = priority;
+    this.activeEditor = vscode.window.activeTextEditor;
+    vscode.window.onDidChangeActiveTextEditor((editor) => {
+      this.activeEditor = editor;
+      this.updateVisibility();
+    });
+  }
+
+  show() {
+    this.statusBarItem.show();
+  }
+
+  hide() {
+    this.statusBarItem.hide();
+  }
+
+  dispose() {
+    this.statusBarItem.dispose();
+  }
+  private updateVisibility() {
+    if (this.activeEditor && this.activeEditor.document.languageId === "tlverilog") {
+      this.show();
+    } else {
+      this.hide();
+    }
+  }
+}
+
+
+//@ts-ignore
+class NavTlvButton implements vscode.StatusBarItem {
+  private statusBarItem: vscode.StatusBarItem;
+  private activeEditor: vscode.TextEditor | undefined;
+
+  alignment: vscode.StatusBarAlignment;
+  priority: number;
+  text: string;
+  tooltip: string;
+  color: string;
+  command: string | undefined;
+
+  constructor(
+    alignment: vscode.StatusBarAlignment = vscode.StatusBarAlignment.Left,
+    priority: number = 3
+  ) {
+    this.statusBarItem = vscode.window.createStatusBarItem(alignment, priority);
+    this.statusBarItem.command = "extension.showNavTlv";
+    this.statusBarItem.text = "$(list-tree) Nav TLV";
+    this.statusBarItem.tooltip = "Open Nav TLV Viewer";
+    this.text = "$(list-tree) Nav TLV";
+    this.tooltip = "Open Nav TLV Viewer";
+    this.alignment = alignment;
+    this.priority = priority;
+    this.activeEditor = vscode.window.activeTextEditor;
+    vscode.window.onDidChangeActiveTextEditor((editor) => {
+      this.activeEditor = editor;
+      this.updateVisibility();
+    });
+  }
+
+  show() {
+    this.statusBarItem.show();
+  }
+
+  hide() {
+    this.statusBarItem.hide();
+  }
+
+  dispose() {
+    this.statusBarItem.dispose();
+  }
+  private updateVisibility() {
+    if (this.activeEditor && this.activeEditor.document.languageId === "tlverilog") {
+      this.show();
+    } else {
+      this.hide();
+    }
+  }
+}
+
+
+// @ts-ignore
+class WaveformButton implements vscode.StatusBarItem {
+  private statusBarItem: vscode.StatusBarItem;
+
+  alignment: vscode.StatusBarAlignment;
+  priority: number;
+  text: string;
+  tooltip: string;
+  color: string;
+  command: string | undefined;
+
+  constructor(
+    alignment: vscode.StatusBarAlignment = vscode.StatusBarAlignment.Left,
+    priority: number = 2
+  ) {
+    this.statusBarItem = vscode.window.createStatusBarItem(alignment, priority);
+    this.statusBarItem.command = "extension.runVerilator";
+    this.statusBarItem.text = "$(pulse) Waveform";
+    this.statusBarItem.tooltip = "Generate and view waveform";
+    this.text = "$(pulse) Waveform";
+    this.tooltip = "Generate and view waveform";
+    this.alignment = alignment;
+    this.priority = priority;
+  }
+
+  show() {
+    this.statusBarItem.show();
+  }
+
+  hide() {
+    this.statusBarItem.hide();
+  }
+
+  dispose() {
+    this.statusBarItem.dispose();
+  }
+}
+
+const exec = util.promisify(child_process.exec);
+
+async function generateAndViewWaveform(filePath: string) {
+  const outputDirectory = path.dirname(filePath);
+  const fileName = path.basename(filePath, path.extname(filePath));
+  const vcdFilePath = path.join(outputDirectory, `vlt_dump.vcd`);
+
+  try {
+    await setupSimulationFiles(outputDirectory);
+    await compileWithVerilator(filePath, outputDirectory);
+    await runSimulation(outputDirectory);
+
+    // const document = await vscode.workspace.openTextDocument(vcdFilePath);
+    // await vscode.window.showTextDocument(document, vscode.ViewColumn.Two);
+
+
+    const isGTKWaveInstalled = await checkGTKWaveInstallation();
+    if (!isGTKWaveInstalled) {
+      vscode.window.showErrorMessage(
+        'GTKWave is not installed. Please install GTKWave to view waveforms.'
+      );
+      return;
+    }
+
+
+    await launchGTKWave(vcdFilePath);
+
+    vscode.window.showInformationMessage(
+      `Waveform opened in GTKWave: ${vcdFilePath}`
+    );
+  } catch (error) {
+    vscode.window.showErrorMessage(
+      `Failed to generate waveform: ${error.message}`
+    );
+  }
+}
 
 // This method is called when your extension is activated. Activation is
 // controlled by the activation events defined in package.json.
 export function activate(context: vscode.ExtensionContext) {
+    console.log('[TLV] activate() called — registering providers');
     // System Verilog Hover Provider
     context.subscriptions.push(
         vscode.languages.registerHoverProvider('tlverilog',
@@ -23,8 +256,17 @@ export function activate(context: vscode.ExtensionContext) {
             instantiateModuleInteract
         )
     );
-}
 
+    // console.log('Registering semantic token provider...');
+    context.subscriptions.push(
+        vscode.languages.registerDocumentSemanticTokensProvider(
+            { language: 'tlverilog' },
+            new TLVerilogSemanticTokensProvider(),
+            legend
+        )
+    );
+    // console.log('Semantic token provider registered!');
+  
   const editor = vscode.window.activeTextEditor;
   const sandpiperButton = new SandPiperButton();
   sandpiperButton.show();
@@ -148,6 +390,14 @@ export function activate(context: vscode.ExtensionContext) {
     }
   );
   context.subscriptions.push(generateWaveformCommand);
+
+    // Add command to show semantic token debug output
+    context.subscriptions.push(
+        vscode.commands.registerCommand('extension.tlverilog.showSemanticTokens', () => {
+            vscode.window.showInformationMessage('Check the "TL-Verilog Semantic Tokens" output channel for debug info');
+        })
+    );
+}
 
 class tlverilogHoverProvider implements vscode.HoverProvider {
 
@@ -465,56 +715,7 @@ async function compileTLVerilogWithSandPiper(
     throw new Error(errorMessage);
   }
 }
-//@ts-ignore
-class SandPiperButton implements vscode.StatusBarItem {
-  private statusBarItem: vscode.StatusBarItem;
-  private activeEditor: vscode.TextEditor | undefined;
 
-  alignment: vscode.StatusBarAlignment;
-  priority: number;
-  text: string;
-  tooltip: string;
-  color: string;
-  command: string | undefined;
-
-  constructor(
-    alignment: vscode.StatusBarAlignment = vscode.StatusBarAlignment.Left,
-    priority: number = 0
-  ) {
-    this.statusBarItem = vscode.window.createStatusBarItem(alignment, priority);
-    this.statusBarItem.command = "extension.sandpiperSaas";
-    this.statusBarItem.text = "$(rocket) SandPiper";
-    this.statusBarItem.tooltip = "Compile TL-Verilog using SandPiper SaaS";
-    this.text = "$(rocket) SandPiper";
-    this.tooltip = "Compile TL-Verilog using SandPiper SaaS";
-    this.alignment = alignment;
-    this.priority = priority;
-    this.activeEditor = vscode.window.activeTextEditor;
-    vscode.window.onDidChangeActiveTextEditor((editor) => {
-      this.activeEditor = editor;
-      this.updateVisibility();
-    });
-  }
-
-  show() {
-    this.statusBarItem.show();
-  }
-
-  hide() {
-    this.statusBarItem.hide();
-  }
-
-  dispose() {
-    this.statusBarItem.dispose();
-  }
-  private updateVisibility() {
-    if (this.activeEditor && this.activeEditor.document.languageId === "tlverilog") {
-      this.show();
-    } else {
-      this.hide();
-    }
-  }
-}
 
 async function generateSvgFile(
   tlvCode: string,
@@ -696,56 +897,6 @@ function showSvgInWebview(svgFilePath: string) {
   panel.webview.html = webviewContent;
 }
 
-//@ts-ignore
-class SvgButton implements vscode.StatusBarItem {
-  private statusBarItem: vscode.StatusBarItem;
-  private activeEditor: vscode.TextEditor | undefined;
-
-  alignment: vscode.StatusBarAlignment;
-  priority: number;
-  text: string;
-  tooltip: string;
-  color: string;
-  command: string | undefined;
-
-  constructor(
-    alignment: vscode.StatusBarAlignment = vscode.StatusBarAlignment.Left,
-    priority: number = 1
-  ) {
-    this.statusBarItem = vscode.window.createStatusBarItem(alignment, priority);
-    this.statusBarItem.command = "extension.showSvg";
-    this.statusBarItem.text = "$(file-media) SVG";
-    this.statusBarItem.tooltip = "Generate and view TL-Verilog SVG diagram";
-    this.text = "$(file-media) SVG";
-    this.tooltip = "Generate and view TL-Verilog SVG diagram";
-    this.alignment = alignment;
-    this.priority = priority;
-    this.activeEditor = vscode.window.activeTextEditor;
-    vscode.window.onDidChangeActiveTextEditor((editor) => {
-      this.activeEditor = editor;
-      this.updateVisibility();
-    });
-  }
-
-  show() {
-    this.statusBarItem.show();
-  }
-
-  hide() {
-    this.statusBarItem.hide();
-  }
-
-  dispose() {
-    this.statusBarItem.dispose();
-  }
-  private updateVisibility() {
-    if (this.activeEditor && this.activeEditor.document.languageId === "tlverilog") {
-      this.show();
-    } else {
-      this.hide();
-    }
-  }
-}
 
 async function generateNavTlvHtml(
   tlvCode: string,
@@ -857,57 +1008,6 @@ function showNavTlvInWebview(navTlvHtml: string) {
   panel.webview.html = modifiedHtml;
 }
 
-//@ts-ignore
-class NavTlvButton implements vscode.StatusBarItem {
-  private statusBarItem: vscode.StatusBarItem;
-  private activeEditor: vscode.TextEditor | undefined;
-
-  alignment: vscode.StatusBarAlignment;
-  priority: number;
-  text: string;
-  tooltip: string;
-  color: string;
-  command: string | undefined;
-
-  constructor(
-    alignment: vscode.StatusBarAlignment = vscode.StatusBarAlignment.Left,
-    priority: number = 3
-  ) {
-    this.statusBarItem = vscode.window.createStatusBarItem(alignment, priority);
-    this.statusBarItem.command = "extension.showNavTlv";
-    this.statusBarItem.text = "$(list-tree) Nav TLV";
-    this.statusBarItem.tooltip = "Open Nav TLV Viewer";
-    this.text = "$(list-tree) Nav TLV";
-    this.tooltip = "Open Nav TLV Viewer";
-    this.alignment = alignment;
-    this.priority = priority;
-    this.activeEditor = vscode.window.activeTextEditor;
-    vscode.window.onDidChangeActiveTextEditor((editor) => {
-      this.activeEditor = editor;
-      this.updateVisibility();
-    });
-  }
-
-  show() {
-    this.statusBarItem.show();
-  }
-
-  hide() {
-    this.statusBarItem.hide();
-  }
-
-  dispose() {
-    this.statusBarItem.dispose();
-  }
-  private updateVisibility() {
-    if (this.activeEditor && this.activeEditor.document.languageId === "tlverilog") {
-      this.show();
-    } else {
-      this.hide();
-    }
-  }
-}
-
 export function deactivate(
   sandpiperButton: SandPiperButton,
   svgButton: SvgButton,
@@ -933,80 +1033,6 @@ export function deactivate(
   }
 }
 
-// @ts-ignore
-class WaveformButton implements vscode.StatusBarItem {
-  private statusBarItem: vscode.StatusBarItem;
-
-  alignment: vscode.StatusBarAlignment;
-  priority: number;
-  text: string;
-  tooltip: string;
-  color: string;
-  command: string | undefined;
-
-  constructor(
-    alignment: vscode.StatusBarAlignment = vscode.StatusBarAlignment.Left,
-    priority: number = 2
-  ) {
-    this.statusBarItem = vscode.window.createStatusBarItem(alignment, priority);
-    this.statusBarItem.command = "extension.runVerilator";
-    this.statusBarItem.text = "$(pulse) Waveform";
-    this.statusBarItem.tooltip = "Generate and view waveform";
-    this.text = "$(pulse) Waveform";
-    this.tooltip = "Generate and view waveform";
-    this.alignment = alignment;
-    this.priority = priority;
-  }
-
-  show() {
-    this.statusBarItem.show();
-  }
-
-  hide() {
-    this.statusBarItem.hide();
-  }
-
-  dispose() {
-    this.statusBarItem.dispose();
-  }
-}
-
-const exec = util.promisify(child_process.exec);
-
-async function generateAndViewWaveform(filePath: string) {
-  const outputDirectory = path.dirname(filePath);
-  const fileName = path.basename(filePath, path.extname(filePath));
-  const vcdFilePath = path.join(outputDirectory, `vlt_dump.vcd`);
-
-  try {
-    await setupSimulationFiles(outputDirectory);
-    await compileWithVerilator(filePath, outputDirectory);
-    await runSimulation(outputDirectory);
-
-    // const document = await vscode.workspace.openTextDocument(vcdFilePath);
-    // await vscode.window.showTextDocument(document, vscode.ViewColumn.Two);
-
-
-    const isGTKWaveInstalled = await checkGTKWaveInstallation();
-    if (!isGTKWaveInstalled) {
-      vscode.window.showErrorMessage(
-        'GTKWave is not installed. Please install GTKWave to view waveforms.'
-      );
-      return;
-    }
-
-
-    await launchGTKWave(vcdFilePath);
-
-    vscode.window.showInformationMessage(
-      `Waveform opened in GTKWave: ${vcdFilePath}`
-    );
-  } catch (error) {
-    vscode.window.showErrorMessage(
-      `Failed to generate waveform: ${error.message}`
-    );
-  }
-}
 
 async function launchGTKWave(vcdFilePath: string) {
   const command = `gtkwave "${vcdFilePath}"`;

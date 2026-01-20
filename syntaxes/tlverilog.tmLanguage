@@ -110,7 +110,36 @@ PUBLIC '-//Apple//DTD PLIST 1.0//EN'
 				<key>name</key>
 				<string>constant.other.tlverilog</string>
 			</dict>
-
+			<!-- New: Physical hierarchy: -hierarchy or ->hierarchy -->
+			<dict>
+				<key>match</key>
+				<string>-&gt;?[a-zA-Z_][a-zA-Z0-9_]*</string>
+				<key>name</key>
+				<string>entity.name.type.physical.tlverilog</string>
+			</dict>
+			<!-- New: Attributes: ^attr, ^^attr -->
+			<dict>
+				<key>match</key>
+				<string>\^{1,2}[a-zA-Z_][a-zA-Z0-9_]*</string>
+				<key>name</key>
+				<string>entity.other.attribute-name.tlverilog</string>
+			</dict>
+			<!-- New: Invalid line type character (first non-space char in TL-X region, approx. flat
+			match) -->
+			<dict>
+				<key>match</key>
+				<string>^[^ \\\t\n]</string>
+				<key>name</key>
+				<string>invalid.illegal.line-type.tlverilog</string>
+			</dict>
+			<!-- New: File format version line -->
+			<dict>
+				<key>match</key>
+				<string>^\\(m4_)?TLV_version\s+[\d.]+:.*$</string>
+				<key>name</key>
+				<string>keyword.control.version.tlverilog</string>
+			</dict>
+			<!-- New: M4 variables -->
 			<dict>
 				<key>match</key>
 				<string>(&lt;&lt;|&lt;&gt;|&gt;&gt;-?)[a-zA-Z0-9_]+</string>
