@@ -45,10 +45,7 @@
 			}
 		},
 		"semanticTokenTypes": [
-			{
-				"id": "inBlock",
-				"description": "Inside M5 block (e.g., italic for context)"
-			},
+			
 			{
 				"id": "pipeSignal",
 				"supertype": "variable",
@@ -201,7 +198,7 @@
 							"foreground": "#FFFFFF",
 							"fontStyle": "bold"
 						},
-						"comment": {
+							"comment": {
 							"foreground": "#B0B0B0",
 							"fontStyle": "bold italic"
 						},
@@ -211,9 +208,7 @@
 						"stage": {
 							"foreground": "#90EE90",
 							"fontStyle": "italic"
-						},
-						"m5Macro": { "foreground": "#FF1493" },
-						"m5Quote": { "foreground": "#FFA500" }
+						}
 					}
 				}
 			}
