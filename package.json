@@ -11,8 +11,7 @@
 		"vscode": "^1.10.0"
 	},
 	"categories": [
-		"Languages",
-		 "Themes"
+		"Languages"
 	],
 	"contributes": {
 		"languages": [{
@@ -31,31 +30,198 @@
 			"path": "./snippets/snippets.json"
 		}],
 		"configuration": {
-			"title": "",
+			"title": "TL-Verilog",
 			"properties": {
 				"tlverilog.instancePrefix": {
 					"type": "string",
 					"default": "u_",
 					"description": "The prefix to use when instantiating a new module"
+				},
+				"tlverilog.semanticHighlighting.enabled": {
+					"type": "boolean",
+					"default": true,
+					"description": "Enable semantic syntax highlighting for TL-Verilog"
+				}
+			}
+		},
+		"semanticTokenTypes": [
+			{
+				"id": "inBlock",
+				"description": "Inside M5 block (e.g., italic for context)"
+			},
+			{
+				"id": "pipeSignal",
+				"supertype": "variable",
+				"description": "TL-Verilog pipe signal ($.*)"
+			},
+			{
+				"id": "svSignal",
+				"supertype": "variable",
+				"description": "SystemVerilog signal (*.*)"
+			},
+			{
+				"id": "behavioralHierarchy",
+				"supertype": "namespace",
+				"description": "Behavioral hierarchy (>.* or /.*)"
+			},
+			{
+				"id": "physicalHierarchy",
+				"supertype": "namespace",
+				"description": "Physical hierarchy (-.*)"
+			},
+			{
+				"id": "pipeline",
+				"supertype": "type",
+				"description": "Pipeline (|.*)"
+			},
+			{
+				"id": "when",
+				"supertype": "keyword",
+				"description": "When condition (?)"
+			},
+			{
+				"id": "stage",
+				"supertype": "number",
+				"description": "Stage (@.*)"
+			},
+			{
+				"id": "alignment",
+				"supertype": "operator",
+				"description": "Alignment (<<, >>, <>)"
+			},
+			{
+				"id": "constant",
+				"supertype": "variable",
+				"description": "Constant (#.*)"
+			},
+			{
+				"id": "attribute",
+				"supertype": "decorator",
+				"description": "Attribute (^.*)"
+			},
+			{
+				"id": "keyword",
+				"supertype": "keyword",
+				"description": "TL-Verilog keyword (\\.*)"
+			},
+			{
+				"id": "m4Macro",
+				"supertype": "macro",
+				"description": "M4 macro (m4+.* or M4_.*)"
+			},
+			{
+				"id": "lineTypeChar",
+				"supertype": "keyword",
+				"description": "TL-Verilog line type character"
+			},
+			{
+				"id": "tab",
+				"supertype": "error",
+				"description": "Tab character (not allowed in TL-Verilog)"
+			},
+			{
+				"id": "comment",
+				"supertype": "comment",
+				"description": "HDL-style comment"
+			}
+		],
+		"semanticTokenModifiers": [
+			{
+				"id": "physical",
+				"description": "Physical element (italic)"
+			},
+			{
+				"id": "error",
+				"description": "Error element"
+			}
+		],
+		"configurationDefaults": {
+			"[tlverilog]": {
+				"editor.semanticHighlighting.enabled": true
+			},
+			"editor.semanticTokenColorCustomizations": {
+				"enabled": true,
+				"rules": {
+					"pipeSignal": {
+						"foreground": "#A020F0"
+					},
+					"svSignal": {
+						"foreground": "#808080"
+					},
+					"behavioralHierarchy": {
+						"foreground": "#20A0C0"
+					},
+					"physicalHierarchy": {
+						"foreground": "#4682B4",
+						"fontStyle": "italic"
+					},
+					"pipeline": {
+						"foreground": "#FFA500"
+					},
+					"when": {
+						"foreground": "#F04000"
+					},
+					"stage": {
+						"foreground": "#006400",
+						"fontStyle": "italic"
+					},
+					"alignment": {
+						"foreground": "#008000"
+					},
+					"constant": {
+						"foreground": "#6495ED"
+					},
+					"attribute": {
+						"foreground": "#503890",
+						"fontStyle": "italic"
+					},
+					"keyword": {
+						"foreground": "#0000FF"
+					},
+					"m4Macro": {
+						"foreground": "#000000",
+						"fontStyle": "bold"
+					},
+					"lineTypeChar": {
+						"foreground": "#FF0000",
+						"fontStyle": "bold"
+					},
+					"tab": {
+						"foreground": "#FF0000",
+						"fontStyle": "bold underline"
+					},
+					"comment": {
+						"foreground": "#808080",
+						"fontStyle": "bold italic"
+					}
+				},
+				"[*Dark*]": {
+					"rules": {
+						"m4Macro": {
+							"foreground": "#FFFFFF",
+							"fontStyle": "bold"
+						},
+						"comment": {
+							"foreground": "#B0B0B0",
+							"fontStyle": "bold italic"
+						},
+						"svSignal": {
+							"foreground": "#A0A0A0"
+						},
+						"stage": {
+							"foreground": "#90EE90",
+							"fontStyle": "italic"
+						},
+						"m5Macro": { "foreground": "#FF1493" },
+						"m5Quote": { "foreground": "#FFA500" }
+					}
 				}
 			}
 		},
 		"commands": [{
 			"command": "extension.tlverilog.instantiateModule",
 			"title": "TL Verilog: Instantiate Module"
-		}],
-		"themes": [
-			{
-				"label": "TL Verilog Light",
-				"uiTheme": "vs",
-				"path": "./themes/tlverilog-color-theme.json"
-			},
-			{
-				"label": "TL Verilog Dark",
-				"uiTheme": "vs-dark",
-				"path": "./themes/tl-verilog-dark-theme.json"
-			}
-		]
+		}]
 	},
 	"activationEvents": [
 		"onLanguage:tlverilog"
