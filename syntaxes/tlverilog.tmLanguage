@@ -23,19 +23,48 @@ PUBLIC '-//Apple//DTD PLIST 1.0//EN'
 				<key>name</key>
 				<string>keyword.other.tlverilog</string>
 			</dict>
+			<!-- Embedded JavaScript inside \viz_js blocks -->
 			<dict>
-				<!-- stages: @1, @2, ... -->
-				<key>match</key>
-				<string>@\b(\d+)\b</string>
+			<key>begin</key>
+			<string>^\s*\\viz_js\b.*$</string>
+
+			<key>beginCaptures</key>
+			<dict>
+				<key>0</key>
+				<dict>
 				<key>name</key>
-				<string>entity.name.stage.tlverilog</string>
+				<string>keyword.control.vizjs.tlverilog</string>
+				</dict>
 			</dict>
+
+			<!-- Heuristic end: next TLV structural line -->
+			<key>end</key>
+			<string>^(?=\s*\\(TLV|SV|SV_plus|viz_js)\b|\s*\|pipe|\s*@)</string>
+
+			<key>name</key>
+			<string>meta.embedded.block.javascript.tlverilog</string>
+
+			<key>patterns</key>
+			<array>
+				<dict>
+				<key>include</key>
+				<string>source.js</string>
+				</dict>
+			</array>
+			</dict>
+			<!-- Updated: stages: @1, @-2, @0 (added negative support) -->
 			<dict>
-				<!-- pipes: |pipe -->
 				<key>match</key>
-				<string>\|\b([a-zA-Z0-9_]+)\b</string>
+				<string>@-?\d+</string>
 				<key>name</key>
-				<string>entity.name.pipe.tlverilog</string>
+				<string>entity.name.label.tlverilog</string>
+			</dict>
+			<!-- Updated: pipes: |pipe (fixed regex for starting with letter/underscore) -->
+			<dict>
+				<key>match</key>
+				<string>\|[a-zA-Z_][a-zA-Z0-9_]*</string>
+				<key>name</key>
+				<string>entity.name.tag.tlverilog</string>
 			</dict>
 			<dict>
 				<!-- tabs: \t -->
@@ -44,69 +73,66 @@ PUBLIC '-//Apple//DTD PLIST 1.0//EN'
 				<key>name</key>
 				<string>invalid.illegal.tlverilog</string>
 			</dict>
+			<!-- Updated: Behavioral hierarchy: >start (fixed regex, added range support) -->
 			<dict>
-				<!-- Behavioral hierarchy: >start -->
 				<key>match</key>
-				<string>>([a-zA-Z][a-zA-Z0-9_]+)</string>
+				<string>&gt;[a-zA-Z_][a-zA-Z0-9_]*(\[[^\]]+\])?</string>
 				<key>name</key>
-				<string>entity.name.hierarchy.tlverilog</string>
+				<string>entity.name.type.tlverilog</string>
 			</dict>
-
+			<!-- Updated: Behavioral hierarchy: /start (fixed regex, added range support) -->
 			<dict>
-				<!-- Behavioral hierarchy: /start -->
 				<key>match</key>
-				<string>\/([a-zA-Z0-9_]+)</string>
+				<string>/[a-zA-Z_][a-zA-Z0-9_]*(\[[^\]]+\])?</string>
 				<key>name</key>
-				<string>entity.name.hierarchy.tlverilog</string>
+				<string>entity.name.type.tlverilog</string>
 			</dict>
-
 			<dict>
-				<!-- When condition: ?$lol | ?*lol -->
+				<!-- Updated: When condition: ?$lol | ?*lol (standard scope) -->
 				<key>match</key>
 				<string>\?[\$\*][a-zA-Z0-9_]+</string>
 				<key>name</key>
-				<string>keyword.control.conditional.tlverilog</string>
+				<string>keyword.control.tlverilog</string>
 			</dict>
-
+			<!-- Updated: System signal: $sig1 (added $$ support, standard scope) -->
 			<dict>
-				<!-- System signal: $sig1 -->
 				<key>match</key>
-				<string>\$\b([a-zA-Z_][a-zA-Z0-9_]+)\b</string>
+				<string>\${1,2}[a-zA-Z_][a-zA-Z0-9_]*</string>
 				<key>name</key>
 				<string>variable.other.tlverilog</string>
 			</dict>
-
+			<!-- Updated: Alignment (combined % and << etc., added next support) -->
 			<dict>
 				<key>match</key>
-				<string>%([+-]\d+|\w+)</string>
+				<string>(&lt;&lt;|&lt;&gt;|&gt;&gt;-?)(\d+|[a-zA-Z_]\w*)|%([+-]\d+|next|[a-zA-Z_]\w*)</string>
 				<key>name</key>
-				<string>entity.name.alignment.tlverilog</string>
+				<string>keyword.operator.alignment.tlverilog</string>
 			</dict>
-
+			<!-- Updated: M4 macro (added underscore support) -->
 			<dict>
 				<key>match</key>
-				<string>\b([mM]4\+\w+)</string>
+				<string>\b[mM]4[+_][a-zA-Z_][a-zA-Z0-9_]*</string>
 				<key>name</key>
-				<string>support.macro.tlverilog</string>
+				<string>support.function.macro.tlverilog</string>
 			</dict>
-
+			<!-- Updated: Regions (expanded to full list from doc) -->
 			<dict>
 				<key>match</key>
-				<string>^\s*\\(TLV.*|SV.*|m4_TLV_version.*)$</string>
+				<string>^\\(TLV|TLVHDL|TLC|SV|SV_plus|VHDL|VHDL_plus|C|C_plus|M5)(\s|$)</string>
 				<key>name</key>
-				<string>keyword.region.tlverilog</string>
+				<string>keyword.control.region.tlverilog</string>
 			</dict>
-
+			<!-- Updated: SV signal (added ** support, standard scope) -->
 			<dict>
 				<key>match</key>
-				<string>\*\b([a-zA-Z_][a-zA-Z0-9_]+)\b</string>
+				<string>\*{1,2}[a-zA-Z_][a-zA-Z0-9_]*</string>
 				<key>name</key>
-				<string>variable.sv.tlverilog</string>
+				<string>variable.other.tlverilog</string>
 			</dict>
-
+			<!-- Updated: Constant (removed extra \b for #word) -->
 			<dict>
 				<key>match</key>
-				<string>\#\b([a-zA-Z_][a-zA-Z0-9_]+)\b</string>
+				<string>#[a-zA-Z_][a-zA-Z0-9_]*</string>
 				<key>name</key>
 				<string>constant.other.tlverilog</string>
 			</dict>
@@ -142,11 +168,10 @@ PUBLIC '-//Apple//DTD PLIST 1.0//EN'
 			<!-- New: M4 variables -->
 			<dict>
 				<key>match</key>
-				<string>(&lt;&lt;|&lt;&gt;|&gt;&gt;-?)[a-zA-Z0-9_]+</string>
+				<string>\bM4_[A-Z_][A-Z0-9_]*</string>
 				<key>name</key>
-				<string>entity.name.alignment.tlverilog</string>
+				<string>variable.other.constant.m4.tlverilog</string>
 			</dict>
-
 			<dict>
 				<key>match</key>
 				<string>\b(#|@|begin|end|fork|join|join_any|join_none|forkjoin|{|})\b</string>
