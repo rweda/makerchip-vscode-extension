@@ -120,7 +120,32 @@
 				"id": "comment",
 				"supertype": "comment",
 				"description": "HDL-style comment"
-			}
+			},
+			{
+  "id": "m5Directive",
+  "supertype": "keyword",
+  "description": "M5 region / version directive"
+},
+{
+  "id": "m5MacroCall",
+  "supertype": "macro",
+  "description": "M5 macro invocation (m5+... or implicit)"
+},
+{
+  "id": "m5MacroName",
+  "supertype": "function",
+  "description": "Name of M5 macro"
+},
+{
+  "id": "m5Include",
+  "supertype": "keyword",
+  "description": "M5 library include / use"
+},
+{
+  "id": "m5Comment",
+  "supertype": "comment",
+  "description": "M5 single-slash line comment in \\m5"
+}
 		],
 		"semanticTokenModifiers": [
 			{
@@ -190,7 +215,16 @@
 					"comment": {
 						"foreground": "#808080",
 						"fontStyle": "bold italic"
-					}
+					},
+					"m5Directive": { "foreground": "#0000FF" },      
+"m5MacroCall": { "foreground": "#D19A66", "fontStyle": "bold" },
+"m5MacroName": { "foreground": "#E5C07B" },
+"m5Include":   { "foreground": "#56B6C2" },
+"m5Comment":   { "foreground": "#7F848E", "fontStyle": "italic" },
+"m5Label": {
+          "foreground": "#CE93D8", 
+          "italic": true
+        }
 				},
 				"[*Dark*]": {
 					"rules": {

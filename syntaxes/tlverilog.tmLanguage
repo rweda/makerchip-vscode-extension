@@ -115,6 +115,63 @@ PUBLIC '-//Apple//DTD PLIST 1.0//EN'
 				<key>name</key>
 				<string>support.function.macro.tlverilog</string>
 			</dict>
+			<!-- M5 macros: m5_foo, m5+fib, m5_bar (no parens), m5_makerchip_module -->
+			<dict>
+				<key>match</key>
+				<string>\bm5([_+][a-zA-Z_][a-zA-Z0-9_]*|\b_makerchip_module)\b</string>
+				<key>name</key>
+				<string>support.function.macro.tlverilog</string>
+			</dict>
+			<!-- M5 macro with args start: m5_foo( or m5+fib(  (single-line opening only) -->
+			<dict>
+				<key>begin</key>
+				<string>\b(m5([_+][a-zA-Z_][a-zA-Z0-9_]*|\b_makerchip_module))\s*\(</string>
+				<key>beginCaptures</key>
+				<dict>
+					<key>1</key>
+					<dict>
+						<key>name</key>
+						<string>support.function.macro.tlverilog</string>
+					</dict>
+					<key>0</key>  <!-- the ( itself -->
+					<dict>
+						<key>name</key>
+						<string>punctuation.section.group.begin.tlverilog</string>
+					</dict>
+				</dict>
+				<key>end</key>
+				<string>\)</string>
+				<key>endCaptures</key>
+				<dict>
+					<key>0</key>
+					<dict>
+						<key>name</key>
+						<string>punctuation.section.group.end.tlverilog</string>
+					</dict>
+				</dict>
+				<key>name</key>
+				<string>meta.macro-call.tlverilog</string>
+				<key>patterns</key>
+				<array>
+					<!-- You can later add comma, string, etc. patterns inside args here -->
+					<dict>
+						<key>include</key>
+						<string>#strings</string>
+					</dict>
+					<dict>
+						<key>match</key>
+						<string>,</string>
+						<key>name</key>
+						<string>punctuation.separator.arguments.tlverilog</string>
+					</dict>
+				</array>
+			</dict>
+			<dict>
+				<key>match</key>
+				<string>\buse\s*\(\s*['"]?m5[-.\d]+['"]?\s*\)</string>
+				<key>name</key>
+				<string>keyword.control.import.tlverilog</string>
+			</dict>
 			<!-- Updated: Regions (expanded to full list from doc) -->
 			<dict>
 				<key>match</key>
@@ -162,6 +219,12 @@ PUBLIC '-//Apple//DTD PLIST 1.0//EN'
 			<dict>
 				<key>match</key>
 				<string>^\\(m4_)?TLV_version\s+[\d.]+:.*$</string>
+				<key>name</key>
+				<string>keyword.control.version.tlverilog</string>
+			</dict>
+			<dict>
+				<key>match</key>
+				<string>^\\(m5_)?TLV_version\s+[\w.]+:.*$</string>
 				<key>name</key>
 				<string>keyword.control.version.tlverilog</string>
 			</dict>
