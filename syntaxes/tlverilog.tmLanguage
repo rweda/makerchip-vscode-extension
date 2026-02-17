@@ -378,39 +378,113 @@ PUBLIC '-//Apple//DTD PLIST 1.0//EN'
 				<key>name</key>
 				<string>keyword.operator.staticcasting.tlverilog</string>
 			</dict>
+	<!-- M5 quoted strings with nesting support -->
+	<dict>
+		<key>begin</key>
+		<string>\['</string>
+		<key>beginCaptures</key>
+		<dict>
+			<key>0</key>
+			<dict>
+				<key>name</key>
+				<string>punctuation.definition.string.begin.m5.tlverilog</string>
+			</dict>
+		</dict>
+		<key>end</key>
+		<string>'\]</string>
+		<key>endCaptures</key>
+		<dict>
+			<key>0</key>
+			<dict>
+				<key>name</key>
+				<string>punctuation.definition.string.end.m5.tlverilog</string>
+			</dict>
+		</dict>
+		<key>name</key>
+		<string>string.quoted.m5.tlverilog</string>
+		<key>contentName</key>
+		<string>meta.m5string.content.tlverilog</string>
+		
+		<!-- CRITICAL: Check patterns before end -->
+		<key>applyEndPatternLast</key>
+		<integer>1</integer>
+		
+		<key>patterns</key>
+		<array>
+			<!-- Match nested strings BEFORE checking for end -->
 			<dict>
 				<key>begin</key>
-				<string>'{</string>
+				<string>\['</string>
 				<key>beginCaptures</key>
 				<dict>
 					<key>0</key>
 					<dict>
 						<key>name</key>
-						<string>keyword.operator.unpackaedarrayassignment.begin.tlverilog</string>
+						<string>punctuation.definition.string.begin.m5.nested.tlverilog</string>
 					</dict>
 				</dict>
 				<key>end</key>
-				<string>}</string>
+				<string>'\]</string>
 				<key>endCaptures</key>
 				<dict>
 					<key>0</key>
 					<dict>
 						<key>name</key>
-						<string>keyword.operator.unpackaedarrayassignment.end.tlverilog</string>
+						<string>punctuation.definition.string.end.m5.nested.tlverilog</string>
 					</dict>
 				</dict>
 				<key>name</key>
-				<string>keyword.operator.unpackedarrayassignment.tlverilog</string>
+				<string>string.quoted.m5.nested.tlverilog</string>
+				
+				<!-- ALSO add this to nested pattern -->
+				<key>applyEndPatternLast</key>
+				<integer>1</integer>
+				
 				<key>patterns</key>
 				<array>
 					<dict>
-						<key>match</key>
-						<string>.</string>
-						<key>name</key>
-						<string>constant.character.escape.tlverilog</string>
+						<key>include</key>
+						<string>#m5-nested-string</string>
 					</dict>
 				</array>
 			</dict>
+		</array>
+	</dict>
+
+    <!-- 2. Then your unpacked array assignment -->
+    <dict>
+        <key>begin</key>
+        <string>'{</string>
+        <key>beginCaptures</key>
+        <dict>
+            <key>0</key>
+            <dict>
+                <key>name</key>
+                <string>keyword.operator.unpackaedarrayassignment.begin.tlverilog</string>
+            </dict>
+        </dict>
+        <key>end</key>
+        <string>}</string>
+        <key>endCaptures</key>
+        <dict>
+            <key>0</key>
+            <dict>
+                <key>name</key>
+                <string>keyword.operator.unpackaedarrayassignment.end.tlverilog</string>
+            </dict>
+        </dict>
+        <key>name</key>
+        <string>keyword.operator.unpackedarrayassignment.tlverilog</string>
+        <key>patterns</key>
+        <array>
+            <dict>
+                <key>match</key>
+                <string>.</string>
+                <key>name</key>
+                <string>constant.character.escape.tlverilog</string>
+            </dict>
+        </array>
+    </dict>
 			<dict>
 				<key>match</key>
 				<string>\b(output|input|inout|and|nand|nor|or|xor|xnor|buf|not|bufif[01]|notif[01]|r?[npc]mos|tran|r?tranif[01]|pullup|pulldown)\b</string>
@@ -442,6 +516,32 @@ PUBLIC '-//Apple//DTD PLIST 1.0//EN'
 		</array>
 		<key>repository</key>
 		<dict>
+			<key>m5-nested-string</key>
+			<dict>
+				<key>patterns</key>
+				<array>
+					<dict>
+						<key>begin</key>
+						<string>\['</string>
+						<key>end</key>
+						<string>'\]</string>
+						<key>name</key>
+						<string>string.quoted.m5.nested.tlverilog</string>
+						
+						<!-- Add this here too -->
+						<key>applyEndPatternLast</key>
+						<integer>1</integer>
+						
+						<key>patterns</key>
+						<array>
+							<dict>
+								<key>include</key>
+								<string>#m5-nested-string</string>
+							</dict>
+						</array>
+					</dict>
+				</array>
+			</dict>
 			<key>all-types</key>
 			<dict>
 				<key>patterns</key>

@@ -4,9 +4,9 @@ export const tokenTypes = [
   'pipeSignal', 'svSignal', 'behavioralHierarchy', 'physicalHierarchy',
   'pipeline', 'when', 'stage', 'alignment', 'constant', 'attribute',
   'keyword', 'm4Macro', 'lineTypeChar', 'tab', 'comment',
-  'm5MacroCall', 'm5Var', 'm5ArgSpecial', 'm5Comment', 'm5Directive', 'm5Special',
+  'm5MacroCall', 'm5Var', 'm5ArgSpecial', 'm5Comment', 'm5Directive', 'm5Special','string',
   'm5BlockDelimiter',    // [, {, [' , ], }, ']
-  'm5Label'              // *something before block opener
+  'm5Label'
 ];
 
 export const tokenModifiers = ['physical', 'error'];
@@ -15,15 +15,18 @@ export const legend = new vscode.SemanticTokensLegend(tokenTypes, tokenModifiers
 
 export class TLVerilogSemanticTokensProvider implements vscode.DocumentSemanticTokensProvider {
   private isM4: boolean = false;
-
-  // Track M5 sub-context (top-level \m5 vs inside code/text block)
+  private inQuote: boolean = false;
   private m5SubContext: 'none' | 'topLevel' | 'codeBlock' | 'textBlock' = 'none';
+  
+  // Track M5 string ranges to exclude from other parsing
+  private m5StringRanges: Array<{ line: number; start: number; end: number }> = [];
 
   async provideDocumentSemanticTokens(
     document: vscode.TextDocument,
     token: vscode.CancellationToken
   ): Promise<vscode.SemanticTokens> {
     const builder = new vscode.SemanticTokensBuilder(legend);
+    this.m5StringRanges = []; // Reset for each parse
 
     let context: 'tlv' | 'sv' | 'm5' | 'hdl-plus' | 'unknown' = 'unknown';
 
@@ -42,23 +45,51 @@ export class TLVerilogSemanticTokensProvider implements vscode.DocumentSemanticT
         continue;
       }
 
-      if (trimmedStart.startsWith('\\m5')) {
-        this.highlightKeyword(builder, i, text, /^\\m5\b/, 'm5Directive');
+      const m5Match = text.match(/^\s*(\\m5\b)/);
+      if (m5Match) {
+        const directive = m5Match[1];
+        const startCol = m5Match[0].indexOf(directive);
+
+        builder.push(
+          new vscode.Range(i, startCol, i, startCol + directive.length),
+          'm5Directive',
+          []
+        );
+
         context = 'm5';
         this.m5SubContext = 'topLevel';
         continue;
       }
 
-      if (trimmedStart.startsWith('\\TLV') || trimmedStart.startsWith('\\TLVHDL') || trimmedStart.startsWith('\\TLC')) {
-        this.highlightKeyword(builder, i, text, /^\\[A-Z]+/, 'keyword');
+
+      const tlvMatch = text.match(/^\s*(\\(TLV|TLVHDL|TLC)\b)/);
+      if (tlvMatch) {
+        const directive = tlvMatch[1];
+        const startCol = tlvMatch[0].indexOf(directive);
+
+        builder.push(
+          new vscode.Range(i, startCol, i, startCol + directive.length),
+          'keyword',
+          []
+        );
+
         context = 'tlv';
         this.m5SubContext = 'none';
         continue;
       }
 
-      if (trimmedStart.startsWith('\\SV') || trimmedStart.startsWith('\\VHDL') || trimmedStart.startsWith('\\C')) {
-        this.highlightKeyword(builder, i, text, /^\\[A-Z]+(_plus)?\b/, 'keyword');
-        context = trimmedStart.includes('_plus') ? 'hdl-plus' : 'sv';
+      const svMatch = text.match(/^\s*(\\[A-Z]+(_plus)?\b)/);
+      if (svMatch) {
+        const directive = svMatch[1];
+        const startCol = svMatch[0].indexOf(directive);
+
+        builder.push(
+          new vscode.Range(i, startCol, i, startCol + directive.length),
+          'keyword',
+          []
+        );
+
+        context = directive.includes('_plus') ? 'hdl-plus' : 'sv';
         this.m5SubContext = 'none';
         continue;
       }
@@ -69,7 +100,10 @@ export class TLVerilogSemanticTokensProvider implements vscode.DocumentSemanticT
         builder.push(new vscode.Range(i, tabPos, i, tabPos + 1), 'tab', ['error']);
       }
 
-      // ── Context-specific parsing ──────────────────────────────────────────
+// Parse M5 quoted strings FIRST ──
+      this.highlightM5QuotedStrings(builder, i, text);
+
+
       if (context === 'tlv') {
         // TL-Verilog line type chars
         if (text.length > 0 && !text.startsWith(' ')) {
@@ -84,22 +118,41 @@ export class TLVerilogSemanticTokensProvider implements vscode.DocumentSemanticT
       }
 
       if (context === 'm5') {
-        // ── Detect M5 block openers ───────────────────────────────────────
-        const openerMatch = trimmedEnd.match(/(\*<(?:[a-zA-Z_][a-zA-Z0-9_]*)?>)?(['[{])$/);
-        if (openerMatch) {
-          const prefix = openerMatch[1] || '';
-          // const prefix = openerMatch[1] || '';  // e.g. "*<my_label>" or ""
-          if (prefix) {
-            const prefixStart = text.lastIndexOf(prefix);  // find where "*<...>" starts
-            if (prefixStart >= 0) {
-              builder.push(
-                new vscode.Range(i, prefixStart, i, prefixStart + prefix.length),
-                'm5Label',
-                []
-              );
-            }
+        if (this.m5SubContext === 'textBlock' && trimmedStart.startsWith("']")) {
+          const closerStart = text.indexOf("']");
+          if (closerStart >= 0) {
+            builder.push(
+              new vscode.Range(i, closerStart, i, closerStart + 2),
+              'm5BlockDelimiter',
+              []
+            );
           }
-          const opener = openerMatch[2];
+          this.m5SubContext = 'topLevel';
+        }
+        else if (this.m5SubContext === 'codeBlock') {
+          if (trimmedStart.startsWith(']') && !trimmedStart.startsWith("']")) {
+            const pos = text.indexOf(']');
+            if (pos >= 0) {
+              builder.push(new vscode.Range(i, pos, i, pos + 1), 'm5BlockDelimiter', []);
+            }
+            this.m5SubContext = 'topLevel';
+            continue;
+          }
+          if (trimmedStart.startsWith('}')) {
+            const pos = text.indexOf('}');
+            if (pos >= 0) {
+              builder.push(new vscode.Range(i, pos, i, pos + 1), 'm5BlockDelimiter', []);
+            }
+            this.m5SubContext = 'topLevel';
+            continue;
+          }
+        }
+
+        const openerMatch = trimmedEnd.match(/(\*)?(<[a-zA-Z_][a-zA-Z0-9_]*>)?((?:\[')|[{[])\s*$/);
+        if (openerMatch) {
+          const evalMarker = openerMatch[1];
+          const label      = openerMatch[2];
+          const opener     = openerMatch[3];
 
           const openerCol = text.lastIndexOf(opener);
           if (openerCol >= 0) {
@@ -110,35 +163,40 @@ export class TLVerilogSemanticTokensProvider implements vscode.DocumentSemanticT
               []
             );
 
-            // Highlight optional *label
-            if (prefix.trim().startsWith('*')) {
-              const labelStart = text.indexOf('*');
-              if (labelStart >= 0 && labelStart < openerCol) {
+            if (label) {
+              const labelStart = text.lastIndexOf(label, openerCol);
+              if (labelStart >= 0) {
                 builder.push(
-                  new vscode.Range(i, labelStart, i, openerCol),
+                  new vscode.Range(i, labelStart, i, labelStart + label.length),
                   'm5Label',
+                  []
+                );
+              }
+            }
+
+            if (evalMarker) {
+              const evalStart = label
+                ? text.lastIndexOf('*', text.lastIndexOf(label))
+                : text.lastIndexOf('*', openerCol);
+              if (evalStart >= 0) {
+                builder.push(
+                  new vscode.Range(i, evalStart, i, evalStart + 1),
+                  'm5Special',
                   []
                 );
               }
             }
           }
 
-          // Update sub-context
           this.m5SubContext = opener === "['" ? 'textBlock' : 'codeBlock';
-          // Could record indent here later if needed
         }
 
-        // Highlight closing delimiters anywhere on the line (simple)
-        this.matchPattern(builder, i, text, /['\]}]/g, 'm5BlockDelimiter');
-
-        // ── Parse M5 line content only when allowed ───────────────────────
         if (this.m5SubContext !== 'textBlock') {
           this.parseM5Line(builder, i, text, trimmedStart);
         }
-        // In textBlock → skip sugar / comments / implicit calls
       }
 
-      // ── Global parsing (appears anywhere) ─────────────────────────────────
+      // Global parsing
       this.parseComments(builder, i, text);
       this.parseGlobalM5Patterns(builder, i, text);
       if (this.isM4) {
@@ -147,6 +205,81 @@ export class TLVerilogSemanticTokensProvider implements vscode.DocumentSemanticT
     }
 
     return builder.build();
+  }
+
+  // ── Helper to check if position is inside M5 string ──
+  private isInsideM5String(line: number, pos: number): boolean {
+    return this.m5StringRanges.some(
+      range => range.line === line && pos >= range.start && pos < range.end
+    );
+  }
+
+  private highlightM5QuotedStrings(
+    builder: vscode.SemanticTokensBuilder,
+    lineIdx: number,
+    text: string
+  ) {
+    let pos = 0;
+    while (pos < text.length - 1) {
+      if (text[pos] === '[' && text[pos + 1] === "'") {
+        const openPos = pos;
+        pos += 2;
+        const contentStart = pos;
+        let depth = 1;
+
+        while (pos < text.length - 1 && depth > 0) {
+          if (text[pos] === '[' && text[pos + 1] === "'") {
+            depth++;
+            pos += 2;
+          } else if (text[pos] === "'" && text[pos + 1] === ']') {
+            depth--;
+            if (depth === 0) {
+              const closePos = pos;
+              pos += 2;
+
+              // Track this range
+              this.m5StringRanges.push({
+                line: lineIdx,
+                start: openPos,
+                end: pos
+              });
+
+              // Highlight delimiters
+              builder.push(
+                new vscode.Range(lineIdx, openPos, lineIdx, openPos + 2),
+                'm5BlockDelimiter',
+                []
+              );
+              builder.push(
+                new vscode.Range(lineIdx, closePos, lineIdx, closePos + 2),
+                'm5BlockDelimiter',
+                []
+              );
+
+              // Highlight content as string
+              if (contentStart < closePos) {
+                builder.push(
+                  new vscode.Range(lineIdx, contentStart, lineIdx, closePos),
+                  'string',
+                  []
+                );
+              }
+              break;
+            } else {
+              pos += 2;
+            }
+          } else {
+            pos++;
+          }
+        }
+
+        if (depth > 0) {
+          pos = text.length;
+        }
+      } else {
+        pos++;
+      }
+    }
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -211,7 +344,9 @@ export class TLVerilogSemanticTokensProvider implements vscode.DocumentSemanticT
     }
 
     // Special M5 parameters
-    this.matchPattern(builder, lineIdx, text, /\$[@#*]|\$\d+|\$<\w+>[a-zA-Z0-9_]?/g, 'm5ArgSpecial');
+    this.matchPattern(builder, lineIdx, text, /\$(?:[@#*\d]|<\w+>[@#*\d])/g, 'm5ArgSpecial');  
+    // Highlight M5 quoted strings ['...'] - but NOT Verilog literals
+    this.highlightM5QuotedStrings(builder, lineIdx, text);
   }
 
   private parseGlobalM5Patterns(builder: vscode.SemanticTokensBuilder, line: number, text: string) {
@@ -244,7 +379,10 @@ export class TLVerilogSemanticTokensProvider implements vscode.DocumentSemanticT
     let match;
     while ((match = pattern.exec(text)) !== null) {
       const start = match.index;
-      builder.push(new vscode.Range(line, start, line, start + match[0].length), tokenType, modifiers);
+      const end = start + match[0].length;
+      // Skip if this match is inside an M5 quoted string
+      if (!this.isInsideM5String(line, start)) {
+        builder.push(new vscode.Range(line, start, line, end), tokenType, modifiers);
+      }
     }
-  }
-}
+  }}
