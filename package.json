@@ -122,30 +122,30 @@
 				"description": "HDL-style comment"
 			},
 			{
-  "id": "m5Directive",
-  "supertype": "keyword",
-  "description": "M5 region / version directive"
-},
-{
-  "id": "m5MacroCall",
-  "supertype": "macro",
-  "description": "M5 macro invocation (m5+... or implicit)"
-},
-{
-  "id": "m5MacroName",
-  "supertype": "function",
-  "description": "Name of M5 macro"
-},
-{
-  "id": "m5Include",
-  "supertype": "keyword",
-  "description": "M5 library include / use"
-},
-{
-  "id": "m5Comment",
-  "supertype": "comment",
-  "description": "M5 single-slash line comment in \\m5"
-}
+				"id": "m5Directive",
+				"supertype": "keyword",
+				"description": "M5 region / version directive"
+			},
+			{
+				"id": "m5MacroCall",
+				"supertype": "macro",
+				"description": "M5 macro invocation (m5+... or implicit)"
+			},
+			{
+				"id": "m5MacroName",
+				"supertype": "function",
+				"description": "Name of M5 macro"
+			},
+			{
+				"id": "m5Include",
+				"supertype": "keyword",
+				"description": "M5 library include / use"
+			},
+			{
+				"id": "m5Comment",
+				"supertype": "comment",
+				"description": "M5 single-slash line comment in \\m5"
+			}
 		],
 		"semanticTokenModifiers": [
 			{
@@ -198,10 +198,11 @@
 						"fontStyle": "italic"
 					},
 					"keyword": {
-						"foreground": "#0000FF"
+						"foreground": "#0000FF",
+						"fontStyle": "bold"
 					},
 					"m4Macro": {
-						"foreground": "#000000",
+						"foreground": "#357a97",
 						"fontStyle": "bold"
 					},
 					"lineTypeChar": {
@@ -216,28 +217,61 @@
 						"foreground": "#808080",
 						"fontStyle": "bold italic"
 					},
-					"m5Directive": { "foreground": "#0000FF" },      
-"m5MacroCall": { "foreground": "#D19A66", "fontStyle": "bold" },
-"m5MacroName": { "foreground": "#E5C07B" },
-"m5Include":   { "foreground": "#56B6C2" },
-"m5Comment":   { "foreground": "#7F848E", "fontStyle": "italic" },
-"m5Label": {
-          "foreground": "#CE93D8", 
-          "italic": true
-        }
+					"m5Directive": {
+						"foreground": "#0000FF",
+						"fontStyle": "bold"
+					},
+					"m5MacroCall": {
+						"foreground": "#357a97",
+						"fontStyle": "bold"
+					},
+					"m5MacroName": {
+						"foreground": "#E5C07B"
+					},
+					"m5BlockDelimiter":{
+						"foreground": "#dfca86",
+						"fontStyle": "bold"
+					},
+					"m5Include": {
+						"foreground": "#56B6C2"
+					},
+					"m5Comment": {
+						"foreground": "#808080",
+						"fontStyle": "bold italic"
+					},
+					"m5Label": {
+						"foreground": "#CE93D8",
+						"italic": true
+					},
+					"m5Var": {
+						"foreground":  "#5ac7a3",
+						"fontStyle": "bold"
+					},
+					"m5ArgSpecial": {
+						"foreground": "#b83ec4",
+						"fontStyle": "bold"
+					},
+					"string": {
+						"foreground":"#CE9178"
+					}
+
 				},
 				"[*Dark*]": {
 					"rules": {
 						"m4Macro": {
-							"foreground": "#FFFFFF",
+							"foreground": "#48a2c9",
 							"fontStyle": "bold"
 						},
-							"comment": {
+						"comment": {
 							"foreground": "#B0B0B0",
 							"fontStyle": "bold italic"
 						},
 						"svSignal": {
 							"foreground": "#A0A0A0"
+						},
+						"m5MacroCall": {
+							"foreground": "#48a2c9",
+							"fontStyle": "bold"
 						},
 						"stage": {
 							"foreground": "#90EE90",
@@ -263,8 +297,7 @@
 	},
 	"devDependencies": {
 		"@types/node": "*",
-		"@types/vscode": "^1.91.0",
-		"typescript": "^2.0.3",
+		"typescript": "^5.9.3",
 		"vsce": "^1.28.0",
 		"vscode": "^1.0.0"
 	},
