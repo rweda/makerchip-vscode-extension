@@ -29,6 +29,7 @@ export class TLVerilogSemanticTokensProvider implements vscode.DocumentSemanticT
     this.m5StringRanges = []; // Reset for each parse
 
     let context: 'tlv' | 'sv' | 'm5' | 'hdl-plus' | 'unknown' = 'unknown';
+    this.inM5String = false;
 
     for (let i = 0; i < document.lineCount; i++) {
       const line = document.lineAt(i);
@@ -213,72 +214,78 @@ export class TLVerilogSemanticTokensProvider implements vscode.DocumentSemanticT
       range => range.line === line && pos >= range.start && pos < range.end
     );
   }
+  private inM5String: boolean = false;
 
   private highlightM5QuotedStrings(
-    builder: vscode.SemanticTokensBuilder,
-    lineIdx: number,
-    text: string
-  ) {
-    let pos = 0;
-    while (pos < text.length - 1) {
-      if (text[pos] === '[' && text[pos + 1] === "'") {
-        const openPos = pos;
-        pos += 2;
-        const contentStart = pos;
-        let depth = 1;
-
-        while (pos < text.length - 1 && depth > 0) {
-          if (text[pos] === '[' && text[pos + 1] === "'") {
-            depth++;
-            pos += 2;
-          } else if (text[pos] === "'" && text[pos + 1] === ']') {
-            depth--;
-            if (depth === 0) {
-              const closePos = pos;
-              pos += 2;
-
-              // Track this range
-              this.m5StringRanges.push({
-                line: lineIdx,
-                start: openPos,
-                end: pos
-              });
-
-              // Highlight delimiters
-              builder.push(
-                new vscode.Range(lineIdx, openPos, lineIdx, openPos + 2),
-                'm5BlockDelimiter',
-                []
-              );
-              builder.push(
-                new vscode.Range(lineIdx, closePos, lineIdx, closePos + 2),
-                'm5BlockDelimiter',
-                []
-              );
-
-              // Highlight content as string
-              if (contentStart < closePos) {
-                builder.push(
-                  new vscode.Range(lineIdx, contentStart, lineIdx, closePos),
-                  'string',
-                  []
-                );
-              }
-              break;
-            } else {
-              pos += 2;
-            }
-          } else {
-            pos++;
-          }
-        }
-
-        if (depth > 0) {
-          pos = text.length;
-        }
-      } else {
-        pos++;
+  builder: vscode.SemanticTokensBuilder,
+  lineIdx: number,
+  text: string
+): void {
+  // If we're continuing a multi-line string, look for the closing ']
+  if (this.inM5String) {
+    const closeIdx = text.indexOf("']");
+    if (closeIdx >= 0) {
+      // Highlight everything up to and including '] as string/delimiter
+      if (closeIdx > 0) {
+        builder.push(new vscode.Range(lineIdx, 0, lineIdx, closeIdx), 'string', []);
+        this.m5StringRanges.push({ line: lineIdx, start: 0, end: closeIdx + 2 });
       }
+      builder.push(new vscode.Range(lineIdx, closeIdx, lineIdx, closeIdx + 2), 'm5BlockDelimiter', []);
+      this.m5StringRanges.push({ line: lineIdx, start: 0, end: closeIdx + 2 });
+      this.inM5String = false;
+      return;
+    } else {
+      // Entire line is string content
+      builder.push(new vscode.Range(lineIdx, 0, lineIdx, text.length), 'string', []);
+      this.m5StringRanges.push({ line: lineIdx, start: 0, end: text.length });
+      return;
+    }
+  }
+  let pos = 0;
+  while (pos < text.length - 1) {
+    if (text[pos] === '[' && text[pos + 1] === "'") {
+      const openPos = pos;
+      pos += 2;
+      const contentStart = pos;
+      let depth = 1;
+
+      while (pos < text.length - 1 && depth > 0) {
+        if (text[pos] === '[' && text[pos + 1] === "'") { depth++; pos += 2; }
+        else if (text[pos] === "'" && text[pos + 1] === ']') {
+          depth--;
+          if (depth === 0) {
+            const closePos = pos; pos += 2;
+            this.m5StringRanges.push({ line: lineIdx, start: openPos, end: pos });
+            builder.push(new vscode.Range(lineIdx, openPos, lineIdx, openPos + 2), 'm5BlockDelimiter', []);
+            builder.push(new vscode.Range(lineIdx, closePos, lineIdx, closePos + 2), 'm5BlockDelimiter', []);
+            if (contentStart < closePos)
+              builder.push(new vscode.Range(lineIdx, contentStart, lineIdx, closePos), 'string', []);
+            break;
+          } else { pos += 2; }
+        } else { pos++; }
+      }
+
+      if (depth > 0) {
+  builder.push(new vscode.Range(lineIdx, openPos, lineIdx, openPos + 2), 'm5BlockDelimiter', []);
+  builder.push(new vscode.Range(lineIdx, contentStart, lineIdx, text.length), 'string', []);
+  this.m5StringRanges.push({ line: lineIdx, start: openPos, end: text.length });
+  this.inM5String = true;
+
+  // Still highlight any macro name that precedes the ['
+  const beforeOpener = text.slice(0, openPos).trimStart();
+  const macroMatch = beforeOpener.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*$/);
+  if (macroMatch) {
+    const macroName = macroMatch[1];
+    const macroStart = text.indexOf(macroName);
+    builder.push(
+      new vscode.Range(lineIdx, macroStart, lineIdx, macroStart + macroName.length),
+      'm5MacroCall',
+      []
+    );
+  }
+
+  return;
+}} else { pos++; }
     }
   }
 
@@ -316,6 +323,7 @@ export class TLVerilogSemanticTokensProvider implements vscode.DocumentSemanticT
     text: string,
     trimmed: string
   ) {
+    if (this.inM5String) return;
     // Single-slash line comment
     if (trimmed.startsWith('/') && !trimmed.startsWith('//')) {
       const slashPos = text.indexOf('/');
@@ -331,7 +339,7 @@ export class TLVerilogSemanticTokensProvider implements vscode.DocumentSemanticT
 
     // Implicit macro: word at line start
     const implicitMatch = trimmed.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\b/);
-    if (implicitMatch && !trimmed.startsWith('use(')) {
+    if (implicitMatch) {
       const word = implicitMatch[1];
       const start = text.indexOf(word);
       builder.push(new vscode.Range(lineIdx, start, lineIdx, start + word.length), 'm5MacroCall', []);
