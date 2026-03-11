@@ -26,7 +26,7 @@ PUBLIC '-//Apple//DTD PLIST 1.0//EN'
 			<!-- Embedded JavaScript inside \viz_js blocks -->
 			<dict>
 			<key>begin</key>
-			<string>^\s*\\viz_js\b.*$</string>
+			<string>^(\s*)\\viz_js\b.*$</string>
 
 			<key>beginCaptures</key>
 			<dict>
@@ -37,12 +37,14 @@ PUBLIC '-//Apple//DTD PLIST 1.0//EN'
 				</dict>
 			</dict>
 
-			<!-- Heuristic end: next TLV structural line -->
-			<key>end</key>
-			<string>^(?=\s*\\(TLV|SV|SV_plus|viz_js)\b|\s*\|pipe|\s*@)</string>
+			<key>while</key>
+			<string>^(?:[ \t]*$|(?:\1[ \t]+))</string>
 
 			<key>name</key>
 			<string>meta.embedded.block.javascript.tlverilog</string>
+
+			<key>contentName</key>
+			<string>source.js</string>
 
 			<key>patterns</key>
 			<array>
@@ -51,6 +53,100 @@ PUBLIC '-//Apple//DTD PLIST 1.0//EN'
 				<string>source.js</string>
 				</dict>
 			</array>
+			</dict>
+			<!-- \SV region: embedded SystemVerilog -->
+			<dict>
+				<key>begin</key>
+				<string>^(\s*)\\SV\b.*$</string>
+
+				<key>beginCaptures</key>
+				<dict>
+					<key>0</key>
+					<dict>
+						<key>name</key>
+						<string>keyword.control.region.tlverilog</string>
+					</dict>
+				</dict>
+
+				<!-- Same logic: blank lines OR more-indented lines continue the region -->
+				<key>while</key>
+				<string>^(?:[ \t]*$|(?:\1[ \t]+))</string>
+
+				<key>name</key>
+				<string>meta.embedded.block.systemverilog.tlverilog</string>
+				<key>contentName</key>
+				<string>source.systemverilog</string>
+
+				<key>patterns</key>
+				<array>
+					<dict>
+						<key>include</key>
+						<string>source.systemverilog</string>
+					</dict>
+				</array>
+			</dict>
+
+			<!-- \SV_plus region -->
+			<dict>
+				<key>begin</key>
+				<string>^(\s*)\\SV_plus\b.*$</string>
+				<key>beginCaptures</key>
+				<dict>
+					<key>0</key><dict><key>name</key><string>keyword.control.region.tlverilog</string></dict>
+				</dict>
+				<key>while</key>
+				<string>^(?:[ \t]*$|(?:\1[ \t]+))</string>
+				<key>name</key>
+				<string>meta.embedded.block.systemverilog.tlverilog</string>
+				<key>contentName</key>
+				<string>source.systemverilog</string>
+				<key>patterns</key>
+				<array>
+					<dict><key>include</key><string>source.systemverilog</string></dict>
+				</array>
+			</dict>
+
+
+			<!-- \M5 region -->
+			<dict>
+				<key>begin</key>
+				<string>^(\s*)\\M5\b.*$</string>
+				<key>beginCaptures</key>
+				<dict>
+					<key>0</key><dict><key>name</key><string>keyword.control.region.tlverilog</string></dict>
+				</dict>
+				<key>while</key>
+				<string>^(?:[ \t]*$|(?:\1[ \t]+))</string>
+				<key>name</key>
+				<string>meta.embedded.block.m5.tlverilog</string>
+				<!-- No external grammar for M5 — just mark content -->
+				<key>contentName</key>
+				<string>meta.m5.content.tlverilog</string>
+				<key>patterns</key>
+				<array>
+					<!-- Fall through to your own TLV patterns -->
+					<dict><key>include</key><string>source.tlverilog</string></dict>
+				</array>
+			</dict>
+
+			<!-- \C / \C_plus region -->
+			<dict>
+				<key>begin</key>
+				<string>^(\s*)\\C(_plus)?\b.*$</string>
+				<key>beginCaptures</key>
+				<dict>
+					<key>0</key><dict><key>name</key><string>keyword.control.region.tlverilog</string></dict>
+				</dict>
+				<key>while</key>
+				<string>^(?:[ \t]*$|(?:\1[ \t]+))</string>
+				<key>name</key>
+				<string>meta.embedded.block.cpp.tlverilog</string>
+				<key>contentName</key>
+				<string>source.cpp</string>
+				<key>patterns</key>
+				<array>
+					<dict><key>include</key><string>source.cpp</string></dict>
+				</array>
 			</dict>
 			<!-- Updated: stages: @1, @-2, @0 (added negative support) -->
 			<dict>
