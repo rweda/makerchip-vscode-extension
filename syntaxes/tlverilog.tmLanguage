@@ -23,19 +23,144 @@ PUBLIC '-//Apple//DTD PLIST 1.0//EN'
 				<key>name</key>
 				<string>keyword.other.tlverilog</string>
 			</dict>
+			<!-- Embedded JavaScript inside \viz_js blocks -->
 			<dict>
-				<!-- stages: @1, @2, ... -->
-				<key>match</key>
-				<string>@\b(\d+)\b</string>
+			<key>begin</key>
+			<string>^(\s*)\\viz_js\b.*$</string>
+
+			<key>beginCaptures</key>
+			<dict>
+				<key>0</key>
+				<dict>
 				<key>name</key>
-				<string>entity.name.stage.tlverilog</string>
+				<string>keyword.control.vizjs.tlverilog</string>
+				</dict>
 			</dict>
+
+			<key>while</key>
+			<string>^(?:[ \t]*$|(?:\1[ \t]+))</string>
+
+			<key>name</key>
+			<string>meta.embedded.block.javascript.tlverilog</string>
+
+			<key>contentName</key>
+			<string>source.js</string>
+
+			<key>patterns</key>
+			<array>
+				<dict>
+				<key>include</key>
+				<string>source.js</string>
+				</dict>
+			</array>
+			</dict>
+			<!-- \SV region: embedded SystemVerilog -->
 			<dict>
-				<!-- pipes: |pipe -->
-				<key>match</key>
-				<string>\|\b([a-zA-Z0-9_]+)\b</string>
+				<key>begin</key>
+				<string>^(\s*)\\SV\b.*$</string>
+
+				<key>beginCaptures</key>
+				<dict>
+					<key>0</key>
+					<dict>
+						<key>name</key>
+						<string>keyword.control.region.tlverilog</string>
+					</dict>
+				</dict>
+
+				<!-- Same logic: blank lines OR more-indented lines continue the region -->
+				<key>while</key>
+				<string>^(?:[ \t]*$|(?:\1[ \t]+))</string>
+
 				<key>name</key>
-				<string>entity.name.pipe.tlverilog</string>
+				<string>meta.embedded.block.systemverilog.tlverilog</string>
+				<key>contentName</key>
+				<string>source.systemverilog</string>
+
+				<key>patterns</key>
+				<array>
+					<dict>
+						<key>include</key>
+						<string>source.systemverilog</string>
+					</dict>
+				</array>
+			</dict>
+
+			<!-- \SV_plus region -->
+			<dict>
+				<key>begin</key>
+				<string>^(\s*)\\SV_plus\b.*$</string>
+				<key>beginCaptures</key>
+				<dict>
+					<key>0</key><dict><key>name</key><string>keyword.control.region.tlverilog</string></dict>
+				</dict>
+				<key>while</key>
+				<string>^(?:[ \t]*$|(?:\1[ \t]+))</string>
+				<key>name</key>
+				<string>meta.embedded.block.systemverilog.tlverilog</string>
+				<key>contentName</key>
+				<string>source.systemverilog</string>
+				<key>patterns</key>
+				<array>
+					<dict><key>include</key><string>source.systemverilog</string></dict>
+				</array>
+			</dict>
+
+
+			<!-- \M5 region -->
+			<dict>
+				<key>begin</key>
+				<string>^(\s*)\\M5\b.*$</string>
+				<key>beginCaptures</key>
+				<dict>
+					<key>0</key><dict><key>name</key><string>keyword.control.region.tlverilog</string></dict>
+				</dict>
+				<key>while</key>
+				<string>^(?:[ \t]*$|(?:\1[ \t]+))</string>
+				<key>name</key>
+				<string>meta.embedded.block.m5.tlverilog</string>
+				<!-- No external grammar for M5 — just mark content -->
+				<key>contentName</key>
+				<string>meta.m5.content.tlverilog</string>
+				<key>patterns</key>
+				<array>
+					<!-- Fall through to your own TLV patterns -->
+					<dict><key>include</key><string>source.tlverilog</string></dict>
+				</array>
+			</dict>
+
+			<!-- \C / \C_plus region -->
+			<dict>
+				<key>begin</key>
+				<string>^(\s*)\\C(_plus)?\b.*$</string>
+				<key>beginCaptures</key>
+				<dict>
+					<key>0</key><dict><key>name</key><string>keyword.control.region.tlverilog</string></dict>
+				</dict>
+				<key>while</key>
+				<string>^(?:[ \t]*$|(?:\1[ \t]+))</string>
+				<key>name</key>
+				<string>meta.embedded.block.cpp.tlverilog</string>
+				<key>contentName</key>
+				<string>source.cpp</string>
+				<key>patterns</key>
+				<array>
+					<dict><key>include</key><string>source.cpp</string></dict>
+				</array>
+			</dict>
+			<!-- Updated: stages: @1, @-2, @0 (added negative support) -->
+			<dict>
+				<key>match</key>
+				<string>@-?\d+</string>
+				<key>name</key>
+				<string>entity.name.label.tlverilog</string>
+			</dict>
+			<!-- Updated: pipes: |pipe (fixed regex for starting with letter/underscore) -->
+			<dict>
+				<key>match</key>
+				<string>\|[a-zA-Z_][a-zA-Z0-9_]*</string>
+				<key>name</key>
+				<string>entity.name.tag.tlverilog</string>
 			</dict>
 			<dict>
 				<!-- tabs: \t -->
@@ -44,80 +169,168 @@ PUBLIC '-//Apple//DTD PLIST 1.0//EN'
 				<key>name</key>
 				<string>invalid.illegal.tlverilog</string>
 			</dict>
+			<!-- Updated: Behavioral hierarchy: >start (fixed regex, added range support) -->
 			<dict>
-				<!-- Behavioral hierarchy: >start -->
 				<key>match</key>
-				<string>>([a-zA-Z][a-zA-Z0-9_]+)</string>
+				<string>&gt;[a-zA-Z_][a-zA-Z0-9_]*(\[[^\]]+\])?</string>
 				<key>name</key>
-				<string>entity.name.hierarchy.tlverilog</string>
+				<string>entity.name.type.tlverilog</string>
 			</dict>
-
+			<!-- Updated: Behavioral hierarchy: /start (fixed regex, added range support) -->
 			<dict>
-				<!-- Behavioral hierarchy: /start -->
 				<key>match</key>
-				<string>\/([a-zA-Z0-9_]+)</string>
+				<string>/[a-zA-Z_][a-zA-Z0-9_]*(\[[^\]]+\])?</string>
 				<key>name</key>
-				<string>entity.name.hierarchy.tlverilog</string>
+				<string>entity.name.type.tlverilog</string>
 			</dict>
-
 			<dict>
-				<!-- When condition: ?$lol | ?*lol -->
+				<!-- Updated: When condition: ?$lol | ?*lol (standard scope) -->
 				<key>match</key>
 				<string>\?[\$\*][a-zA-Z0-9_]+</string>
 				<key>name</key>
-				<string>keyword.control.conditional.tlverilog</string>
+				<string>keyword.control.tlverilog</string>
 			</dict>
-
+			<!-- Updated: System signal: $sig1 (added $$ support, standard scope) -->
 			<dict>
-				<!-- System signal: $sig1 -->
 				<key>match</key>
-				<string>\$\b([a-zA-Z_][a-zA-Z0-9_]+)\b</string>
+				<string>\${1,2}[a-zA-Z_][a-zA-Z0-9_]*</string>
 				<key>name</key>
 				<string>variable.other.tlverilog</string>
 			</dict>
-
+			<!-- Updated: Alignment (combined % and << etc., added next support) -->
 			<dict>
 				<key>match</key>
-				<string>%([+-]\d+|\w+)</string>
+				<string>(&lt;&lt;|&lt;&gt;|&gt;&gt;-?)(\d+|[a-zA-Z_]\w*)|%([+-]\d+|next|[a-zA-Z_]\w*)</string>
 				<key>name</key>
-				<string>entity.name.alignment.tlverilog</string>
+				<string>keyword.operator.alignment.tlverilog</string>
 			</dict>
-
+			<!-- Updated: M4 macro (added underscore support) -->
 			<dict>
 				<key>match</key>
-				<string>\b([mM]4\+\w+)</string>
+				<string>\b[mM]4[+_][a-zA-Z_][a-zA-Z0-9_]*</string>
 				<key>name</key>
-				<string>support.macro.tlverilog</string>
+				<string>support.function.macro.tlverilog</string>
 			</dict>
-
+			<!-- M5 macros: m5_foo, m5+fib, m5_bar (no parens), m5_makerchip_module -->
 			<dict>
 				<key>match</key>
-				<string>^\s*\\(TLV.*|SV.*|m4_TLV_version.*)$</string>
+				<string>\bm5([_+][a-zA-Z_][a-zA-Z0-9_]*|\b_makerchip_module)\b</string>
 				<key>name</key>
-				<string>keyword.region.tlverilog</string>
+				<string>support.function.macro.tlverilog</string>
 			</dict>
-
+			<!-- M5 macro with args start: m5_foo( or m5+fib(  (single-line opening only) -->
 			<dict>
-				<key>match</key>
-				<string>\*\b([a-zA-Z_][a-zA-Z0-9_]+)\b</string>
+				<key>begin</key>
+				<string>\b(m5([_+][a-zA-Z_][a-zA-Z0-9_]*|\b_makerchip_module))\s*\(</string>
+				<key>beginCaptures</key>
+				<dict>
+					<key>1</key>
+					<dict>
+						<key>name</key>
+						<string>support.function.macro.tlverilog</string>
+					</dict>
+					<key>0</key>  <!-- the ( itself -->
+					<dict>
+						<key>name</key>
+						<string>punctuation.section.group.begin.tlverilog</string>
+					</dict>
+				</dict>
+				<key>end</key>
+				<string>\)</string>
+				<key>endCaptures</key>
+				<dict>
+					<key>0</key>
+					<dict>
+						<key>name</key>
+						<string>punctuation.section.group.end.tlverilog</string>
+					</dict>
+				</dict>
 				<key>name</key>
-				<string>variable.sv.tlverilog</string>
+				<string>meta.macro-call.tlverilog</string>
+				<key>patterns</key>
+				<array>
+					<!-- You can later add comma, string, etc. patterns inside args here -->
+					<dict>
+						<key>include</key>
+						<string>#strings</string>
+					</dict>
+					<dict>
+						<key>match</key>
+						<string>,</string>
+						<key>name</key>
+						<string>punctuation.separator.arguments.tlverilog</string>
+					</dict>
+				</array>
 			</dict>
-
 			<dict>
 				<key>match</key>
-				<string>\#\b([a-zA-Z_][a-zA-Z0-9_]+)\b</string>
+				<string>\buse\s*\(\s*['"]?m5[-.\d]+['"]?\s*\)</string>
+				<key>name</key>
+				<string>keyword.control.import.tlverilog</string>
+			</dict>
+			<!-- Updated: Regions (expanded to full list from doc) -->
+			<dict>
+				<key>match</key>
+				<string>^\\(TLV|TLVHDL|TLC|SV|SV_plus|VHDL|VHDL_plus|C|C_plus|M5)(\s|$)</string>
+				<key>name</key>
+				<string>keyword.control.region.tlverilog</string>
+			</dict>
+			<!-- Updated: SV signal (added ** support, standard scope) -->
+			<dict>
+				<key>match</key>
+				<string>\*{1,2}[a-zA-Z_][a-zA-Z0-9_]*</string>
+				<key>name</key>
+				<string>variable.other.tlverilog</string>
+			</dict>
+			<!-- Updated: Constant (removed extra \b for #word) -->
+			<dict>
+				<key>match</key>
+				<string>#[a-zA-Z_][a-zA-Z0-9_]*</string>
 				<key>name</key>
 				<string>constant.other.tlverilog</string>
 			</dict>
-
+			<!-- New: Physical hierarchy: -hierarchy or ->hierarchy -->
 			<dict>
 				<key>match</key>
-				<string>(&lt;&lt;|&lt;&gt;|&gt;&gt;-?)[a-zA-Z0-9_]+</string>
+				<string>-&gt;?[a-zA-Z_][a-zA-Z0-9_]*</string>
 				<key>name</key>
-				<string>entity.name.alignment.tlverilog</string>
+				<string>entity.name.type.physical.tlverilog</string>
 			</dict>
-
+			<!-- New: Attributes: ^attr, ^^attr -->
+			<dict>
+				<key>match</key>
+				<string>\^{1,2}[a-zA-Z_][a-zA-Z0-9_]*</string>
+				<key>name</key>
+				<string>entity.other.attribute-name.tlverilog</string>
+			</dict>
+			<!-- New: Invalid line type character (first non-space char in TL-X region, approx. flat
+			match) -->
+			<dict>
+				<key>match</key>
+				<string>^[^ \\\t\n]</string>
+				<key>name</key>
+				<string>invalid.illegal.line-type.tlverilog</string>
+			</dict>
+			<!-- New: File format version line -->
+			<dict>
+				<key>match</key>
+				<string>^\\(m4_)?TLV_version\s+[\d.]+:.*$</string>
+				<key>name</key>
+				<string>keyword.control.version.tlverilog</string>
+			</dict>
+			<dict>
+				<key>match</key>
+				<string>^\\(m5_)?TLV_version\s+[\w.]+:.*$</string>
+				<key>name</key>
+				<string>keyword.control.version.tlverilog</string>
+			</dict>
+			<!-- New: M4 variables -->
+			<dict>
+				<key>match</key>
+				<string>\bM4_[A-Z_][A-Z0-9_]*</string>
+				<key>name</key>
+				<string>variable.other.constant.m4.tlverilog</string>
+			</dict>
 			<dict>
 				<key>match</key>
 				<string>\b(#|@|begin|end|fork|join|join_any|join_none|forkjoin|{|})\b</string>
@@ -261,39 +474,113 @@ PUBLIC '-//Apple//DTD PLIST 1.0//EN'
 				<key>name</key>
 				<string>keyword.operator.staticcasting.tlverilog</string>
 			</dict>
+	<!-- M5 quoted strings with nesting support -->
+	<dict>
+		<key>begin</key>
+		<string>\['</string>
+		<key>beginCaptures</key>
+		<dict>
+			<key>0</key>
+			<dict>
+				<key>name</key>
+				<string>punctuation.definition.string.begin.m5.tlverilog</string>
+			</dict>
+		</dict>
+		<key>end</key>
+		<string>'\]</string>
+		<key>endCaptures</key>
+		<dict>
+			<key>0</key>
+			<dict>
+				<key>name</key>
+				<string>punctuation.definition.string.end.m5.tlverilog</string>
+			</dict>
+		</dict>
+		<key>name</key>
+		<string>string.quoted.m5.tlverilog</string>
+		<key>contentName</key>
+		<string>meta.m5string.content.tlverilog</string>
+		
+		<!-- CRITICAL: Check patterns before end -->
+		<key>applyEndPatternLast</key>
+		<integer>1</integer>
+		
+		<key>patterns</key>
+		<array>
+			<!-- Match nested strings BEFORE checking for end -->
 			<dict>
 				<key>begin</key>
-				<string>'{</string>
+				<string>\['</string>
 				<key>beginCaptures</key>
 				<dict>
 					<key>0</key>
 					<dict>
 						<key>name</key>
-						<string>keyword.operator.unpackaedarrayassignment.begin.tlverilog</string>
+						<string>punctuation.definition.string.begin.m5.nested.tlverilog</string>
 					</dict>
 				</dict>
 				<key>end</key>
-				<string>}</string>
+				<string>'\]</string>
 				<key>endCaptures</key>
 				<dict>
 					<key>0</key>
 					<dict>
 						<key>name</key>
-						<string>keyword.operator.unpackaedarrayassignment.end.tlverilog</string>
+						<string>punctuation.definition.string.end.m5.nested.tlverilog</string>
 					</dict>
 				</dict>
 				<key>name</key>
-				<string>keyword.operator.unpackedarrayassignment.tlverilog</string>
+				<string>string.quoted.m5.nested.tlverilog</string>
+				
+				<!-- ALSO add this to nested pattern -->
+				<key>applyEndPatternLast</key>
+				<integer>1</integer>
+				
 				<key>patterns</key>
 				<array>
 					<dict>
-						<key>match</key>
-						<string>.</string>
-						<key>name</key>
-						<string>constant.character.escape.tlverilog</string>
+						<key>include</key>
+						<string>#m5-nested-string</string>
 					</dict>
 				</array>
 			</dict>
+		</array>
+	</dict>
+
+    <!-- 2. Then your unpacked array assignment -->
+    <dict>
+        <key>begin</key>
+        <string>'{</string>
+        <key>beginCaptures</key>
+        <dict>
+            <key>0</key>
+            <dict>
+                <key>name</key>
+                <string>keyword.operator.unpackaedarrayassignment.begin.tlverilog</string>
+            </dict>
+        </dict>
+        <key>end</key>
+        <string>}</string>
+        <key>endCaptures</key>
+        <dict>
+            <key>0</key>
+            <dict>
+                <key>name</key>
+                <string>keyword.operator.unpackaedarrayassignment.end.tlverilog</string>
+            </dict>
+        </dict>
+        <key>name</key>
+        <string>keyword.operator.unpackedarrayassignment.tlverilog</string>
+        <key>patterns</key>
+        <array>
+            <dict>
+                <key>match</key>
+                <string>.</string>
+                <key>name</key>
+                <string>constant.character.escape.tlverilog</string>
+            </dict>
+        </array>
+    </dict>
 			<dict>
 				<key>match</key>
 				<string>\b(output|input|inout|and|nand|nor|or|xor|xnor|buf|not|bufif[01]|notif[01]|r?[npc]mos|tran|r?tranif[01]|pullup|pulldown)\b</string>
@@ -325,6 +612,32 @@ PUBLIC '-//Apple//DTD PLIST 1.0//EN'
 		</array>
 		<key>repository</key>
 		<dict>
+			<key>m5-nested-string</key>
+			<dict>
+				<key>patterns</key>
+				<array>
+					<dict>
+						<key>begin</key>
+						<string>\['</string>
+						<key>end</key>
+						<string>'\]</string>
+						<key>name</key>
+						<string>string.quoted.m5.nested.tlverilog</string>
+						
+						<!-- Add this here too -->
+						<key>applyEndPatternLast</key>
+						<integer>1</integer>
+						
+						<key>patterns</key>
+						<array>
+							<dict>
+								<key>include</key>
+								<string>#m5-nested-string</string>
+							</dict>
+						</array>
+					</dict>
+				</array>
+			</dict>
 			<key>all-types</key>
 			<dict>
 				<key>patterns</key>

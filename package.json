@@ -11,8 +11,7 @@
 		"vscode": "^1.10.0"
 	},
 	"categories": [
-		"Languages",
-		 "Themes"
+		"Languages"
 	],
 	"contributes": {
 		"languages": [{
@@ -31,26 +30,261 @@
 			"path": "./snippets/snippets.json"
 		}],
 		"configuration": {
-			"title": "",
+			"title": "TL-Verilog",
 			"properties": {
 				"tlverilog.instancePrefix": {
 					"type": "string",
 					"default": "u_",
 					"description": "The prefix to use when instantiating a new module"
+				},
+				"tlverilog.semanticHighlighting.enabled": {
+					"type": "boolean",
+					"default": true,
+					"description": "Enable semantic syntax highlighting for TL-Verilog"
+				}
+			}
+		},
+		"semanticTokenTypes": [
+			
+			{
+				"id": "pipeSignal",
+				"supertype": "variable",
+				"description": "TL-Verilog pipe signal ($.*)"
+			},
+			{
+				"id": "svSignal",
+				"supertype": "variable",
+				"description": "SystemVerilog signal (*.*)"
+			},
+			{
+				"id": "behavioralHierarchy",
+				"supertype": "namespace",
+				"description": "Behavioral hierarchy (>.* or /.*)"
+			},
+			{
+				"id": "physicalHierarchy",
+				"supertype": "namespace",
+				"description": "Physical hierarchy (-.*)"
+			},
+			{
+				"id": "pipeline",
+				"supertype": "type",
+				"description": "Pipeline (|.*)"
+			},
+			{
+				"id": "when",
+				"supertype": "keyword",
+				"description": "When condition (?)"
+			},
+			{
+				"id": "stage",
+				"supertype": "number",
+				"description": "Stage (@.*)"
+			},
+			{
+				"id": "alignment",
+				"supertype": "operator",
+				"description": "Alignment (<<, >>, <>)"
+			},
+			{
+				"id": "constant",
+				"supertype": "variable",
+				"description": "Constant (#.*)"
+			},
+			{
+				"id": "attribute",
+				"supertype": "decorator",
+				"description": "Attribute (^.*)"
+			},
+			{
+				"id": "keyword",
+				"supertype": "keyword",
+				"description": "TL-Verilog keyword (\\.*)"
+			},
+			{
+				"id": "m4Macro",
+				"supertype": "macro",
+				"description": "M4 macro (m4+.* or M4_.*)"
+			},
+			{
+				"id": "lineTypeChar",
+				"supertype": "keyword",
+				"description": "TL-Verilog line type character"
+			},
+			{
+				"id": "tab",
+				"supertype": "error",
+				"description": "Tab character (not allowed in TL-Verilog)"
+			},
+			{
+				"id": "comment",
+				"supertype": "comment",
+				"description": "HDL-style comment"
+			},
+			{
+				"id": "m5Directive",
+				"supertype": "keyword",
+				"description": "M5 region / version directive"
+			},
+			{
+				"id": "m5MacroCall",
+				"supertype": "macro",
+				"description": "M5 macro invocation (m5+... or implicit)"
+			},
+			{
+				"id": "m5MacroName",
+				"supertype": "function",
+				"description": "Name of M5 macro"
+			},
+			{
+				"id": "m5Include",
+				"supertype": "keyword",
+				"description": "M5 library include / use"
+			},
+			{
+				"id": "m5Comment",
+				"supertype": "comment",
+				"description": "M5 single-slash line comment in \\m5"
+			}
+		],
+		"semanticTokenModifiers": [
+			{
+				"id": "physical",
+				"description": "Physical element (italic)"
+			},
+			{
+				"id": "error",
+				"description": "Error element"
+			}
+		],
+		"configurationDefaults": {
+			"[tlverilog]": {
+				"editor.semanticHighlighting.enabled": true
+			},
+			"editor.semanticTokenColorCustomizations": {
+				"enabled": true,
+				"rules": {
+					"pipeSignal": {
+						"foreground": "#A020F0"
+					},
+					"svSignal": {
+						"foreground": "#808080"
+					},
+					"behavioralHierarchy": {
+						"foreground": "#20A0C0"
+					},
+					"physicalHierarchy": {
+						"foreground": "#4682B4",
+						"fontStyle": "italic"
+					},
+					"pipeline": {
+						"foreground": "#FFA500"
+					},
+					"when": {
+						"foreground": "#F04000"
+					},
+					"stage": {
+						"foreground": "#006400",
+						"fontStyle": "italic"
+					},
+					"alignment": {
+						"foreground": "#008000"
+					},
+					"constant": {
+						"foreground": "#6495ED"
+					},
+					"attribute": {
+						"foreground": "#503890",
+						"fontStyle": "italic"
+					},
+					"keyword": {
+						"foreground": "#0000FF",
+						"fontStyle": "bold"
+					},
+					"m4Macro": {
+						"foreground": "#357a97",
+						"fontStyle": "bold"
+					},
+					"lineTypeChar": {
+						"foreground": "#FF0000",
+						"fontStyle": "bold"
+					},
+					"tab": {
+						"foreground": "#FF0000",
+						"fontStyle": "bold underline"
+					},
+					"comment": {
+						"foreground": "#808080",
+						"fontStyle": "bold italic"
+					},
+					"m5Directive": {
+						"foreground": "#0000FF",
+						"fontStyle": "bold"
+					},
+					"m5MacroCall": {
+						"foreground": "#357a97",
+						"fontStyle": "bold"
+					},
+					"m5MacroName": {
+						"foreground": "#E5C07B"
+					},
+					"m5BlockDelimiter":{
+						"foreground": "#dfca86",
+						"fontStyle": "bold"
+					},
+					"m5Include": {
+						"foreground": "#56B6C2"
+					},
+					"m5Comment": {
+						"foreground": "#808080",
+						"fontStyle": "bold italic"
+					},
+					"m5Label": {
+						"foreground": "#CE93D8",
+						"italic": true
+					},
+					"m5Var": {
+						"foreground":  "#5ac7a3",
+						"fontStyle": "bold"
+					},
+					"m5ArgSpecial": {
+						"foreground": "#b83ec4",
+						"fontStyle": "bold"
+					},
+					"string": {
+						"foreground":"#CE9178"
+					}
+
+				},
+				"[*Dark*]": {
+					"rules": {
+						"m4Macro": {
+							"foreground": "#48a2c9",
+							"fontStyle": "bold"
+						},
+						"comment": {
+							"foreground": "#B0B0B0",
+							"fontStyle": "bold italic"
+						},
+						"svSignal": {
+							"foreground": "#A0A0A0"
+						},
+						"m5MacroCall": {
+							"foreground": "#48a2c9",
+							"fontStyle": "bold"
+						},
+						"stage": {
+							"foreground": "#90EE90",
+							"fontStyle": "italic"
+						}
+					}
 				}
 			}
 		},
 		"commands": [{
 			"command": "extension.tlverilog.instantiateModule",
 			"title": "TL Verilog: Instantiate Module"
-		}],
-		"themes": [
-            {
-                "label": "TLVerilog",
-                "uiTheme": "vs",
-                "path": "./themes/tlverilog-color-theme.json"
-            }
-        ]
+		}]
 	},
 	"activationEvents": [
 		"onLanguage:tlverilog"
@@ -62,9 +296,13 @@
 		"postinstall": "node ./node_modules/vscode/bin/install"
 	},
 	"devDependencies": {
+		"@types/node": "*",
+		"typescript": "^5.9.3",
 		"vsce": "^1.28.0",
-		"typescript": "^2.0.3",
-		"vscode": "^1.0.0",
-		"@types/node": "*"
+		"vscode": "^1.0.0"
+	},
+	"dependencies": {
+		"axios": "^1.7.2",
+		"verilator": "^0.1.0"
 	}
 }
