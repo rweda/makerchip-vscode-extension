@@ -1,24 +1,58 @@
 {
   "name": "makerchip-workspace",
-  "displayName": "makerchip-workspace",
-  "description": "vs code extension for makerchip",
+  "displayName": "Makerchip Workspace",
+  "description": "VS Code extension for Makerchip IDE integration",
   "version": "0.0.1",
+  "publisher": "your-name",
   "engines": {
     "vscode": "^1.110.0"
   },
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+
+  "activationEvents": [
+    "onCommand:makerchip.open",
+    "onCommand:makerchip.compile"
+  ],
+
   "main": "./out/extension.js",
+
   "contributes": {
-    "commands": [
+  "commands": [
+    {
+      "command": "makerchip.run",
+      "title": "Makerchip: Run",
+      "icon": "$(circuit-board)"
+    }
+  ],
+  "keybindings": [
+    {
+      "command": "makerchip.run",
+      "key": "ctrl+shift+enter",
+      "when": "editorTextFocus"
+    }
+  ],
+  "menus": {
+    "editor/context": [
       {
-        "command": "makerchip-workspace.helloWorld",
-        "title": "Hello World"
+        "command": "makerchip.run",
+        "when": "editorLangId == tlv || resourceExtname == .tlv",
+        "group": "navigation"
+      }
+    ],
+    "editor/title": [
+      {
+        "command": "makerchip.run",
+        "when": "editorLangId == tlv || resourceExtname == .tlv",
+        "group": "navigation"
       }
     ]
-  },
+  }
+},
+"activationEvents": [
+  "onCommand:makerchip.run"
+],
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
@@ -27,6 +61,7 @@
     "lint": "eslint src",
     "test": "vscode-test"
   },
+
   "devDependencies": {
     "@types/vscode": "^1.110.0",
     "@types/mocha": "^10.0.10",
