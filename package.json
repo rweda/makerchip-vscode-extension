@@ -1,6 +1,6 @@
 {
-  "name": "makerchip-workspace",
-  "displayName": "Makerchip Workspace",
+  "name": "makerchip",
+  "displayName": "Makerchip",
   "description": "VS Code extension for Makerchip IDE integration",
   "version": "0.0.1",
   "publisher": "redwood-eda",

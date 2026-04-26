@@ -1,4 +1,4 @@
-# Makerchip Workspace Extension
+# Makerchip Extension
 
 VS Code extension for Makerchip IDE integration, providing TL-Verilog development and compilation support.
 
