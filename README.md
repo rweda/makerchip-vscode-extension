@@ -1,53 +1,24 @@
-# makerchip-workspace README
+# Makerchip Workspace Extension
 
-This is the README for your extension "makerchip-workspace". After writing up a brief description, we recommend including the following sections.
+VS Code extension for Makerchip IDE integration, providing TL-Verilog development and compilation support.
 
 ## Features
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+- **Run Makerchip IDE**: Compile and visualize TL-Verilog circuits directly in VS Code
+- **Language Model Tool**: Allows GitHub Copilot to launch Makerchip on your behalf
+- **Resource Management**: Automatic setup of Makerchip documentation and examples
+- **Keyboard Shortcut**: Press `Ctrl+Shift+Enter` to compile current file
 
-For example if there is an image subfolder under your extension project workspace:
+## Usage
 
-\!\[feature X\]\(images/feature-x.png\)
-
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
+1. Open a `.tlv` file
+2. Press `Ctrl+Shift+Enter` or run "Makerchip: Run" from the command palette
+3. View compilation results, circuit diagrams, and waveforms in the webview panel
 
 ## Requirements
 
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+- VS Code 1.110.0 or higher
 
-## Extension Settings
-
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
-
-For example:
-
-This extension contributes the following settings:
-
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
-
-## Known Issues
-
-Calling out known issues can help limit users opening duplicate issues against your extension.
-
-## Release Notes
-
-Users appreciate release notes as you update your extension.
-
-### 1.0.0
-
-Initial release of ...
-
-### 1.0.1
-
-Fixed issue #.
-
-### 1.1.0
-
-Added features X, Y, and Z.
-
----
 
 ## Following extension guidelines
 

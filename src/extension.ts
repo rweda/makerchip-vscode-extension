@@ -1,9 +1,34 @@
 import * as vscode from 'vscode';
+import { initializeResources, updateResources } from './resourceManager';
+import { registerMakerchipTool } from './makerchipTool';
+import { registerMakerchipParticipant } from './makerchipParticipant';
 
 let panel: vscode.WebviewPanel | undefined;
 let statusBarItem: vscode.StatusBarItem;
 
 export function activate(context: vscode.ExtensionContext) {
+  console.log('Makerchip extension activating...');
+  
+  // Register Language Model tool for Copilot (automatic invocation)
+  // Both declarative (package.json) and programmatic registration are required
+  try {
+    registerMakerchipTool(context);
+    console.log('Makerchip tool registered successfully');
+  } catch (error) {
+    console.error('Failed to register Makerchip tool:', error);
+  }
+
+  // Register Chat Participant for @makerchip (user-initiated)
+  try {
+    registerMakerchipParticipant(context);
+  } catch (error) {
+    console.error('Failed to register Makerchip chat participant:', error);
+  }
+
+  // Initialize resources (clone/update repos and install skill)
+  initializeResources(context).catch(error => {
+    console.error('Failed to initialize Makerchip resources:', error);
+  });
 
   // STATUS BAR BUTTON
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -28,17 +53,33 @@ export function activate(context: vscode.ExtensionContext) {
       // Open panel if not already open
       if (!panel) {
         await openMakerchipPanel(context);
-        panel?.webview.postMessage({ type: 'setCode', code });
       } else {
-    // Already open — reveal and immediately recompile with new code
-    panel.reveal(vscode.ViewColumn.Beside, true); 
-    panel.webview.postMessage({ type: 'setCode', code });
-  }
+        // Already open — reveal
+        panel.reveal(vscode.ViewColumn.Beside, true);
+      }
 
-      // Small delay to let the webview initialize if freshly opened
-      setTimeout(() => {
-        panel?.webview.postMessage({ type: 'setCode', code });
-      }, panel ? 0 : 1500);
+      // Send code to webview (Promise already waited for onReady)
+      panel?.webview.postMessage({ type: 'setCode', code });
+    })
+  );
+
+  // UPDATE RESOURCES COMMAND
+  context.subscriptions.push(
+    vscode.commands.registerCommand('makerchip.updateResources', async () => {
+      try {
+        await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: 'Updating Makerchip resources...',
+            cancellable: false
+          },
+          async () => {
+            await updateResources(context);
+          }
+        );
+      } catch (error: any) {
+        vscode.window.showErrorMessage(`Failed to update resources: ${error.message}`);
+      }
     })
   );
 }
@@ -61,13 +102,14 @@ function openMakerchipPanel(context: vscode.ExtensionContext): Promise<void> {
         <meta http-equiv="Content-Security-Policy"
           content="
             default-src 'none';
-            img-src https: data: blob:;
-            style-src 'unsafe-inline' https://beta.makerchip.com https://ide-beta.makerchip.com https:;
-            script-src 'nonce-${nonce}' https://beta.makerchip.com https://ide-beta.makerchip.com 'unsafe-eval' 'unsafe-inline';
-            frame-src https://beta.makerchip.com https://ide-beta.makerchip.com https:;
-            connect-src https://beta.makerchip.com https://ide-beta.makerchip.com wss://beta.makerchip.com wss://ide-beta.makerchip.com https:;
-            font-src https://beta.makerchip.com https://ide-beta.makerchip.com https:;
-            worker-src blob:;
+            img-src vscode-webview: https: data: blob:;
+            style-src vscode-webview: 'unsafe-inline' https:;
+            script-src vscode-webview: 'nonce-${nonce}' https: 'unsafe-eval' 'unsafe-inline';
+            frame-src https:;
+            connect-src https: wss:;
+            font-src vscode-webview: https:;
+            worker-src vscode-webview: blob:;
+            child-src https:;
           ">
         <style>
           html, body { margin: 0; padding: 0; height: 100%; background: #1e1e1e; }

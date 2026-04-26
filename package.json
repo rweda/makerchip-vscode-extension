@@ -3,56 +3,104 @@
   "displayName": "Makerchip Workspace",
   "description": "VS Code extension for Makerchip IDE integration",
   "version": "0.0.1",
-  "publisher": "your-name",
+  "publisher": "redwood-eda",
   "engines": {
     "vscode": "^1.110.0"
   },
   "categories": [
     "Other"
   ],
-
   "activationEvents": [
-    "onCommand:makerchip.open",
-    "onCommand:makerchip.compile"
+    "onStartupFinished"
   ],
-
   "main": "./out/extension.js",
-
   "contributes": {
-  "commands": [
-    {
-      "command": "makerchip.run",
-      "title": "Makerchip: Run",
-      "icon": "$(circuit-board)"
-    }
-  ],
-  "keybindings": [
-    {
-      "command": "makerchip.run",
-      "key": "ctrl+shift+enter",
-      "when": "editorTextFocus"
-    }
-  ],
-  "menus": {
-    "editor/context": [
+    "commands": [
       {
         "command": "makerchip.run",
-        "when": "editorLangId == tlv || resourceExtname == .tlv",
-        "group": "navigation"
+        "title": "Makerchip: Run",
+        "icon": "$(circuit-board)"
+      },
+      {
+        "command": "makerchip.updateResources",
+        "title": "Makerchip: Update Resources",
+        "icon": "$(cloud-download)"
       }
     ],
-    "editor/title": [
+    "configuration": {
+      "title": "Makerchip",
+      "properties": {
+        "makerchip.autoUpdateResources": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically update Makerchip resources on activation"
+        },
+        "makerchip.addResourcesFolder": {
+          "type": "string",
+          "enum": ["ask", "always", "never"],
+          "default": "ask",
+          "enumDescriptions": [
+            "Ask whether to add resources folder to workspace",
+            "Always add resources folder to workspace",
+            "Never add resources folder to workspace"
+          ],
+          "description": "Add Makerchip resources folder to workspace (for LLMs)"
+        }
+      }
+    },
+    "keybindings": [
       {
         "command": "makerchip.run",
-        "when": "editorLangId == tlv || resourceExtname == .tlv",
-        "group": "navigation"
+        "key": "ctrl+shift+enter",
+        "when": "editorTextFocus"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "makerchip.run",
+          "when": "editorLangId == tlv || resourceExtname == .tlv",
+          "group": "navigation"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "makerchip.run",
+          "when": "editorLangId == tlv || resourceExtname == .tlv",
+          "group": "navigation"
+        }
+      ]
+    },
+    "languageModelTools": [
+      {
+        "name": "makerchip_run",
+        "displayName": "Makerchip Run",
+        "toolReferenceName": "makerchipRun",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(circuit-board)",
+        "userDescription": "Compile and open TL-Verilog in Makerchip IDE.",
+        "modelDescription": "Opens the Makerchip IDE in VS Code and compiles the current or specified TL-Verilog file. Use this when the user wants to run, compile, open, or launch Makerchip. The tool will open a webview panel beside the editor showing the compiled circuit diagram, waveforms, and Visual Debug output.",
+        "tags": ["makerchip", "tlv", "verilog", "compile", "circuit", "hardware"],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "filePath": {
+              "type": "string",
+              "description": "Optional path to a TL-Verilog file to open and compile. If not provided, uses the currently active editor."
+            }
+          }
+        }
+      }
+    ],
+    "chatParticipants": [
+      {
+        "id": "makerchip",
+        "name": "makerchip",
+        "description": "Makerchip IDE integration for TL-Verilog development",
+        "isSticky": true
       }
     ]
-  }
-},
-"activationEvents": [
-  "onCommand:makerchip.run"
-],
+  },
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",

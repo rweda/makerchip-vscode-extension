@@ -1,0 +1,60 @@
+---
+applyTo:
+  - "**/*.tlv"
+  - "**/*.sv"
+  - "**/*.v"
+  - "**/*.m5"
+---
+
+# TL-Verilog Ecosystem Guide
+
+This skill provides comprehensive guidance for working with Transaction-Level Verilog (TL-Verilog) and its ecosystem of tools.
+
+## Technology Overview
+
+**TL-Verilog (Transaction-Level Verilog)** is a hardware description language that extends SystemVerilog with powerful transaction-level abstractions for digital circuit design. It dramatically simplifies pipeline design, timing, and hierarchy.
+
+**Key Technologies:**
+
+- **TL-Verilog**: The core language with pipeline, hierarchy, and transaction-level constructs
+- **M5**: A text macro processor integrated with TL-Verilog for code generation and parameterization
+- **Visual Debug (VIZ)**: Graphical visualization capabilities for debugging circuit behavior
+- **Makerchip**: Web-based IDE for TL-Verilog development with integrated compilation, simulation, and visualization
+- **SandPiper**: The TL-Verilog compiler that generates standard Verilog/SystemVerilog
+
+## How They Work Together
+
+1. **Write code** in `.tlv` files using TL-Verilog syntax
+2. **Use M5 macros** for parameterization and code generation (processed before TL-Verilog compilation)
+3. **Add VIZ annotations** to visualize circuit behavior during simulation
+4. **Compile in Makerchip** (or via SandPiper) to generate Verilog
+5. **Simulate and debug** with integrated waveform viewer and Visual Debug graphics
+
+## Language Recognition
+
+TL-Verilog files use `.tlv` extension and combine:
+- Standard Verilog/SystemVerilog syntax
+- TL-Verilog constructs: `|pipe`, `@stage`, `$signal`, `/hierarchy`, `?$condition`
+- M5 macros: `m5_define`, `m5_if`, `m5_for`, etc.
+- VIZ annotations: `\viz`, visualization commands
+
+## Documentation References
+
+When helping with TL-Verilog, **reference these primary sources** in the Makerchip resources folder:
+
+### Specifications
+- **[Makerchip-public/docs/TLXSpec.pdf](../Makerchip-public/docs/TLXSpec.pdf)** - Complete TL-X language specification (authoritative reference)
+- **[Makerchip-public/docs/M5_spec.pdf](../Makerchip-public/docs/M5_spec.pdf)** - M5 macro processor language specification
+- **[Makerchip-public/docs/VisualDebugUsersGuide.pdf](../Makerchip-public/docs/VisualDebugUsersGuide.pdf)** - Visual Debug features and usage
+- **[Makerchip-public/docs/TLV_Macros_Guide.pdf](../Makerchip-public/docs/TLV_Macros_Guide.pdf)** - TLV macro library syntax and patterns
+
+### Examples and Tutorials
+- **[Makerchip-public/tutorial/tlv/](../Makerchip-public/tutorial/tlv/)** - Beginner-friendly tutorial examples
+- **[makerchip_examples/](../makerchip_examples/)** - Extensive collection of real-world examples
+- **[LF-Building-a-RISC-V-CPU-Core-Course/](../LF-Building-a-RISC-V-CPU-Core-Course/)** - Complete RISC-V CPU design course
+
+### Advanced Examples
+- **[warp-v/](../warp-v/)** - Configurable RISC-V CPU generator (production-quality example)
+- **[warp-v_includes/](../warp-v_includes/)** - RISC-V ISA definitions and library patterns
+- **[tlv_lib/](../tlv_lib/)** - General-purpose TL-Verilog component libraries
+- **[tlv_flow_lib/](../tlv_flow_lib/)** - Transaction flow components and `$ANY` patterns
