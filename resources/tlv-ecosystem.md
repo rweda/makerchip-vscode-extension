@@ -58,3 +58,84 @@ When helping with TL-Verilog, **reference these primary sources** in the Makerch
 - **[warp-v_includes/](../warp-v_includes/)** - RISC-V ISA definitions and library patterns
 - **[tlv_lib/](../tlv_lib/)** - General-purpose TL-Verilog component libraries
 - **[tlv_flow_lib/](../tlv_flow_lib/)** - Transaction flow components and `$ANY` patterns
+
+## Working with the Makerchip VS Code Extension
+
+### Showing Examples and Visualizations
+
+**IMPORTANT**: When the user asks to see, show, demonstrate, or visualize TL-Verilog code or examples:
+- **Use the `makerchip_run` tool** to open code in the Makerchip IDE
+- **Do NOT just show code in the chat** - prefer opening it in the visual IDE
+- The IDE provides circuit diagrams, waveforms, and Visual Debug output
+
+**Use `makerchip_run` tool when the user wants to:**
+- See an example
+- Visualize a circuit
+- Run or compile TL-Verilog
+- View waveforms or diagrams
+- Test or demonstrate code
+
+**Tool parameters:**
+```json
+{
+  "code": "\\TLV_version 1d: tl-x.org\\n...",  // TL-Verilog code to show
+  "filePath": "path/to/file.tlv"              // Or path to existing file
+}
+```
+
+**Example workflow:**
+1. User asks: "Show me a simple counter in TL-Verilog"
+2. Generate the TL-Verilog code
+3. **Use `makerchip_run` tool** with the `code` parameter
+4. The code opens in Makerchip IDE with visual output
+
+### Advanced IDE Control
+
+Use the `makerchip_ide_call` tool for advanced IDE operations:
+
+**Switch to different panes:**
+```json
+{
+  "method": "activatePane",
+  "args": ["Waveform"]  // Options: "Diagram", "Waveform", "Nav-TLV", "Editor", "Log"
+}
+```
+
+**Set code without compiling:**
+```json
+{
+  "method": "setCode",
+  "args": ["code here", false]  // second arg is readOnly flag
+}
+```
+
+**Load code from URL:**
+```json
+{
+  "method": "setCodeFromURL",
+  "args": ["https://example.com/code.tlv", false]
+}
+```
+
+**API Documentation:**
+For complete IDE Plugin API reference, see:
+- `~/.vscode-makerchip-resources/Makerchip-public/docs/plugin_api/index.html` (local)
+- [IdePlugin API Documentation](https://github.com/rweda/Makerchip-public/blob/main/docs/plugin_api/index.html) (online)
+
+### API Reference Documentation
+
+**IDE Plugin API**: `~/.vscode-makerchip-resources/Makerchip-public/docs/plugin_api/index.html`
+- Complete reference for all IDE methods available via `makerchip_ide_call` tool
+- Includes IdePlugin class documentation with method signatures and descriptions
+
+**VIZ API**: `~/.vscode-makerchip-resources/Makerchip-public/docs/viz_codo/index.html`
+- SignalValue and SignalValueSet classes for waveform data access
+- Used for custom visualization code
+
+### Best Practices for Assistance
+
+1. **Prefer visualization**: When showing TL-Verilog examples, open them in Makerchip IDE rather than just displaying code
+2. **Use correct syntax**: Follow TLX specification for TL-Verilog constructs
+3. **Reference docs**: Point to specific PDF files and API documentation in this resources folder when explaining concepts
+4. **Show progression**: For tutorials, build up complexity step-by-step
+5. **Include VIZ**: When demonstrating circuits, include `\viz` annotations for better visualization

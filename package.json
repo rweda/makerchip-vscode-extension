@@ -37,7 +37,11 @@
         },
         "makerchip.addResourcesFolder": {
           "type": "string",
-          "enum": ["ask", "always", "never"],
+          "enum": [
+            "ask",
+            "always",
+            "never"
+          ],
           "default": "ask",
           "enumDescriptions": [
             "Ask whether to add resources folder to workspace",
@@ -79,14 +83,75 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(circuit-board)",
         "userDescription": "Compile and open TL-Verilog in Makerchip IDE.",
-        "modelDescription": "Opens the Makerchip IDE in VS Code and compiles the current or specified TL-Verilog file. Use this when the user wants to run, compile, open, or launch Makerchip. The tool will open a webview panel beside the editor showing the compiled circuit diagram, waveforms, and Visual Debug output.",
-        "tags": ["makerchip", "tlv", "verilog", "compile", "circuit", "hardware"],
+        "modelDescription": "Opens the Makerchip IDE in VS Code and compiles the current or specified TL-Verilog file, showing the compiled circuit diagram, waveforms, and Visual Debug output. IMPORTANT: Use this tool whenever the user wants to SEE, SHOW, DEMONSTRATE, VISUALIZE, or VIEW TL-Verilog code or examples - don't just show code in the chat. Also use when they want to run, compile, open, launch, or test Makerchip or TL-Verilog. When providing TL-Verilog examples, prefer opening them in Makerchip rather than only displaying the code. The visual IDE is the primary way to interact with TL-Verilog.",
+        "tags": [
+          "makerchip",
+          "tlv",
+          "verilog",
+          "compile",
+          "circuit",
+          "hardware",
+          "show",
+          "example",
+          "demo",
+          "demonstrate",
+          "visualize",
+          "view",
+          "diagram",
+          "waveform"
+        ],
         "inputSchema": {
           "type": "object",
           "properties": {
             "filePath": {
               "type": "string",
               "description": "Optional path to a TL-Verilog file to open and compile. If not provided, uses the currently active editor."
+            },
+            "code": {
+              "type": "string",
+              "description": "Optional TL-Verilog code to compile. When provided, creates a new unsaved file with this code and opens it in Makerchip. Use this to show examples or demonstrate TL-Verilog features."
+            }
+          }
+        }
+      },
+      {
+        "name": "makerchip_ide_call",
+        "displayName": "Makerchip IDE Method Call",
+        "toolReferenceName": "makerchipIdeCall",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-method)",
+        "userDescription": "Call any Makerchip IDE method directly.",
+        "modelDescription": "Invokes any method on the Makerchip IDE instance. Available methods include: compile(code), setCode(code, readOnly), getCode(lastChangeGeneration), setCodeFromURL(url, readOnly), activatePane(name), openStaticPane(name, background). Use this for advanced IDE control like changing panes, setting code without compiling, or loading code from URLs. Methods like onReady, onCodeChange, onCompilationLog are callbacks and should not be called directly.",
+        "tags": [
+          "makerchip",
+          "ide",
+          "api",
+          "method",
+          "advanced"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "required": [
+            "method"
+          ],
+          "properties": {
+            "method": {
+              "type": "string",
+              "description": "The IDE method to invoke (e.g., 'compile', 'activatePane', 'setCode', 'getCode', 'setCodeFromURL', 'openStaticPane')"
+            },
+            "args": {
+              "type": "array",
+              "description": "Arguments to pass to the method. Order matters.",
+              "items": {
+                "type": [
+                  "string",
+                  "number",
+                  "boolean",
+                  "object",
+                  "array",
+                  "null"
+                ]
+              }
             }
           }
         }
@@ -103,21 +168,21 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
+    "compile": "tsc -p ./ && tsc -p src/tsconfig.webview.json && npm run copy-webview",
+    "copy-webview": "cp src/webview.html out/webview.html",
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src",
     "test": "vscode-test"
   },
-
   "devDependencies": {
-    "@types/vscode": "^1.110.0",
     "@types/mocha": "^10.0.10",
-    "@types/node": "22.x",
-    "typescript-eslint": "^8.56.1",
+    "@types/node": "^22.19.17",
+    "@types/vscode": "^1.110.0",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
     "eslint": "^9.39.3",
     "typescript": "^5.9.3",
-    "@vscode/test-cli": "^0.0.12",
-    "@vscode/test-electron": "^2.5.2"
+    "typescript-eslint": "^8.56.1"
   }
 }

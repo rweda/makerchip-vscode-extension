@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy"
+    content="
+      default-src 'none';
+      img-src vscode-webview: https: data: blob:;
+      style-src vscode-webview: 'unsafe-inline' https:;
+      script-src vscode-webview: 'nonce-{{nonce}}' https: 'unsafe-eval' 'unsafe-inline';
+      frame-src https:;
+      connect-src https: wss:;
+      font-src vscode-webview: https:;
+      worker-src vscode-webview: blob:;
+      child-src https:;
+    ">
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; background: #1e1e1e; }
+    #my-makerchip { width: 100%; height: 100vh; }
+  </style>
+</head>
+<body>
+  <div id="my-makerchip"></div>
+  <script nonce="{{nonce}}" type="module" src="{{scriptUri}}"></script>
+</body>
+</html>

@@ -1,12 +1,68 @@
+/**
+ * Makerchip VS Code Extension - Main activation module
+ * 
+ * Provides TL-Verilog development support with:
+ *   - Makerchip IDE integration via webview panel
+ *   - GitHub Copilot Language Model tools (makerchip_run, makerchip_ide_call)
+ *   - Chat participant (@makerchip)
+ *   - Resource management (clones docs/examples to ~/.vscode-makerchip-resources)
+ * 
+ * Architecture:
+ *   - Global context/panel state for clean API
+ *   - Generic callIDE() helper for all IDE method invocations
+ *   - Unified message protocol: { type: 'ide', method, args }
+ *   - Webview compiled separately as ES module (see tsconfig.webview.json)
+ */
+
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
 import { initializeResources, updateResources } from './resourceManager';
 import { registerMakerchipTool } from './makerchipTool';
 import { registerMakerchipParticipant } from './makerchipParticipant';
 
 let panel: vscode.WebviewPanel | undefined;
+let panelReady: Promise<void> | undefined;
 let statusBarItem: vscode.StatusBarItem;
+let context: vscode.ExtensionContext;
 
-export function activate(context: vscode.ExtensionContext) {
+/**
+ * Ensure the Makerchip panel is open and ready to receive messages.
+ * @returns Promise that resolves when panel is ready
+ */
+async function ensurePanelReady(): Promise<void> {
+  if (panelReady) {
+    // Panel is already open or opening - wait for it
+    return panelReady;
+  }
+  
+  if (panel) {
+    // Panel exists but ready promise was cleared - just reveal it
+    panel.reveal(vscode.ViewColumn.Beside, true);
+    return Promise.resolve();
+  }
+  
+  // Open new panel and track the ready promise
+  panelReady = openMakerchipPanel();
+  return panelReady;
+}
+
+/**
+ * Call an IDE method, ensuring the panel is open and ready.
+ * @param method IDE method name to invoke
+ * @param args Arguments to pass to the method
+ */
+export async function callIDE(method: string, ...args: any[]): Promise<void> {
+  await ensurePanelReady();
+  panel!.webview.postMessage({ 
+    type: 'ide', 
+    method, 
+    args 
+  });
+}
+
+export function activate(ctx: vscode.ExtensionContext) {
+  context = ctx;  // Store context globally
   console.log('Makerchip extension activating...');
   
   // Register Language Model tool for Copilot (automatic invocation)
@@ -50,16 +106,8 @@ export function activate(context: vscode.ExtensionContext) {
 
       const code = editor.document.getText();
 
-      // Open panel if not already open
-      if (!panel) {
-        await openMakerchipPanel(context);
-      } else {
-        // Already open — reveal
-        panel.reveal(vscode.ViewColumn.Beside, true);
-      }
-
-      // Send code to webview (Promise already waited for onReady)
-      panel?.webview.postMessage({ type: 'setCode', code });
+      // Call IDE to compile the code
+      await callIDE('compile', code);
     })
   );
 
@@ -82,9 +130,16 @@ export function activate(context: vscode.ExtensionContext) {
       }
     })
   );
+
+  // INVOKE IDE METHOD COMMAND (used by Copilot tools)
+  context.subscriptions.push(
+    vscode.commands.registerCommand('makerchip.invokeIdeMethod', async (method: string, args: any[] = []) => {
+      await callIDE(method, ...args);
+    })
+  );
 }
 
-function openMakerchipPanel(context: vscode.ExtensionContext): Promise<void> {
+function openMakerchipPanel(): Promise<void> {
   return new Promise((resolve) => {
     panel = vscode.window.createWebviewPanel(
       'makerchip', 'Makerchip IDE',
@@ -93,69 +148,29 @@ function openMakerchipPanel(context: vscode.ExtensionContext): Promise<void> {
     );
 
     const nonce = getNonce();
+    
+    // Get webview URI for the script file
+    const scriptUri = panel.webview.asWebviewUri(
+      vscode.Uri.joinPath(context.extensionUri, 'out', 'webview.js')
+    );
 
-    panel.webview.html = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="UTF-8">
-        <meta http-equiv="Content-Security-Policy"
-          content="
-            default-src 'none';
-            img-src vscode-webview: https: data: blob:;
-            style-src vscode-webview: 'unsafe-inline' https:;
-            script-src vscode-webview: 'nonce-${nonce}' https: 'unsafe-eval' 'unsafe-inline';
-            frame-src https:;
-            connect-src https: wss:;
-            font-src vscode-webview: https:;
-            worker-src vscode-webview: blob:;
-            child-src https:;
-          ">
-        <style>
-          html, body { margin: 0; padding: 0; height: 100%; background: #1e1e1e; }
-          #my-makerchip { width: 100%; height: 100vh; }
-        </style>
-      </head>
-      <body>
-        <div id="my-makerchip"></div>
-        <script nonce="${nonce}" type="module">
-          const vscode = acquireVsCodeApi();
-          import IdePlugin from 'https://beta.makerchip.com/dist/makerchip-plugin.js';
-
-          class VSCodeMakerchip extends IdePlugin {
-            onReady() {
-              console.log("Makerchip ready");
-              this.activatePane("Diagram");
-              vscode.postMessage({ type: 'ready' });   // 🔹 notify extension
-            }
-            onCompilationLog(id, log, complete, type) {
-              vscode.postMessage({ type: 'log', value: log });
-              if (complete) vscode.postMessage({ type: 'done', value: log });
-            }
-            onCompilationVcd(id, vcd) {
-              vscode.postMessage({ type: 'vcd', value: vcd });
-            }
-          }
-
-          const ide = await new VSCodeMakerchip('my-makerchip', { hasEditor: false });
-
-          window.addEventListener('message', async (event) => {
-            const msg = event.data;
-            if (msg.type === 'setCode') {
-              await ide.compile(msg.code);
-            }
-          });
-        </script>
-      </body>
-      </html>
-    `;
+    // Load HTML template and replace placeholders
+    const htmlPath = path.join(context.extensionPath, 'out', 'webview.html');
+    let html = fs.readFileSync(htmlPath, 'utf8');
+    html = html.replace(/{{nonce}}/g, nonce);
+    html = html.replace(/{{scriptUri}}/g, scriptUri.toString());
+    
+    panel.webview.html = html;
 
     panel.webview.onDidReceiveMessage((msg) => {
       if (msg.type === 'ready') resolve();   // 🔹 resolve when IDE is ready
       if (msg.type === 'done') vscode.window.showInformationMessage("Makerchip: Compilation finished");
     });
 
-    panel.onDidDispose(() => { panel = undefined; });
+    panel.onDidDispose(() => { 
+      panel = undefined;
+      panelReady = undefined;  // Clear ready promise so new panel can be created
+    });
   });
 }
 
