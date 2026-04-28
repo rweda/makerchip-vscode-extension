@@ -2,13 +2,15 @@
  * Makerchip VS Code Extension - Main activation module
  * 
  * Provides TL-Verilog development support with:
- *   - Makerchip IDE integration via webview panel
- *   - GitHub Copilot Language Model tools (makerchip_run, makerchip_ide_call)
+ *   - Makerchip IDE integration via webview panel(s)
+ *   - GitHub Copilot Language Model tools (makerchip_compile, makerchip_ide_call)
  *   - Chat participant (@makerchip)
- *   - Resource management (clones docs/examples to ~/.vscode-makerchip-resources)
+ *   - Reference data management (clones docs/examples to ~/.vscode-makerchip/resources/)
+ *   - Compilation cache (stores results in ~/.vscode-makerchip/compile-cache/)
  * 
  * Architecture:
  *   - Global context/panel state for clean API
+ *   - Multiple named panels supported
  *   - Generic callIDE() helper for all IDE method invocations
  *   - Unified message protocol: { type: 'ide', method, args }
  *   - Webview compiled separately as ES module (see tsconfig.webview.json)
@@ -20,44 +22,64 @@ import * as path from 'path';
 import { initializeResources, updateResources } from './resourceManager';
 import { registerMakerchipTool } from './makerchipTool';
 import { registerMakerchipParticipant } from './makerchipParticipant';
+import * as compileCache from './compileCache';
 
-let panel: vscode.WebviewPanel | undefined;
-let panelReady: Promise<void> | undefined;
+// Track multiple panels by name
+const panels = new Map<string, vscode.WebviewPanel>();
+const panelReadyPromises = new Map<string, Promise<void>>();
+const pendingCompiles = new Map<string, string>(); // panelKey -> source code while awaiting an ID
+let panelCounter = 1;
 let statusBarItem: vscode.StatusBarItem;
 let context: vscode.ExtensionContext;
 
 /**
- * Ensure the Makerchip panel is open and ready to receive messages.
+ * Ensure a Makerchip panel is open and ready to receive messages.
+ * @param name Optional panel name. If not provided, uses 'default' for single-panel usage.
  * @returns Promise that resolves when panel is ready
  */
-async function ensurePanelReady(): Promise<void> {
-  if (panelReady) {
+async function ensurePanelReady(name?: string): Promise<void> {
+  const panelKey = name || 'default';
+  
+  if (panelReadyPromises.has(panelKey)) {
     // Panel is already open or opening - wait for it
-    return panelReady;
+    return panelReadyPromises.get(panelKey)!;
   }
   
-  if (panel) {
+  if (panels.has(panelKey)) {
     // Panel exists but ready promise was cleared - just reveal it
-    panel.reveal(vscode.ViewColumn.Beside, true);
+    panels.get(panelKey)!.reveal(vscode.ViewColumn.Beside, true);
     return Promise.resolve();
   }
   
   // Open new panel and track the ready promise
-  panelReady = openMakerchipPanel();
-  return panelReady;
+  const readyPromise = openMakerchipPanel(panelKey);
+  panelReadyPromises.set(panelKey, readyPromise);
+  return readyPromise;
 }
 
 /**
  * Call an IDE method, ensuring the panel is open and ready.
  * @param method IDE method name to invoke
  * @param args Arguments to pass to the method
+ * @param panelName Optional panel name to target. Defaults to 'default'.
  */
-export async function callIDE(method: string, ...args: any[]): Promise<void> {
-  await ensurePanelReady();
-  panel!.webview.postMessage({ 
+export async function callIDE(method: string, args?: any[], panelName?: string): Promise<void> {
+  const name = panelName || 'default';
+  await ensurePanelReady(name);
+  const panel = panels.get(name);
+  if (!panel) {
+    throw new Error(`Panel '${name}' not found`);
+  }
+  
+  // Track compile source code for cache initialization
+  if (method === 'compile' && args && args.length > 0 && typeof args[0] === 'string') {
+    pendingCompiles.set(name, args[0]);
+  }
+  
+  panel.webview.postMessage({ 
     type: 'ide', 
     method, 
-    args 
+    args: args || []
   });
 }
 
@@ -83,20 +105,25 @@ export function activate(ctx: vscode.ExtensionContext) {
 
   // Initialize resources (clone/update repos and install skill)
   initializeResources(context).catch(error => {
-    console.error('Failed to initialize Makerchip resources:', error);
+    console.error('Failed to initialize Makerchip reference data:', error);
+  });
+
+  // Cleanup old cache entries on activation
+  compileCache.cleanupOldEntries().catch(error => {
+    console.error('Failed to cleanup old cache entries:', error);
   });
 
   // STATUS BAR BUTTON
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-  statusBarItem.text = "$(circuit-board) Run Makerchip";
-  statusBarItem.command = 'makerchip.run';
-  statusBarItem.tooltip = 'Open Makerchip and compile current file';
+  statusBarItem.text = "$(circuit-board) Compile/Simulate";
+  statusBarItem.command = 'makerchip.compile';
+  statusBarItem.tooltip = 'Compile and simulate current file in Makerchip';
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
 
-  // SINGLE RUN COMMAND
+  // COMPILE/SIMULATE COMMAND (uses default panel)
   context.subscriptions.push(
-    vscode.commands.registerCommand('makerchip.run', async () => {
+    vscode.commands.registerCommand('makerchip.compile', async () => {
 
       const editor = vscode.window.activeTextEditor;
       if (!editor) {
@@ -106,19 +133,78 @@ export function activate(ctx: vscode.ExtensionContext) {
 
       const code = editor.document.getText();
 
-      // Call IDE to compile the code
-      await callIDE('compile', code);
+      // Call IDE to compile the code (default panel)
+      await callIDE('compile', [code]);
     })
   );
 
-  // UPDATE RESOURCES COMMAND
+  // COMPILE/SIMULATE IN AUTO-NAMED PANEL COMMAND (sequential naming)
+  context.subscriptions.push(
+    vscode.commands.registerCommand('makerchip.compileNew', async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        vscode.window.showErrorMessage("No active file to compile");
+        return;
+      }
+
+      const code = editor.document.getText();
+      const panelName = `Panel ${panelCounter++}`;
+      await callIDE('compile', [code], panelName);
+    })
+  );
+
+  // COMPILE/SIMULATE IN PANEL COMMAND (with panel selection)
+  context.subscriptions.push(
+    vscode.commands.registerCommand('makerchip.compileNamed', async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        vscode.window.showErrorMessage("No active file to compile");
+        return;
+      }
+
+      // Build QuickPick items: existing panels + new panel option
+      const existingPanels = Array.from(panels.keys());
+      const items: vscode.QuickPickItem[] = [
+        ...existingPanels.map(name => ({
+          label: name,
+          description: name === 'default' ? '(current)' : ''
+        })),
+        { label: '', kind: vscode.QuickPickItemKind.Separator } as vscode.QuickPickItem,
+        { label: '$(add) New Panel...', alwaysShow: true }
+      ];
+
+      const selected = await vscode.window.showQuickPick(items, {
+        placeHolder: 'Select panel or create new one'
+      });
+
+      if (!selected) return; // User cancelled
+
+      let panelName: string;
+      if (selected.label === '$(add) New Panel...') {
+        // Prompt for new panel name
+        const input = await vscode.window.showInputBox({
+          prompt: 'Enter panel name (or leave empty for auto-generated)',
+          placeHolder: `Panel ${panelCounter}`
+        });
+        if (input === undefined) return; // User cancelled
+        panelName = input.trim() || `Panel ${panelCounter++}`;
+      } else {
+        panelName = selected.label;
+      }
+
+      const code = editor.document.getText();
+      await callIDE('compile', [code], panelName);
+    })
+  );
+
+  // UPDATE REFERENCE DATA COMMAND
   context.subscriptions.push(
     vscode.commands.registerCommand('makerchip.updateResources', async () => {
       try {
         await vscode.window.withProgress(
           {
             location: vscode.ProgressLocation.Notification,
-            title: 'Updating Makerchip resources...',
+            title: 'Updating Makerchip reference data...',
             cancellable: false
           },
           async () => {
@@ -126,26 +212,47 @@ export function activate(ctx: vscode.ExtensionContext) {
           }
         );
       } catch (error: any) {
-        vscode.window.showErrorMessage(`Failed to update resources: ${error.message}`);
+        vscode.window.showErrorMessage(`Failed to update reference data: ${error.message}`);
       }
     })
   );
 
   // INVOKE IDE METHOD COMMAND (used by Copilot tools)
   context.subscriptions.push(
-    vscode.commands.registerCommand('makerchip.invokeIdeMethod', async (method: string, args: any[] = []) => {
-      await callIDE(method, ...args);
+    vscode.commands.registerCommand('makerchip.invokeIdeMethod', async (method: string, args: any[] = [], panelName?: string) => {
+      await callIDE(method, args, panelName);
+    })
+  );
+
+  // LIST PANELS COMMAND
+  context.subscriptions.push(
+    vscode.commands.registerCommand('makerchip.listPanels', async () => {
+      if (panels.size === 0) {
+        vscode.window.showInformationMessage('No Makerchip panels currently open');
+        return;
+      }
+      const panelNames = Array.from(panels.keys()).join(', ');
+      vscode.window.showInformationMessage(`Open Makerchip panels: ${panelNames}`);
     })
   );
 }
 
-function openMakerchipPanel(): Promise<void> {
+function openMakerchipPanel(panelKey: string): Promise<void> {
   return new Promise((resolve) => {
-    panel = vscode.window.createWebviewPanel(
-      'makerchip', 'Makerchip IDE',
+    // Create display name
+    const displayName = panelKey === 'default' ? 'Makerchip IDE' : `Makerchip: ${panelKey}`;
+    
+    const panel = vscode.window.createWebviewPanel(
+      'makerchip', displayName,
       vscode.ViewColumn.Beside,
-      { enableScripts: true }
+      { 
+        enableScripts: true,
+        retainContextWhenHidden: true  // Prevent reload on move/hide
+      }
     );
+
+    // Store panel in map
+    panels.set(panelKey, panel);
 
     const nonce = getNonce();
     
@@ -162,14 +269,71 @@ function openMakerchipPanel(): Promise<void> {
     
     panel.webview.html = html;
 
-    panel.webview.onDidReceiveMessage((msg) => {
-      if (msg.type === 'ready') resolve();   // 🔹 resolve when IDE is ready
-      if (msg.type === 'done') vscode.window.showInformationMessage("Makerchip: Compilation finished");
+    panel.webview.onDidReceiveMessage(async (msg) => {
+      console.log(`Message received from webview (panel: ${panelKey}):`, msg.type, msg);
+      
+      if (msg.type === 'ready') {
+        resolve();   // 🔹 resolve when IDE is ready
+      }
+      
+      if (msg.type === 'ideResult' && msg.method === 'compile' && msg.result) {
+        // Initialize cache when compile returns an ID
+        console.log(`Compile ID received: ${msg.result}`);
+        try {
+          const sourceCode = pendingCompiles.get(panelKey);
+          await compileCache.initCompile(msg.result, sourceCode);
+          pendingCompiles.delete(panelKey); // Clean up
+        } catch (error) {
+          console.error('Failed to initialize compile cache:', error);
+        }
+      }
+      
+      if (msg.type === 'compileFileChunk') {
+        // Cache compilation result file chunks (stdall, make.out, or vlt_dump.vcd)
+        console.log(`Compile file chunk for ${msg.id}: ${msg.fileName}, ${msg.chunk.length} chars, complete=${msg.complete}`);
+        try {
+          await compileCache.appendFile(msg.id, msg.fileName, msg.chunk);
+          if (msg.complete) {
+            await compileCache.completeFile(msg.id, msg.fileName);
+            console.log(`${msg.fileName} complete and cached for ${msg.id}`);
+          }
+        } catch (error) {
+          console.error(`Failed to cache ${msg.fileName} chunk:`, error);
+        }
+      }
+      
+      if (msg.type === 'compileError') {
+        // Record compilation error
+        console.log(`Compile error for ${msg.id}: ${msg.errorType}`);
+        try {
+          await compileCache.recordError(msg.id, msg.errorType, msg.message, msg.details);
+        } catch (error) {
+          console.error('Failed to record compile error:', error);
+        }
+      }
+      
+      if (msg.type === 'compileExitStatus') {
+        // Record exit status from compilation stage
+        console.log(`Exit status for ${msg.id}: ${msg.stage} = ${msg.exitCode}`);
+        try {
+          await compileCache.recordExitStatus(msg.id, msg.stage, msg.exitCode);
+        } catch (error) {
+          console.error('Failed to record exit status:', error);
+        }
+      }
+      
+      if (msg.type === 'compileDenied') {
+        // Show denial message to user
+        console.log(`Compilation denied: ${msg.reason} - ${msg.message}`);
+        const retryMsg = msg.retryAfterSeconds ? ` Retry after ${msg.retryAfterSeconds} seconds.` : '';
+        vscode.window.showWarningMessage(`Compilation denied: ${msg.message}${retryMsg}`);
+      }
     });
 
     panel.onDidDispose(() => { 
-      panel = undefined;
-      panelReady = undefined;  // Clear ready promise so new panel can be created
+      panels.delete(panelKey);
+      panelReadyPromises.delete(panelKey);
+      pendingCompiles.delete(panelKey);
     });
   });
 }

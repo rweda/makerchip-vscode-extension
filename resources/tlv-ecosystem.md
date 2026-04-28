@@ -64,11 +64,11 @@ When helping with TL-Verilog, **reference these primary sources** in the Makerch
 ### Showing Examples and Visualizations
 
 **IMPORTANT**: When the user asks to see, show, demonstrate, or visualize TL-Verilog code or examples:
-- **Use the `makerchip_run` tool** to open code in the Makerchip IDE
+- **Use the `makerchip_compile` tool** to open code in the Makerchip IDE
 - **Do NOT just show code in the chat** - prefer opening it in the visual IDE
 - The IDE provides circuit diagrams, waveforms, and Visual Debug output
 
-**Use `makerchip_run` tool when the user wants to:**
+**Use `makerchip_compile` tool when the user wants to:**
 - See an example
 - Visualize a circuit
 - Run or compile TL-Verilog
@@ -86,7 +86,7 @@ When helping with TL-Verilog, **reference these primary sources** in the Makerch
 **Example workflow:**
 1. User asks: "Show me a simple counter in TL-Verilog"
 2. Generate the TL-Verilog code
-3. **Use `makerchip_run` tool** with the `code` parameter
+3. **Use `makerchip_compile` tool** with the `code` parameter
 4. The code opens in Makerchip IDE with visual output
 
 ### Advanced IDE Control
@@ -119,16 +119,16 @@ Use the `makerchip_ide_call` tool for advanced IDE operations:
 
 **API Documentation:**
 For complete IDE Plugin API reference, see:
-- `~/.vscode-makerchip-resources/Makerchip-public/docs/plugin_api/index.html` (local)
+- `~/.vscode-makerchip/resources/Makerchip-public/docs/plugin_api/index.html` (local)
 - [IdePlugin API Documentation](https://github.com/rweda/Makerchip-public/blob/main/docs/plugin_api/index.html) (online)
 
 ### API Reference Documentation
 
-**IDE Plugin API**: `~/.vscode-makerchip-resources/Makerchip-public/docs/plugin_api/index.html`
+**IDE Plugin API**: `~/.vscode-makerchip/resources/Makerchip-public/docs/plugin_api/index.html`
 - Complete reference for all IDE methods available via `makerchip_ide_call` tool
 - Includes IdePlugin class documentation with method signatures and descriptions
 
-**VIZ API**: `~/.vscode-makerchip-resources/Makerchip-public/docs/viz_codo/index.html`
+**VIZ API**: `~/.vscode-makerchip/resources/Makerchip-public/docs/viz_codo/index.html`
 - SignalValue and SignalValueSet classes for waveform data access
 - Used for custom visualization code
 

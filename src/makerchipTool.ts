@@ -5,6 +5,8 @@ interface MakerchipToolInput {
   filePath?: string;
   /** Optional TL-Verilog code to compile. If provided, creates a new unsaved file with this code. */
   code?: string;
+  /** Optional panel name to target. If not provided, uses the default panel. */
+  panelName?: string;
 }
 
 interface IdeFunctionCallInput {
@@ -12,6 +14,8 @@ interface IdeFunctionCallInput {
   method: string;
   /** Arguments to pass to the IDE method */
   args?: any[];
+  /** Optional panel name to target. If not provided, uses the default panel. */
+  panelName?: string;
 }
 
 /**
@@ -48,14 +52,15 @@ export class IdeFunctionCallTool implements vscode.LanguageModelTool<IdeFunction
     _token: vscode.CancellationToken
   ): Promise<vscode.LanguageModelToolResult> {
     try {
-      const { method, args = [] } = options.input;
+      const { method, args = [], panelName } = options.input;
       
       // Invoke the IDE method via command
-      await vscode.commands.executeCommand('makerchip.invokeIdeMethod', method, args);
+      await vscode.commands.executeCommand('makerchip.invokeIdeMethod', method, args, panelName);
       
+      const panelInfo = panelName ? ` on panel '${panelName}'` : '';
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
-          `Successfully invoked IDE method '${method}' with arguments: ${JSON.stringify(args)}`
+          `Successfully invoked IDE method '${method}'${panelInfo} with arguments: ${JSON.stringify(args)}`
         )
       ]);
       
@@ -95,7 +100,7 @@ export class MakerchipTool implements vscode.LanguageModelTool<MakerchipToolInpu
     _token: vscode.CancellationToken
   ): Promise<vscode.LanguageModelToolResult> {
     try {
-      const { filePath, code } = options.input;
+      const { filePath, code, panelName } = options.input;
       
       // If code is provided, create a new unsaved document with it
       if (code) {
@@ -120,13 +125,15 @@ export class MakerchipTool implements vscode.LanguageModelTool<MakerchipToolInpu
         ]);
       }
       
-      // Execute the Makerchip run command
-      await vscode.commands.executeCommand('makerchip.run');
+      // Get the code and invoke IDE directly with panel name
+      const sourceCode = editor.document.getText();
+      await vscode.commands.executeCommand('makerchip.invokeIdeMethod', 'compile', [sourceCode], panelName);
       
       const fileName = code ? 'example code' : editor.document.fileName;
+      const panelInfo = panelName ? ` in panel '${panelName}'` : '';
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
-          `Successfully opened Makerchip IDE and started compiling ${fileName}. ` +
+          `Successfully opened Makerchip IDE${panelInfo} and started compiling ${fileName}. ` +
           `The Makerchip panel should now be visible beside your editor with the compilation results and diagram visualization.`
         )
       ]);
@@ -149,9 +156,9 @@ export function registerMakerchipTool(context: vscode.ExtensionContext): void {
   console.log('vscode.lm:', vscode.lm);
   console.log('vscode.lm.registerTool:', vscode.lm?.registerTool);
   
-  // Register the basic run tool
-  const runTool = vscode.lm.registerTool('makerchip_run', new MakerchipTool());
-  console.log('Run tool registered:', runTool);
+  // Register the basic compile/simulate tool
+  const runTool = vscode.lm.registerTool('makerchip_compile', new MakerchipTool());
+  console.log('Compile tool registered:', runTool);
   context.subscriptions.push(runTool);
   
   // Register the generic IDE method invocation tool
@@ -162,9 +169,9 @@ export function registerMakerchipTool(context: vscode.ExtensionContext): void {
   // Verify tools are in the list
   setTimeout(() => {
     console.log('All registered tools:', vscode.lm.tools);
-    const ourRunTool = vscode.lm.tools.find(t => t.name === 'makerchip_run');
+    const ourRunTool = vscode.lm.tools.find(t => t.name === 'makerchip_compile');
     const ourIdeTool = vscode.lm.tools.find(t => t.name === 'makerchip_ide_call');
-    console.log('Found our run tool:', ourRunTool);
+    console.log('Found our compile tool:', ourRunTool);
     console.log('Found our IDE tool:', ourIdeTool);
   }, 1000);
 }

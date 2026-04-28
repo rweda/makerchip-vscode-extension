@@ -14,12 +14,12 @@ export function registerMakerchipParticipant(context: vscode.ExtensionContext): 
     // Parse the request
     const prompt = request.prompt.toLowerCase();
     
-    if (prompt.includes('run') || prompt.includes('compile') || prompt.includes('open') || prompt.includes('launch')) {
-      // Execute the Makerchip run command
+    if (prompt.includes('run') || prompt.includes('compile') || prompt.includes('simulate') || prompt.includes('open') || prompt.includes('launch')) {
+      // Execute the Makerchip compile command
       stream.progress('Launching Makerchip IDE...');
       
       try {
-        await vscode.commands.executeCommand('makerchip.run');
+        await vscode.commands.executeCommand('makerchip.compile');
         
         stream.markdown('✅ **Makerchip IDE launched successfully!**\n\n');
         stream.markdown('The Makerchip panel should now be visible beside your editor showing:\n');
@@ -27,16 +27,16 @@ export function registerMakerchipParticipant(context: vscode.ExtensionContext): 
         stream.markdown('- Waveform viewer\n');
         stream.markdown('- Visual Debug output\n');
         
-        return { metadata: { command: 'makerchip.run' } };
+        return { metadata: { command: 'makerchip.compile' } };
       } catch (error: any) {
         stream.markdown(`❌ Failed to launch Makerchip: ${error.message}`);
-        return { metadata: { command: 'makerchip.run', error: error.message } };
+        return { metadata: { command: 'makerchip.compile', error: error.message } };
       }
     } else if (prompt.includes('help') || prompt === '') {
       stream.markdown('## Makerchip IDE Integration\n\n');
       stream.markdown('I can help you with TL-Verilog development using Makerchip.\n\n');
       stream.markdown('**Available commands:**\n');
-      stream.markdown('- `@makerchip run` - Open and compile the current TL-Verilog file\n');
+      stream.markdown('- `@makerchip compile` - Compile and simulate the current TL-Verilog file\n');
       stream.markdown('- `@makerchip compile` - Same as run\n');
       stream.markdown('- `@makerchip help` - Show this help message\n\n');
       stream.markdown('You can also use the keyboard shortcut **Ctrl+Shift+Enter** to quickly compile the current file.');
@@ -44,7 +44,7 @@ export function registerMakerchipParticipant(context: vscode.ExtensionContext): 
       return { metadata: { command: 'help' } };
     } else {
       stream.markdown(`I'm not sure how to help with that. Try:\n`);
-      stream.markdown('- `@makerchip run` to compile your TL-Verilog file\n');
+      stream.markdown('- `@makerchip compile` to compile and simulate your TL-Verilog file\n');
       stream.markdown('- `@makerchip help` for more information');
       
       return { metadata: { command: 'unknown' } };

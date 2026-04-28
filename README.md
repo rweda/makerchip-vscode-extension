@@ -4,9 +4,10 @@ VS Code extension for Makerchip IDE integration, providing TL-Verilog developmen
 
 ## Features
 
-- **Run Makerchip IDE**: Compile and visualize TL-Verilog circuits directly in VS Code
+- **Compile/Simulate TL-Verilog**: Compile and visualize circuits directly in VS Code
+- **Multiple Panels**: Work with different circuits simultaneously in named panels
 - **GitHub Copilot Integration**: Language Model tools allow Copilot to launch Makerchip and demonstrate examples
-- **Resource Management**: Automatic setup of Makerchip documentation and examples
+- **Reference Data Management**: Automatic setup of documentation and examples
 - **Keyboard Shortcut**: Press `Ctrl+Shift+Enter` to compile current file
 - **Chat Participant**: Use `@makerchip` for direct interaction
 
@@ -15,13 +16,18 @@ VS Code extension for Makerchip IDE integration, providing TL-Verilog developmen
 ### Manual Usage
 
 1. Open a `.tlv` file
-2. Press `Ctrl+Shift+Enter` or run "Makerchip: Run" from the command palette
+2. Press `Ctrl+Shift+Enter` or run "Makerchip: Compile/Simulate" from the command palette
 3. View compilation results, circuit diagrams, and waveforms in the webview panel
+
+**Working with Multiple Panels:**
+- Use "Makerchip: Compile/Simulate in Panel..." to select or create named panels
+- Compare different designs side-by-side
+- Quick panel selection from existing panels or create new ones
 
 ### With GitHub Copilot
 
 Copilot can automatically:
-- Open and compile TL-Verilog files when you ask to run or visualize code
+- Compile and visualize TL-Verilog files directly in Makerchip
 - Show examples directly in the Makerchip IDE (not just in chat)
 - Switch between different IDE panes (Diagram, Waveform, Nav-TLV, etc.)
 - Load code from files or URLs
@@ -35,9 +41,9 @@ Example prompts:
 
 This extension provides two Language Model tools that make Makerchip features accessible to Copilot:
 
-### 1. `makerchip_run` Tool
+### 1. `makerchip_compile` Tool
 
-High-level tool for compiling and opening files or code in Makerchip.
+High-level tool for compiling/simulating files or code in Makerchip.
 
 **Parameters:**
 - `filePath` (optional): Path to a `.tlv` file to compile
@@ -65,7 +71,7 @@ Generic tool for calling any IDE method directly.
 - `openStaticPane(name, background)` - Open a static pane
 
 For complete IDE Plugin API documentation, see:
-- Local: `~/.vscode-makerchip-resources/Makerchip-public/docs/plugin_api/index.html`
+- Local: `~/.vscode-makerchip/resources/Makerchip-public/docs/plugin_api/index.html`
 - Online: [IdePlugin API Documentation](https://github.com/rweda/Makerchip-public/blob/main/docs/plugin_api/index.html)
 
 ### Generic Message Protocol
@@ -154,10 +160,10 @@ npm run compile
 
 ## Resources
 
-The extension automatically clones TL-Verilog documentation and examples to `~/.vscode-makerchip-resources/`. You can add this folder to your workspace for:
-- Quick access to specifications and examples
-- Enhanced Copilot context via the included skill file
-- IDE Plugin API documentation at `Makerchip-public/docs/plugin_api/index.html`. This API is exposed to this extension as `callIDE(...)`.
+The extension manages a directory `~/.vscode-makerchip/`, which it adds to your workspace. It contains:
+- `reference/`: Quick access to reference data, especially for use by LLM agents (e.g., Copilot), including specifications, examples, the IDE API (exposed to this extension as `callIDE(...)`), etc.
+- `compile-cache/`: A file cache of compilation results for debugging, analysis, and reloading without recompilation.
+- `.vscode/skills/tlv-ecosystem.md`: A Copilot skill that references available reference resources and provides TL-Verilog ecosystem context.
 
 ## License
 

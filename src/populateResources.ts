@@ -1,6 +1,7 @@
 /*
- * For populating resources and skill(s) in, e.g., ~/.vscode-makerchip-resources. This directory may be
- * added to a workspace (by the Makerchip extension) as available RAG data for Copilot.
+ * For populating resources and skill(s) in ~/.vscode-makerchip/resources/.
+ * This directory may be added to a workspace (by the Makerchip extension) as available RAG data for Copilot.
+ * Also creates ~/.vscode-makerchip/compile-cache/ for compilation results.
  */
 
 import * as vscode from 'vscode';
@@ -9,8 +10,11 @@ import * as fs from 'fs/promises';
 import { spawn } from 'child_process';
 import * as os from 'os';
 
-const RESOURCES_DIR = path.join(os.homedir(), '.vscode-makerchip-resources');
-const SCRIPT_VERSION = '1.0.0';
+// Directory structure
+export const MAKERCHIP_DIR = path.join(os.homedir(), '.vscode-makerchip');
+export const RESOURCES_DIR = path.join(MAKERCHIP_DIR, 'resources');
+export const CACHE_DIR = path.join(MAKERCHIP_DIR, 'compile-cache');
+export const RESOURCES_VERSION = '2.0.0';
 
 interface Repository {
   name: string;
@@ -30,7 +34,6 @@ const REPOSITORIES: Repository[] = [
 ];
 
 const EXPECTED_ITEMS = [
-  '.vscode',
   'README.md',
   '.version.json',
 ];
@@ -42,7 +45,7 @@ interface PopulateResult {
 }
 
 /**
- * Populate/update Makerchip resources.
+ * Populate/update Makerchip reference data.
  */
 export async function populateResources(context: vscode.ExtensionContext, outputChannel?: vscode.OutputChannel): Promise<PopulateResult> {
   const log = (message: string) => {
@@ -53,13 +56,14 @@ export async function populateResources(context: vscode.ExtensionContext, output
   };
 
   log('=========================================');
-  log('Makerchip Resources Setup');
-  log(`Target: ${RESOURCES_DIR}`);
+  log('Makerchip Reference Data Setup');
+  log(`Target: ${MAKERCHIP_DIR}`);
   log('=========================================');
   log('');
 
-  // Create resources directory
+  // Create directory structure
   await fs.mkdir(RESOURCES_DIR, { recursive: true });
+  await fs.mkdir(CACHE_DIR, { recursive: true });
 
   // Clean up unexpected items
   await cleanupUnexpectedItems(log);
@@ -81,7 +85,9 @@ export async function populateResources(context: vscode.ExtensionContext, output
   log('✓ Setup Complete');
   log('=========================================');
   log('');
-  log(`Location: ${RESOURCES_DIR}`);
+  log(`Location: ${MAKERCHIP_DIR}`);
+  log(`  Resources: ${RESOURCES_DIR}`);
+  log(`  Cache: ${CACHE_DIR}`);
   log(`Repositories: ${result.success}/${result.total} updated successfully`);
   log('');
 
@@ -109,11 +115,6 @@ async function cleanupUnexpectedItems(log: (message: string) => void): Promise<v
     const items = await fs.readdir(RESOURCES_DIR);
 
     for (const item of items) {
-      // Skip hidden files unless they're in EXPECTED
-      if (item.startsWith('.') && !EXPECTED_ITEMS.includes(item)) {
-        continue;
-      }
-
       // Check if item is valid
       if (!validItems.has(item)) {
         log(`  Removing: ${item}`);
@@ -251,7 +252,7 @@ async function createVersionMetadata(): Promise<void> {
   const metadata = {
     updated: new Date().toISOString(),
     repositories: REPOSITORIES.map(r => r.name),
-    script_version: SCRIPT_VERSION,
+    script_version: RESOURCES_VERSION,
   };
 
   const versionPath = path.join(RESOURCES_DIR, '.version.json');
@@ -264,7 +265,8 @@ async function createVersionMetadata(): Promise<void> {
 async function installSkill(context: vscode.ExtensionContext, log: (message: string) => void): Promise<void> {
   log('Installing Copilot skill...');
 
-  const skillsDir = path.join(RESOURCES_DIR, '.vscode', 'skills');
+  // Install to top-level .vscode directory for workspace recognition
+  const skillsDir = path.join(MAKERCHIP_DIR, '.vscode', 'skills');
   await fs.mkdir(skillsDir, { recursive: true });
 
   // Clean up old skill files

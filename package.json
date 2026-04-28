@@ -17,13 +17,28 @@
   "contributes": {
     "commands": [
       {
-        "command": "makerchip.run",
-        "title": "Makerchip: Run",
+        "command": "makerchip.compile",
+        "title": "Makerchip: Compile/Simulate",
         "icon": "$(circuit-board)"
       },
       {
+        "command": "makerchip.compileNew",
+        "title": "Makerchip: Compile/Simulate in New Panel",
+        "icon": "$(add)"
+      },
+      {
+        "command": "makerchip.compileNamed",
+        "title": "Makerchip: Compile/Simulate in Panel...",
+        "icon": "$(window)"
+      },
+      {
+        "command": "makerchip.listPanels",
+        "title": "Makerchip: List Open Panels",
+        "icon": "$(list-tree)"
+      },
+      {
         "command": "makerchip.updateResources",
-        "title": "Makerchip: Update Resources",
+        "title": "Makerchip: Update Reference Data",
         "icon": "$(cloud-download)"
       }
     ],
@@ -33,7 +48,7 @@
         "makerchip.autoUpdateResources": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically update Makerchip resources on activation"
+          "description": "Automatically update Makerchip reference data on activation"
         },
         "makerchip.addResourcesFolder": {
           "type": "string",
@@ -44,32 +59,37 @@
           ],
           "default": "ask",
           "enumDescriptions": [
-            "Ask whether to add resources folder to workspace",
-            "Always add resources folder to workspace",
-            "Never add resources folder to workspace"
+            "Ask whether to add reference data folder to workspace",
+            "Always add reference data folder to workspace",
+            "Never add reference data folder to workspace"
           ],
-          "description": "Add Makerchip resources folder to workspace (for LLMs)"
+          "description": "Add Makerchip reference data folder to workspace (for LLMs)"
         }
       }
     },
     "keybindings": [
       {
-        "command": "makerchip.run",
+        "command": "makerchip.compile",
         "key": "ctrl+shift+enter",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "makerchip.compileNew",
+        "key": "ctrl+alt+enter",
         "when": "editorTextFocus"
       }
     ],
     "menus": {
       "editor/context": [
         {
-          "command": "makerchip.run",
+          "command": "makerchip.compile",
           "when": "editorLangId == tlv || resourceExtname == .tlv",
           "group": "navigation"
         }
       ],
       "editor/title": [
         {
-          "command": "makerchip.run",
+          "command": "makerchip.compile",
           "when": "editorLangId == tlv || resourceExtname == .tlv",
           "group": "navigation"
         }
@@ -77,9 +97,9 @@
     },
     "languageModelTools": [
       {
-        "name": "makerchip_run",
-        "displayName": "Makerchip Run",
-        "toolReferenceName": "makerchipRun",
+        "name": "makerchip_compile",
+        "displayName": "Compile/Simulate",
+        "toolReferenceName": "makerchipCompile",
         "canBeReferencedInPrompt": true,
         "icon": "$(circuit-board)",
         "userDescription": "Compile and open TL-Verilog in Makerchip IDE.",
@@ -110,6 +130,10 @@
             "code": {
               "type": "string",
               "description": "Optional TL-Verilog code to compile. When provided, creates a new unsaved file with this code and opens it in Makerchip. Use this to show examples or demonstrate TL-Verilog features."
+            },
+            "panelName": {
+              "type": "string",
+              "description": "Optional panel name to target. If not provided, uses the default panel. Use this to open multiple Makerchip panels for different designs or comparisons."
             }
           }
         }
@@ -152,6 +176,10 @@
                   "null"
                 ]
               }
+            },
+            "panelName": {
+              "type": "string",
+              "description": "Optional panel name to target. If not provided, uses the default panel."
             }
           }
         }
