@@ -37,6 +37,41 @@ Example prompts:
 - "Open this in Makerchip and show the waveform"
 - "Demonstrate a pipeline design in TL-Verilog"
 
+## Development
+
+### Quick Start
+
+1. Install dependencies: `npm install`
+2. Load repo into VS Code workspace. Extension and webview change auto-compile
+   when changed (`npm run watch`).
+3. Press `F5` to launch extension in debug mode
+
+### Testing with Local Makerchip Server
+
+To test extension changes with a local mono_vscode (SandHost) server:
+
+1. Start local server with tunnel in mono_vscode repo:
+   ```bash
+   <mono>/bin/start_cloudflared 8800 <makerchip-vscode-extension>
+   ```
+   This creates a public tunnel and writes the URL to
+   `<makerchip-vscode-extension>/.makerchip-server-url` and launches SandHost to
+   use that `basePath` URL.
+
+2. Extension reads `.makerchip-server-url` and connects to your local server
+
+3. Make changes, press `F5` to reload extension or `Ctrl+R` to refresh webview,
+   test your changes
+
+4. Check logs:
+   - **Makerchip Tools** output panel (opens automatically)
+   - **Developer Console** (`Ctrl+Shift+I`) for extension host logs
+   - **Webview DevTools** (`Ctrl+Shift+P` → "Makerchip: Open Webview Developer Tools")
+
+Server URL priority: `.makerchip-server-url` file → VS Code setting → `beta.makerchip.com`
+
+See also: [mono_vscode README](https://github.com/redwood-eda/mono_vscode#debugging-with-vs-code-extension) for server-side debugging.
+
 ## Copilot Enablement Architecture
 
 This extension provides two Language Model tools that make Makerchip features accessible to Copilot:

@@ -1,5 +1,13 @@
-// See https://go.microsoft.com/fwlink/?LinkId=733558
-// for the documentation about the tasks.json format
+// VS Code Tasks Configuration for Makerchip Extension
+// 
+// Starts the TypeScript watch compiler automatically when this workspace opens:
+// - Runs 'npm run watch' on folder open (runOn: "folderOpen")
+// - Compiles both main extension code (extension.ts) and webview code (webview.ts)
+// - Copies webview.html to the output directory
+// - Watches for file changes and recompiles automatically while VS Code is open
+// - Background task with TypeScript problem matcher for error reporting
+//
+// See https://go.microsoft.com/fwlink/?LinkId=733558 for tasks.json documentation
 {
 	"version": "2.0.0",
 	"tasks": [
@@ -14,6 +22,9 @@
 			"group": {
 				"kind": "build",
 				"isDefault": true
+			},
+			"runOptions": {
+				"runOn": "folderOpen"
 			}
 		}
 	]

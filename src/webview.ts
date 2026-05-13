@@ -13,7 +13,8 @@
  * See src/tsconfig.webview.json for build configuration.
  * 
  * Generic message protocol: All IDE methods are invoked via { type: 'ide', method, args }
- * enabling any IdePlugin method to be called without code changes.
+ * enabling any IdePlugin API method to be called without code changes.
+ * Methods are called via ide.api[method](...args) to prevent access to private/internal methods.
  */
 
 // Type definitions for VS Code webview API
@@ -30,18 +31,21 @@ interface IdeMessage {
   type: 'ide';
   method: string;
   args: any[];
+  requestId?: string;  // Optional request ID for calls that expect results
 }
 
 interface IdeResultMessage {
   type: 'ideResult';
   method: string;
   result: any;
+  requestId?: string;  // Include request ID if present
 }
 
 interface IdeErrorMessage {
   type: 'ideError';
   method: string;
   error: string;
+  requestId?: string;  // Include request ID if present
 }
 
 interface ReadyMessage {
@@ -78,9 +82,21 @@ interface CompileDeniedMessage {
   retryAfterSeconds?: number;
 }
 
-type ToExtensionMessage = IdeResultMessage | IdeErrorMessage | ReadyMessage | CompileFileChunkMessage | CompileErrorMessage | CompileExitStatusMessage | CompileDeniedMessage;
+interface NotificationMessage {
+  type: 'notification';
+  severity: 'info' | 'warning' | 'error';
+  message: string;
+  /** Optional action button label. If provided, extension will show button and send action back to webview */
+  action?: string;
+  /** Optional context data for logging/debugging */
+  context?: any;
+}
+
+type ToExtensionMessage = IdeResultMessage | IdeErrorMessage | ReadyMessage | CompileFileChunkMessage | CompileErrorMessage | CompileExitStatusMessage | CompileDeniedMessage | NotificationMessage;
 
 const vscode = acquireVsCodeApi();
+console.log('[webview.ts] Script loaded and executing');
+console.log('[webview.ts] vscode API acquired:', !!vscode);
 
 // Expected IdePlugin version (semver)
 const EXPECTED_IDE_PLUGIN_VERSION = '^1.0.0';
@@ -92,18 +108,49 @@ function isVersionCompatible(actual: string, expected: string): boolean {
   return actualMajor === expectedMajor;
 }
 
+// Convenience functions for sending notifications to extension
+function notifyInfo(message: string, action?: string, context?: any): void {
+  console.log('[webview notification]', message);
+  vscode.postMessage({ type: 'notification', severity: 'info', message, action, context } as NotificationMessage);
+}
+
+function notifyWarning(message: string, action?: string, context?: any): void {
+  console.warn('[webview notification]', message);
+  vscode.postMessage({ type: 'notification', severity: 'warning', message, action, context } as NotificationMessage);
+}
+
+function notifyError(message: string, action?: string, context?: any): void {
+  console.error('[webview notification]', message);
+  vscode.postMessage({ type: 'notification', severity: 'error', message, action, context } as NotificationMessage);
+}
+
+// Get server URL from global variable (set by extension)
+const serverUrl = (window as any).MAKERCHIP_SERVER_URL;
+if (!serverUrl) {
+  const errorMsg = 'MAKERCHIP_SERVER_URL not set by extension. Server URL must be explicitly configured.';
+  notifyError(errorMsg);
+  throw new Error(errorMsg);
+}
+console.log('[webview.ts] Server URL:', serverUrl);
+
 // @ts-ignore - Dynamic import of external module
-import('https://beta.makerchip.com/dist/makerchip-plugin.js').then((module: any) => {
+console.log('[webview.ts] Loading makerchip-plugin.js from:', `${serverUrl}/dist/makerchip-plugin.js`);
+import(`${serverUrl}/dist/makerchip-plugin.js`).then((module: any) => {
+  console.log('[webview.ts] makerchip-plugin.js loaded successfully');
   const IdePlugin = module.default as any;
+  console.log('[webview.ts] IdePlugin:', !!IdePlugin);
   
   // Check IdePlugin version if available
   const pluginVersion = IdePlugin.version;
+  console.log('[webview.ts] IdePlugin version:', pluginVersion);
   if (pluginVersion) {
     if (!isVersionCompatible(pluginVersion, EXPECTED_IDE_PLUGIN_VERSION)) {
-      console.warn(`IdePlugin version mismatch: expected ${EXPECTED_IDE_PLUGIN_VERSION}, got ${pluginVersion}. Some features may not work correctly.`);
+      const warningMsg = `IdePlugin version mismatch: expected ${EXPECTED_IDE_PLUGIN_VERSION}, got ${pluginVersion}`;
+      notifyWarning(warningMsg, undefined, { expected: EXPECTED_IDE_PLUGIN_VERSION, actual: pluginVersion });
     }
   } else {
-    console.warn('IdePlugin version not found. Internal API features may not work correctly.');
+    const warningMsg = 'IdePlugin version not found. Internal API features may not work correctly.';
+    notifyWarning(warningMsg, undefined, { expected: EXPECTED_IDE_PLUGIN_VERSION, actual: 'unknown' });
   }
 
   class VSCodeMakerchip extends IdePlugin {
@@ -205,39 +252,61 @@ import('https://beta.makerchip.com/dist/makerchip-plugin.js').then((module: any)
     // Generic IDE method invocation handler
     window.addEventListener('message', async (event: MessageEvent) => {
       const msg = event.data;
+      console.log('[webview] Received message from extension:', msg);
+      
+      if (msg.type === 'test') {
+        console.log('[webview] Test message received:', msg.data);
+        return;
+      }
       
       if (msg.type === 'ide') {
-        // Generic IDE method invocation: { type: 'ide', method: 'methodName', args: [...] }
-        const { method, args = [] } = msg as IdeMessage;
+        // Generic IDE method invocation: { type: 'ide', method: 'methodName', args: [...], requestId?: '...' }
+        const { method, args = [], requestId } = msg as IdeMessage;
+        console.log('[webview] Received IDE method call:', { method, args, requestId });
         
-        if (typeof ide[method] === 'function') {
-          try {
-            const result = await ide[method](...args);
-            // Send result back if there is one
-            if (result !== undefined) {
-              vscode.postMessage({ 
-                type: 'ideResult', 
-                method, 
-                result 
-              } as IdeResultMessage);
-            }
-          } catch (error: any) {
-            console.error('Error calling IDE method:', method, error);
-            vscode.postMessage({ 
-              type: 'ideError', 
-              method, 
-              error: error.message 
-            } as IdeErrorMessage);
+        // Call IdePlugin API method via the api property (prevents access to private/internal methods)
+        try {
+          if (!ide.api || typeof ide.api[method] !== 'function') {
+            throw new Error(`API method '${method}' not found or not a function`);
           }
-        } else {
-          console.warn('IDE method not found or not a function:', method);
+          
+          console.log(`[webview] Calling ide.api.${method}(`, ...args, ')');
+          const result = await ide.api[method](...args);
+          console.log(`[webview] Result from ide.api.${method}:`, result ? (typeof result === 'string' && result.length > 100 ? typeof result + ' (' + result.length + ' chars)' : result) : result);
+          
+          // Send result back if there is one
+          if (result !== undefined) {
+            console.log('[webview] Sending ideResult message');
+            vscode.postMessage({ 
+              type: 'ideResult', 
+              method, 
+              result,
+              requestId  // Include requestId if present
+            } as IdeResultMessage);
+          } else {
+            console.log('[webview] Result is undefined, not sending message');
+          }
+        } catch (error: any) {
+          console.error('[webview] Error calling IDE method:', method, error);
           vscode.postMessage({ 
             type: 'ideError', 
             method, 
-            error: 'Method ' + method + ' not found' 
+            error: error.message,
+            requestId  // Include requestId if present
           } as IdeErrorMessage);
         }
       }
     });
   });
+}).catch((error: any) => {
+  console.error('[webview.ts] Failed to load makerchip-plugin.js:', error);
+  console.error('[webview.ts] Server URL was:', serverUrl);
+  
+  // Notify extension of connection failure
+  const errorMsg = error.message || String(error);
+  notifyError(
+    `Failed to connect to Makerchip server (${serverUrl}): ${errorMsg}`,
+    'Open DevTools',
+    { serverUrl, error: errorMsg }
+  );
 });

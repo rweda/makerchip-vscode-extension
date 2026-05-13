@@ -22,13 +22,16 @@ import * as path from 'path';
 import { initializeResources, updateResources } from './resourceManager';
 import { registerMakerchipTool } from './makerchipTool';
 import { registerMakerchipParticipant } from './makerchipParticipant';
+import { log } from './logger';
 import * as compileCache from './compileCache';
 
 // Track multiple panels by name
 const panels = new Map<string, vscode.WebviewPanel>();
 const panelReadyPromises = new Map<string, Promise<void>>();
 const pendingCompiles = new Map<string, string>(); // panelKey -> source code while awaiting an ID
+const pendingIdeResults = new Map<string, {resolve: (result: any) => void, reject: (error: Error) => void}>(); // requestId -> promise callbacks
 let panelCounter = 1;
+let requestCounter = 0;
 let statusBarItem: vscode.StatusBarItem;
 let context: vscode.ExtensionContext;
 
@@ -83,15 +86,29 @@ export async function callIDE(method: string, args?: any[], panelName?: string):
   });
 }
 
+/**
+ * Extension activation entry point called by VS Code.
+ * Registers commands, tools, chat participant, and initializes resources.
+ * @param ctx Extension context provided by VS Code
+ */
 export function activate(ctx: vscode.ExtensionContext) {
   context = ctx;  // Store context globally
-  console.log('Makerchip extension activating...');
+  log('Makerchip extension activating...');
+  
+  // Log server configuration on startup
+  getServerUrl().then(url => {
+    log(`[extension] Makerchip server configured: ${url}`);
+    log(`Makerchip Server: ${url}`);
+  }).catch(error => {
+    log(`[extension] Server URL not configured: ${error.message}`);
+    log(`⚠ Makerchip panels will not open until server URL is configured`);
+  });
   
   // Register Language Model tool for Copilot (automatic invocation)
   // Both declarative (package.json) and programmatic registration are required
   try {
     registerMakerchipTool(context);
-    console.log('Makerchip tool registered successfully');
+    log('Makerchip tool registered successfully');
   } catch (error) {
     console.error('Failed to register Makerchip tool:', error);
   }
@@ -224,6 +241,50 @@ export function activate(ctx: vscode.ExtensionContext) {
     })
   );
 
+  // INVOKE IDE METHOD AND RETURN RESULT (used by tools that need return values)
+  context.subscriptions.push(
+    vscode.commands.registerCommand('makerchip.callIdeMethodWithResult', async (method: string, args: any[] = [], panelName?: string): Promise<any> => {
+      const name = panelName || 'default';
+      log(`[callIdeMethodWithResult] Calling '${method}' on panel '${name}' with args:`, args);
+      
+      await ensurePanelReady(name);
+      const panel = panels.get(name);
+      if (!panel) {
+        console.error(`[callIdeMethodWithResult] Panel '${name}' not found`);
+        throw new Error(`Panel '${name}' not found`);
+      }
+      
+      // Generate unique request ID
+      const requestId = `req_${++requestCounter}`;
+      log(`[callIdeMethodWithResult] Generated request ID: ${requestId}`);
+      
+      // Create promise that will be resolved when we get the result
+      const resultPromise = new Promise<any>((resolve, reject) => {
+        pendingIdeResults.set(requestId, { resolve, reject });
+        
+        // Set timeout to reject after 10 seconds
+        setTimeout(() => {
+          if (pendingIdeResults.has(requestId)) {
+            pendingIdeResults.delete(requestId);
+            console.error(`[callIdeMethodWithResult] Timeout for request ${requestId} (method: ${method})`);
+            reject(new Error(`Timeout waiting for IDE method '${method}' result`));
+          }
+        }, 10000);
+      });
+      
+      // Send message with request ID
+      log(`[callIdeMethodWithResult] Sending message to webview:`, { type: 'ide', method, requestId });
+      panel.webview.postMessage({ 
+        type: 'ide', 
+        method, 
+        args: args || [],
+        requestId
+      });
+      
+      return resultPromise;
+    })
+  );
+
   // LIST PANELS COMMAND
   context.subscriptions.push(
     vscode.commands.registerCommand('makerchip.listPanels', async () => {
@@ -235,10 +296,51 @@ export function activate(ctx: vscode.ExtensionContext) {
       vscode.window.showInformationMessage(`Open Makerchip panels: ${panelNames}`);
     })
   );
+
+  // OPEN WEBVIEW DEVTOOLS COMMAND
+  context.subscriptions.push(
+    vscode.commands.registerCommand('makerchip.openDevTools', async () => {
+      const panelNames = Array.from(panels.keys());
+      if (panelNames.length === 0) {
+        vscode.window.showErrorMessage('No Makerchip panels are currently open');
+        return;
+      }
+      
+      let panelName: string | undefined;
+      if (panelNames.length === 1) {
+        panelName = panelNames[0];
+      } else {
+        panelName = await vscode.window.showQuickPick(panelNames, {
+          placeHolder: 'Select which Makerchip panel to debug'
+        });
+      }
+      
+      if (panelName) {
+        const panel = panels.get(panelName);
+        if (panel) {
+          // Use the internal API to open webview DevTools
+          if ((panel.webview as any).openDevTools) {
+            (panel.webview as any).openDevTools();
+            vscode.window.showInformationMessage(`Opening DevTools for ${panelName}...`);
+          } else {
+            vscode.window.showWarningMessage(
+              'webview.openDevTools() is not available. Try: Help > Toggle Developer Tools, then inspect the webview iframe.'
+            );
+          }
+        }
+      }
+    })
+  );
 }
 
-function openMakerchipPanel(panelKey: string): Promise<void> {
-  return new Promise((resolve) => {
+/**
+ * Open a new Makerchip webview panel and initialize it with the IDE.
+ * Sets up message handlers for compilation results, errors, and IDE communication.
+ * @param panelKey Unique identifier for this panel instance
+ * @returns Promise that resolves when the IDE is ready
+ */
+async function openMakerchipPanel(panelKey: string): Promise<void> {
+  return new Promise(async (resolve, reject) => {
     // Create display name
     const displayName = panelKey === 'default' ? 'Makerchip IDE' : `Makerchip: ${panelKey}`;
     
@@ -256,6 +358,23 @@ function openMakerchipPanel(panelKey: string): Promise<void> {
 
     const nonce = getNonce();
     
+    // Get server URL - required, no default fallback
+    let serverUrl: string;
+    try {
+      serverUrl = await getServerUrl();
+      log(`[extension] Opening Makerchip panel "${displayName}" with server: ${serverUrl}`);
+      log(`Connecting to Makerchip server: ${serverUrl}`);
+    } catch (error: any) {
+      const errorMsg = error.message || 'Failed to get server URL';
+      log(`[extension] Error opening panel: ${errorMsg}`);
+      vscode.window.showErrorMessage(errorMsg);
+      panel.dispose();
+      panels.delete(panelKey);
+      panelReadyPromises.delete(panelKey);
+      reject(error);
+      return;
+    }
+    
     // Get webview URI for the script file
     const scriptUri = panel.webview.asWebviewUri(
       vscode.Uri.joinPath(context.extensionUri, 'out', 'webview.js')
@@ -266,36 +385,93 @@ function openMakerchipPanel(panelKey: string): Promise<void> {
     let html = fs.readFileSync(htmlPath, 'utf8');
     html = html.replace(/{{nonce}}/g, nonce);
     html = html.replace(/{{scriptUri}}/g, scriptUri.toString());
+    html = html.replace(/{{serverUrl}}/g, serverUrl);
     
     panel.webview.html = html;
 
+    // Handle messages from webview: IDE ready state, compilation results, errors, and method responses
     panel.webview.onDidReceiveMessage(async (msg) => {
-      console.log(`Message received from webview (panel: ${panelKey}):`, msg.type, msg);
+      log(`Message received from webview (panel: ${panelKey}):`, msg.type, msg);
       
       if (msg.type === 'ready') {
+        console.log(`[extension] IDE ready for panel: ${panelKey}`);
+        log(`✓ Connected to ${serverUrl}`);
         resolve();   // 🔹 resolve when IDE is ready
       }
       
-      if (msg.type === 'ideResult' && msg.method === 'compile' && msg.result) {
-        // Initialize cache when compile returns an ID
-        console.log(`Compile ID received: ${msg.result}`);
-        try {
-          const sourceCode = pendingCompiles.get(panelKey);
-          await compileCache.initCompile(msg.result, sourceCode);
-          pendingCompiles.delete(panelKey); // Clean up
-        } catch (error) {
-          console.error('Failed to initialize compile cache:', error);
+      if (msg.type === 'notification') {
+        // Generic notification message (info/warning/error)
+        log(`[${msg.severity.toUpperCase()}] ${msg.message}`);
+        
+        if (msg.severity === 'error') {
+          if (msg.action) {
+            vscode.window.showErrorMessage(msg.message, msg.action).then(choice => {
+              if (choice === msg.action && msg.action === 'Open DevTools') {
+                (panel.webview as any).openDevTools?.();
+              }
+            });
+          } else {
+            vscode.window.showErrorMessage(msg.message);
+          }
+        } else if (msg.severity === 'warning') {
+          if (msg.action) {
+            vscode.window.showWarningMessage(msg.message, msg.action);
+          } else {
+            vscode.window.showWarningMessage(msg.message);
+          }
+        } else if (msg.severity === 'info') {
+          vscode.window.showInformationMessage(msg.message);
+        }
+      }
+      
+      if (msg.type === 'ideResult') {
+        log(`[ideResult] Received:`, { method: msg.method, requestId: msg.requestId, hasResult: !!msg.result });
+        
+        // Check if this is a response to a pending request
+        if (msg.requestId && pendingIdeResults.has(msg.requestId)) {
+          log(`[ideResult] Resolving pending request: ${msg.requestId}`);
+          const { resolve: resolveResult } = pendingIdeResults.get(msg.requestId)!;
+          pendingIdeResults.delete(msg.requestId);
+          resolveResult(msg.result);
+        } else if (msg.requestId) {
+          console.warn(`[ideResult] Received result for unknown request ID: ${msg.requestId}`);
+        }
+        
+        // Also handle compile ID initialization for cache
+        if (msg.method === 'compile' && msg.result) {
+          log(`Compile ID received: ${msg.result}`);
+          try {
+            const sourceCode = pendingCompiles.get(panelKey);
+            await compileCache.initCompile(msg.result, sourceCode);
+            pendingCompiles.delete(panelKey); // Clean up
+          } catch (error) {
+            console.error('Failed to initialize compile cache:', error);
+          }
+        }
+      }
+      
+      if (msg.type === 'ideError') {
+        console.error(`[ideError] Received:`, { method: msg.method, requestId: msg.requestId, error: msg.error });
+        
+        // Check if this is a response to a pending request
+        if (msg.requestId && pendingIdeResults.has(msg.requestId)) {
+          log(`[ideError] Rejecting pending request: ${msg.requestId}`);
+          const { reject } = pendingIdeResults.get(msg.requestId)!;
+          pendingIdeResults.delete(msg.requestId);
+          reject(new Error(msg.error));
+        } else if (msg.requestId) {
+          console.warn(`[ideError] Received error for unknown request ID: ${msg.requestId}`);
         }
       }
       
       if (msg.type === 'compileFileChunk') {
         // Cache compilation result file chunks (stdall, make.out, or vlt_dump.vcd)
-        console.log(`Compile file chunk for ${msg.id}: ${msg.fileName}, ${msg.chunk.length} chars, complete=${msg.complete}`);
+        log(`Compile file chunk for ${msg.id}: ${msg.fileName}, ${msg.chunk.length} chars, complete=${msg.complete}`);
         try {
           await compileCache.appendFile(msg.id, msg.fileName, msg.chunk);
           if (msg.complete) {
             await compileCache.completeFile(msg.id, msg.fileName);
-            console.log(`${msg.fileName} complete and cached for ${msg.id}`);
+            log(`${msg.fileName} complete and cached for ${msg.id}`);
           }
         } catch (error) {
           console.error(`Failed to cache ${msg.fileName} chunk:`, error);
@@ -304,7 +480,7 @@ function openMakerchipPanel(panelKey: string): Promise<void> {
       
       if (msg.type === 'compileError') {
         // Record compilation error
-        console.log(`Compile error for ${msg.id}: ${msg.errorType}`);
+        log(`Compile error for ${msg.id}: ${msg.errorType}`);
         try {
           await compileCache.recordError(msg.id, msg.errorType, msg.message, msg.details);
         } catch (error) {
@@ -314,7 +490,7 @@ function openMakerchipPanel(panelKey: string): Promise<void> {
       
       if (msg.type === 'compileExitStatus') {
         // Record exit status from compilation stage
-        console.log(`Exit status for ${msg.id}: ${msg.stage} = ${msg.exitCode}`);
+        log(`Exit status for ${msg.id}: ${msg.stage} = ${msg.exitCode}`);
         try {
           await compileCache.recordExitStatus(msg.id, msg.stage, msg.exitCode);
         } catch (error) {
@@ -324,7 +500,7 @@ function openMakerchipPanel(panelKey: string): Promise<void> {
       
       if (msg.type === 'compileDenied') {
         // Show denial message to user
-        console.log(`Compilation denied: ${msg.reason} - ${msg.message}`);
+        log(`Compilation denied: ${msg.reason} - ${msg.message}`);
         const retryMsg = msg.retryAfterSeconds ? ` Retry after ${msg.retryAfterSeconds} seconds.` : '';
         vscode.window.showWarningMessage(`Compilation denied: ${msg.message}${retryMsg}`);
       }
@@ -338,11 +514,61 @@ function openMakerchipPanel(panelKey: string): Promise<void> {
   });
 }
 
+/**
+ * Extension deactivation cleanup.
+ * Called by VS Code when the extension is deactivated.
+ */
 export function deactivate() {}
 
+/**
+ * Generate a random nonce for Content Security Policy in webview.
+ * @returns 16-character random string
+ */
 function getNonce() {
   let text = '';
   const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
   for (let i = 0; i < 16; i++) text += possible.charAt(Math.floor(Math.random() * possible.length));
   return text;
+}
+
+/**
+ * Get the Makerchip server URL from:
+ * 1. Local file (.makerchip-server-url in this repo, written by start_cloudflared script)
+ * 2. VS Code configuration (makerchip.serverUrl)
+ * 
+ * Throws an error if no server URL is configured.
+ */
+async function getServerUrl(): Promise<string> {
+  // Check this repo for .makerchip-server-url file (written by (private) `mono` repo's start_cloudflared script)
+  const extensionUrlFile = path.join(context.extensionPath, '.makerchip-server-url');
+  log(`[getServerUrl] Checking extension directory: ${extensionUrlFile}`);
+  try {
+    if (fs.existsSync(extensionUrlFile)) {
+      const fileUrl = fs.readFileSync(extensionUrlFile, 'utf8').trim();
+      log(`[getServerUrl] Found file in extension dir with content: "${fileUrl}"`);
+      if (fileUrl && fileUrl.startsWith('http')) {
+        log(`Using server URL from extension directory: ${fileUrl}`);
+        return fileUrl;
+      } else {
+        console.warn(`[getServerUrl] File content doesn't start with http: "${fileUrl}"`);
+      }
+    } else {
+      log(`[getServerUrl] File does not exist in extension directory`);
+    }
+  } catch (error) {
+    console.warn(`Failed to read server URL from ${extensionUrlFile}:`, error);
+  }
+  
+  // Check VS Code configuration
+  const config = vscode.workspace.getConfiguration('makerchip');
+  const configUrl = config.get<string>('serverUrl');
+  if (configUrl) {
+    log(`Using server URL from configuration: ${configUrl}`);
+    return configUrl;
+  }
+  
+  // No server URL found - throw error
+  const errorMsg = 'Makerchip server URL not configured. Please set makerchip.serverUrl in settings or run start_cloudflared script.';
+  log(`[getServerUrl] ERROR: ${errorMsg}`);
+  throw new Error(errorMsg);
 }

@@ -37,6 +37,11 @@
         "icon": "$(list-tree)"
       },
       {
+        "command": "makerchip.openDevTools",
+        "title": "Makerchip: Open Webview Developer Tools",
+        "icon": "$(debug-console)"
+      },
+      {
         "command": "makerchip.updateResources",
         "title": "Makerchip: Update Reference Data",
         "icon": "$(cloud-download)"
@@ -64,6 +69,15 @@
             "Never add reference data folder to workspace"
           ],
           "description": "Add Makerchip reference data folder to workspace (for LLMs)"
+        },
+        "makerchip.serverUrl": {
+          "type": "string",
+          "default": "https://beta.makerchip.com",
+          "description": "Base URL of the Makerchip server (for testing with local or staging servers)",
+          "examples": [
+            "https://makerchip.com",
+            "https://v123.makerchip.com"
+          ]
         }
       }
     },
@@ -183,6 +197,50 @@
             }
           }
         }
+      },
+      {
+        "name": "makerchip_get_viz_image",
+        "displayName": "Get VIZ Image",
+        "toolReferenceName": "makerchipGetVizImage",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(device-camera)",
+        "userDescription": "Capture the current VIZ visualization as an image.",
+        "modelDescription": "Captures the current Makerchip VIZ (Visual Debug) canvas visualization as an image data URL. The VIZ must already be rendered (code must be compiled first). Returns a base64-encoded data URL that can be used to display or analyze the visualization. Use this to capture and examine the current state of the VIZ visualization for debugging or documentation purposes.",
+        "tags": [
+          "makerchip",
+          "viz",
+          "visualization",
+          "image",
+          "screenshot",
+          "capture",
+          "debug"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "format": {
+              "type": "string",
+              "enum": ["png", "jpeg", "webp"],
+              "description": "Image format. Default is 'png'.",
+              "default": "png"
+            },
+            "quality": {
+              "type": "number",
+              "description": "Image quality for jpeg/webp formats (0.0-1.0). Default is 1.0.",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 1.0
+            },
+            "panelName": {
+              "type": "string",
+              "description": "Optional panel name to target. If not provided, uses the default panel."
+            },
+            "saveToFile": {
+              "type": ["boolean", "string"],
+              "description": "Optional: save image to file for user visibility. If true, saves to /tmp with auto-generated name. If string, uses as file path. Image data is always returned to the model."
+            }
+          }
+        }
       }
     ],
     "chatParticipants": [
@@ -198,7 +256,9 @@
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./ && tsc -p src/tsconfig.webview.json && npm run copy-webview",
     "copy-webview": "cp src/webview.html out/webview.html",
-    "watch": "tsc -watch -p ./",
+    "watch": "npm run copy-webview && tsc -watch -p ./ & tsc -watch -p src/tsconfig.webview.json & wait",
+    "watch:main": "tsc -watch -p ./",
+    "watch:webview": "tsc -watch -p src/tsconfig.webview.json",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src",
     "test": "vscode-test"
