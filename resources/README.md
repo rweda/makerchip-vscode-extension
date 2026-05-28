@@ -2,7 +2,7 @@
 
 This directory (`~/.vscode-makerchip/`) contains resources and cached data for the Makerchip VS Code extension.
 
-**⚠️ Do not edit files in `resources/`** - changes will be overwritten on update.
+**⚠️ Do not edit files in `.vscode-makerchip`** - changes will be overwritten on update.
 
 ## Directory Structure
 
@@ -68,12 +68,36 @@ When this directory is added to your VS Code workspace, Copilot automatically us
 
 ## Key Documentation Files
 
-- `resources/Makerchip-public/docs/TLXSpec.pdf` - TL-X language specification  
-- `resources/Makerchip-public/docs/M5_spec.pdf` - M5 macro processor spec
-- `resources/Makerchip-public/docs/VisualDebugUsersGuide.pdf` - Visual Debug guide
-- `resources/Makerchip-public/docs/TLV_Macros_Guide.pdf` - TLV macros reference
+- `resources/Makerchip-public/docs/TL-X Spec.pdf` - TL-X language specification  
+- `resources/Makerchip-public/docs/M5 Spec.pdf` - M5 macro processor spec
+- `resources/Makerchip-public/docs/VIZ Guide.pdf` - Visual Debug guide
+- `resources/Makerchip-public/docs/Macros Guide.pdf` - TLV macros reference
 - `resources/Makerchip-public/docs/plugin_api/index.html` - IDE Plugin API
 - `resources/Makerchip-public/docs/viz_codo/index.html` - VIZ API
+
+## IDE Pane Blade Files
+
+Static pane content is defined in blade template files, available in `resources/Makerchip-public/pane-blade/`. These files use **mnemonics as filenames**, matching the identifiers used in IDE layout management:
+
+**File Naming Convention:**
+- File names use the exact pane mnemonic with `.blade` extension
+- A suffix beginning with a "+" character is a uniquifier
+- The mnemonic without the uniquifier provides the Makerchip tab text for the pane
+
+**Examples:**
+- `Combo Tutorial.blade` - Combinational logic tutorial
+- `Course Slides+Udemy.blade` - Udemy course slides
+- `RISC-V Videos+Workshop.blade` - RISC-V workshop videos
+- `Examples.blade` - Code examples pane
+- `VIZ Guide.pdf` - Corresponding documentation
+
+**Consistency with IDE:**
+These mnemonic-based file names are consistent with:
+- `makerchip_get_available_panes` tool output (returns mnemonics)
+- `makerchip_set_layout_state` tool input (uses mnemonics for pane references)
+- `makerchip_get_layout_state` tool output (pane arrays use mnemonics)
+
+When working with IDE layouts programmatically, use the mnemonics returned by `makerchip_get_available_panes` or found in `resources/Makerchip-public/pane-blade/` file names to ensure correct pane references.
 
 ## Compilation Cache
 

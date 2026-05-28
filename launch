@@ -1,0 +1,145 @@
+#!/bin/bash
+# Launch VS Code with local Makerchip extension.
+# May tunnel to a local sandhost for development.
+#
+# Usage:
+#   ./launch                              # Connect to default server (beta.makerchip.com)
+#   ./launch https://makerchip.com        # Connect to production
+#   ./launch https://makerchip.com/v123   # Connect to specific version (path-based)
+#   ./launch :8800                        # Create tunnel to localhost:8800
+#   ./launch :                            # Create tunnel to localhost:8080 (default)
+#
+# For tunnel mode (:port), cloudflared is started in background and cleaned up
+# when the VS Code window closes.
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ARG="${1:-}"
+
+# Default server URL
+DEFAULT_SERVER="https://beta.makerchip.com"
+
+# Parse argument to determine mode
+if [ -z "$ARG" ]; then
+  # No argument: use default server
+  MODE="default"
+  SERVER_URL="$DEFAULT_SERVER"
+elif [[ "$ARG" =~ ^: ]]; then
+  # Starts with ':' → tunnel mode
+  MODE="tunnel"
+  PORT="${ARG#:}"
+  PORT="${PORT:-8080}"  # Default to 8080 if just ':'
+  
+  # Validate port is numeric
+  if ! [[ "$PORT" =~ ^[0-9]+$ ]]; then
+    echo "Error: Port must be numeric (got: $PORT)"
+    exit 1
+  fi
+else
+  # Anything else → explicit URL
+  MODE="url"
+  SERVER_URL="$ARG"
+fi
+
+# Function to start tunnel and return URL
+start_tunnel() {
+  local port=$1
+  
+  # Check if cloudflared is installed
+  if ! command -v cloudflared &> /dev/null; then
+    echo "Error: cloudflared is not installed"
+    echo ""
+    echo "Install with:"
+    echo "  Ubuntu/Debian: sudo apt install cloudflared"
+    echo "  macOS: brew install cloudflared"
+    echo "  Or visit: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
+    exit 1
+  fi
+  
+  echo "Starting Cloudflare tunnel to localhost:$port..."
+  
+  # Start cloudflared in background, save logs to temp file
+  local log_file=$(mktemp)
+  cloudflared tunnel --url "http://localhost:$port" > "$log_file" 2>&1 &
+  local pid=$!
+  
+  # Wait for tunnel URL (max 15 seconds)
+  local waited=0
+  local tunnel_url=""
+  while [ $waited -lt 15 ]; do
+    if [ -f "$log_file" ]; then
+      tunnel_url=$(grep -oP 'https://[^/]+\.trycloudflare\.com' "$log_file" | head -1 || true)
+      if [ -n "$tunnel_url" ]; then
+        break
+      fi
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  
+  if [ -z "$tunnel_url" ]; then
+    echo "Error: Failed to establish tunnel"
+    echo "Check logs: cat $log_file"
+    kill $pid 2>/dev/null || true
+    exit 1
+  fi
+  
+  echo "✓ Tunnel established: $tunnel_url"
+  
+  # Return both PID and URL (space-separated)
+  echo "$pid $tunnel_url $log_file"
+}
+
+# Handle tunnel mode
+if [ "$MODE" = "tunnel" ]; then
+  # Start tunnel and capture output
+  tunnel_info=$(start_tunnel "$PORT")
+  CLOUDFLARED_PID=$(echo "$tunnel_info" | cut -d' ' -f1)
+  SERVER_URL=$(echo "$tunnel_info" | cut -d' ' -f2)
+  TUNNEL_LOG=$(echo "$tunnel_info" | cut -d' ' -f3)
+  
+  echo "Cloudflared PID: $CLOUDFLARED_PID"
+  echo "Tunnel logs: $TUNNEL_LOG"
+fi
+
+echo "Server URL: $SERVER_URL"
+echo ""
+
+# Create cleanup script that will be executed after VS Code closes
+CLEANUP_SCRIPT=$(mktemp)
+cat > "$CLEANUP_SCRIPT" << EOF
+#!/bin/bash
+# Cleanup script - runs after VS Code window closes
+
+echo "VS Code window closed, cleaning up..."
+
+if [ "$MODE" = "tunnel" ]; then
+  echo "Stopping cloudflared (PID: $CLOUDFLARED_PID)..."
+  kill "$CLOUDFLARED_PID" 2>/dev/null || true
+  rm -f "$TUNNEL_LOG"
+fi
+
+echo "Cleanup complete"
+
+# Remove this cleanup script
+rm -f "$CLEANUP_SCRIPT"
+EOF
+chmod +x "$CLEANUP_SCRIPT"
+
+# Launch VS Code with --wait (blocks until window closes), then run cleanup
+echo "Launching VS Code..."
+echo "VS Code will open shortly..."
+echo ""
+
+if [ "$MODE" = "tunnel" ]; then
+  echo "Tunnel active on PID: $CLOUDFLARED_PID"
+  echo "Tunnel logs: $TUNNEL_LOG"
+  echo ""
+fi
+
+echo "Close the VS Code window to stop the tunnel and clean up"
+echo ""
+
+# Run in background: launch VS Code with server URL as env var, wait for close, then cleanup
+nohup bash -c "MAKERCHIP_SERVER_URL='$SERVER_URL' code --extensionDevelopmentPath='$SCRIPT_DIR' --wait && '$CLEANUP_SCRIPT'" > /dev/null 2>&1 &

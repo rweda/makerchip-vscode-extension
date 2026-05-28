@@ -25,6 +25,9 @@ import { registerMakerchipParticipant } from './makerchipParticipant';
 import { log } from './logger';
 import * as compileCache from './compileCache';
 
+// Default Makerchip server URL
+const DEFAULT_SERVER_URL = 'https://beta.makerchip.com';
+
 // Track multiple panels by name
 const panels = new Map<string, vscode.WebviewPanel>();
 const panelReadyPromises = new Map<string, Promise<void>>();
@@ -297,40 +300,7 @@ export function activate(ctx: vscode.ExtensionContext) {
     })
   );
 
-  // OPEN WEBVIEW DEVTOOLS COMMAND
-  context.subscriptions.push(
-    vscode.commands.registerCommand('makerchip.openDevTools', async () => {
-      const panelNames = Array.from(panels.keys());
-      if (panelNames.length === 0) {
-        vscode.window.showErrorMessage('No Makerchip panels are currently open');
-        return;
-      }
-      
-      let panelName: string | undefined;
-      if (panelNames.length === 1) {
-        panelName = panelNames[0];
-      } else {
-        panelName = await vscode.window.showQuickPick(panelNames, {
-          placeHolder: 'Select which Makerchip panel to debug'
-        });
-      }
-      
-      if (panelName) {
-        const panel = panels.get(panelName);
-        if (panel) {
-          // Use the internal API to open webview DevTools
-          if ((panel.webview as any).openDevTools) {
-            (panel.webview as any).openDevTools();
-            vscode.window.showInformationMessage(`Opening DevTools for ${panelName}...`);
-          } else {
-            vscode.window.showWarningMessage(
-              'webview.openDevTools() is not available. Try: Help > Toggle Developer Tools, then inspect the webview iframe.'
-            );
-          }
-        }
-      }
-    })
-  );
+  // To debug webviews: Help > Toggle Developer Tools, then inspect the webview <iframe> element
 }
 
 /**
@@ -404,21 +374,9 @@ async function openMakerchipPanel(panelKey: string): Promise<void> {
         log(`[${msg.severity.toUpperCase()}] ${msg.message}`);
         
         if (msg.severity === 'error') {
-          if (msg.action) {
-            vscode.window.showErrorMessage(msg.message, msg.action).then(choice => {
-              if (choice === msg.action && msg.action === 'Open DevTools') {
-                (panel.webview as any).openDevTools?.();
-              }
-            });
-          } else {
-            vscode.window.showErrorMessage(msg.message);
-          }
+          vscode.window.showErrorMessage(msg.message);
         } else if (msg.severity === 'warning') {
-          if (msg.action) {
-            vscode.window.showWarningMessage(msg.message, msg.action);
-          } else {
-            vscode.window.showWarningMessage(msg.message);
-          }
+          vscode.window.showWarningMessage(msg.message);
         } else if (msg.severity === 'info') {
           vscode.window.showInformationMessage(msg.message);
         }
@@ -533,30 +491,16 @@ function getNonce() {
 
 /**
  * Get the Makerchip server URL from:
- * 1. Local file (.makerchip-server-url in this repo, written by start_cloudflared script)
+ * 1. Environment variable MAKERCHIP_SERVER_URL (set by ./launch script)
  * 2. VS Code configuration (makerchip.serverUrl)
- * 
- * Throws an error if no server URL is configured.
+ * 3. Default: DEFAULT_SERVER_URL
  */
 async function getServerUrl(): Promise<string> {
-  // Check this repo for .makerchip-server-url file (written by (private) `mono` repo's start_cloudflared script)
-  const extensionUrlFile = path.join(context.extensionPath, '.makerchip-server-url');
-  log(`[getServerUrl] Checking extension directory: ${extensionUrlFile}`);
-  try {
-    if (fs.existsSync(extensionUrlFile)) {
-      const fileUrl = fs.readFileSync(extensionUrlFile, 'utf8').trim();
-      log(`[getServerUrl] Found file in extension dir with content: "${fileUrl}"`);
-      if (fileUrl && fileUrl.startsWith('http')) {
-        log(`Using server URL from extension directory: ${fileUrl}`);
-        return fileUrl;
-      } else {
-        console.warn(`[getServerUrl] File content doesn't start with http: "${fileUrl}"`);
-      }
-    } else {
-      log(`[getServerUrl] File does not exist in extension directory`);
-    }
-  } catch (error) {
-    console.warn(`Failed to read server URL from ${extensionUrlFile}:`, error);
+  // Check environment variable (set by ./launch script)
+  const envUrl = process.env.MAKERCHIP_SERVER_URL;
+  if (envUrl && envUrl.startsWith('http')) {
+    log(`Using server URL from environment: ${envUrl}`);
+    return envUrl;
   }
   
   // Check VS Code configuration
@@ -567,8 +511,7 @@ async function getServerUrl(): Promise<string> {
     return configUrl;
   }
   
-  // No server URL found - throw error
-  const errorMsg = 'Makerchip server URL not configured. Please set makerchip.serverUrl in settings or run start_cloudflared script.';
-  log(`[getServerUrl] ERROR: ${errorMsg}`);
-  throw new Error(errorMsg);
+  // Use default
+  log(`Using default server URL: ${DEFAULT_SERVER_URL}`);
+  return DEFAULT_SERVER_URL;
 }

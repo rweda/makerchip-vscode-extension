@@ -33,8 +33,7 @@ const REPOSITORIES: Repository[] = [
   { name: 'LLM_TLV', url: 'https://github.com/stevehoover/LLM_TLV' },
 ];
 
-const EXPECTED_ITEMS = [
-  'README.md',
+const EXPECTED_RESOURCES = [
   '.version.json',
 ];
 
@@ -65,8 +64,8 @@ export async function populateResources(context: vscode.ExtensionContext, output
   await fs.mkdir(RESOURCES_DIR, { recursive: true });
   await fs.mkdir(CACHE_DIR, { recursive: true });
 
-  // Clean up unexpected items
-  await cleanupUnexpectedItems(log);
+  // Clean up unexpected resources
+  await cleanupUnexpectedResources(log);
 
   // Clone or update repositories
   const result = await updateRepositories(log);
@@ -103,29 +102,29 @@ export async function populateResources(context: vscode.ExtensionContext, output
 /**
  * Clean up unexpected files and directories
  */
-async function cleanupUnexpectedItems(log: (message: string) => void): Promise<void> {
-  log('🧹 Cleaning up unexpected items...');
+async function cleanupUnexpectedResources(log: (message: string) => void): Promise<void> {
+  log('🧹 Cleaning up unexpected resources...');
 
   const repoNames = REPOSITORIES.map(r => r.name);
-  const validItems = new Set([...repoNames, ...EXPECTED_ITEMS]);
+  const validResources = new Set([...repoNames, ...EXPECTED_RESOURCES]);
 
   let removedCount = 0;
 
   try {
-    const items = await fs.readdir(RESOURCES_DIR);
+    const resources = await fs.readdir(RESOURCES_DIR);
 
-    for (const item of items) {
-      // Check if item is valid
-      if (!validItems.has(item)) {
-        log(`  Removing: ${item}`);
-        const itemPath = path.join(RESOURCES_DIR, item);
-        await fs.rm(itemPath, { recursive: true, force: true });
+    for (const resource of resources) {
+      // Check if resource is valid
+      if (!validResources.has(resource)) {
+        log(`  Removing: ${resource}`);
+        const resourcePath = path.join(RESOURCES_DIR, resource);
+        await fs.rm(resourcePath, { recursive: true, force: true });
         removedCount++;
       }
     }
 
     if (removedCount === 0) {
-      log('  ✓ No unexpected items found');
+      log('  ✓ No unexpected resources found');
     }
   } catch (error) {
     log(`  Warning: Failed to cleanup: ${error}`);
@@ -236,7 +235,7 @@ async function updateRepositories(log: (message: string) => void): Promise<Popul
  */
 async function copyReadme(context: vscode.ExtensionContext, log: (message: string) => void): Promise<void> {
   const templatePath = path.join(context.extensionPath, 'resources', 'README.md');
-  const readmePath = path.join(RESOURCES_DIR, 'README.md');
+  const readmePath = path.join(MAKERCHIP_DIR, 'README.md');
   
   try {
     await fs.copyFile(templatePath, readmePath);
@@ -260,38 +259,100 @@ async function createVersionMetadata(): Promise<void> {
 }
 
 /**
- * Install Copilot skill
+ * Copy a directory recursively
+ */
+async function copyDirectory(src: string, dest: string): Promise<void> {
+  await fs.mkdir(dest, { recursive: true });
+  const entries = await fs.readdir(src, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const srcPath = path.join(src, entry.name);
+    const destPath = path.join(dest, entry.name);
+
+    if (entry.isDirectory()) {
+      await copyDirectory(srcPath, destPath);
+    } else {
+      await fs.copyFile(srcPath, destPath);
+    }
+  }
+}
+
+/**
+ * Install Copilot skills
  */
 async function installSkill(context: vscode.ExtensionContext, log: (message: string) => void): Promise<void> {
-  log('Installing Copilot skill...');
+  log('Installing Copilot skills...');
 
-  // Install to top-level .vscode directory for workspace recognition
-  const skillsDir = path.join(MAKERCHIP_DIR, '.vscode', 'skills');
-  await fs.mkdir(skillsDir, { recursive: true });
+  // Install to .vscode-makerchip/.vscode/skills/ directory for workspace recognition
+  const targetSkillsDir = path.join(MAKERCHIP_DIR, '.vscode', 'skills');
+  const sourceSkillsDir = path.join(context.extensionPath, 'resources', 'skills');
 
-  // Clean up old skill files
+  // Remove existing skills directory to ensure clean state
   try {
-    const skillFiles = await fs.readdir(skillsDir);
-    for (const skillFile of skillFiles) {
-      if (skillFile !== 'tlv-ecosystem.md') {
-        log(`  Removing old skill: ${skillFile}`);
-        await fs.unlink(path.join(skillsDir, skillFile));
-      }
-    }
+    await fs.rm(targetSkillsDir, { recursive: true, force: true });
   } catch {
-    // Directory might not exist yet
+    // Directory might not exist, which is fine
   }
 
-  const templatePath = path.join(context.extensionPath, 'resources', 'tlv-ecosystem.md');
-  const skillPath = path.join(skillsDir, 'tlv-ecosystem.md');
-  
+  // Create target directory
+  await fs.mkdir(targetSkillsDir, { recursive: true });
+
   try {
-    await fs.copyFile(templatePath, skillPath);
-    log('Skill installed successfully:');
-    log('  ✓ tlv-ecosystem.md');
+    // Copy all static skills from resources/skills/
+    await copyDirectory(sourceSkillsDir, targetSkillsDir);
+
+    // Generate makerchip-api-features.md
+    await generateApiFeaturesSkill(targetSkillsDir, log);
+    
+    // List installed skills
+    const installedSkills = await fs.readdir(targetSkillsDir);
+    log('Skills installed successfully:');
+    for (const skillFile of installedSkills) {
+      log(`  ✓ ${skillFile}`);
+    }
   } catch (error) {
-    log(`  Warning: Failed to copy skill: ${error}`);
+    log(`  Warning: Failed to install skills: ${error}`);
   }
   
   log('');
+}
+
+/**
+ * Generate makerchip-api-features.md from Makerchip-public docs
+ */
+async function generateApiFeaturesSkill(targetDir: string, log: (message: string) => void): Promise<void> {
+  // Path to built docs in Makerchip-public repository
+  const apiDocsPath = path.join(RESOURCES_DIR, 'Makerchip-public', 'docs', 'plugin_api', 'API_features.md');
+  
+  try {
+    // Read source content
+    const sourceContent = await fs.readFile(apiDocsPath, 'utf-8');
+    
+    // YAML frontmatter for the skill
+    const frontmatter = `---
+description: Data structures for Makerchip IDE layout state and third-party panes
+applyTo:
+  - pattern: "**/*"
+    triggerWords:
+      - makerchip
+      - layout
+      - third-party pane
+      - pane
+      - state
+---
+
+`;
+    
+    // Combine frontmatter with source content
+    const skillContent = frontmatter + sourceContent;
+    
+    // Write to target
+    const targetPath = path.join(targetDir, 'makerchip-api-features.md');
+    await fs.writeFile(targetPath, skillContent, 'utf-8');
+    
+    log('  Generated makerchip-api-features.md from Makerchip-public docs');
+  } catch (error) {
+    log(`  Warning: Could not generate makerchip-api-features.md: ${error}`);
+    log('  (Makerchip-public repository may not be available or docs may not be built)');
+  }
 }

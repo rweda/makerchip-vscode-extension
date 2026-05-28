@@ -1,9 +1,12 @@
 ---
+name: tlv-ecosystem
+description: 'TL-Verilog ecosystem guidance. Use when: working with TL-Verilog, TLV, Transaction-Level Verilog, SandPiper, Makerchip IDE, M5 macros, Visual Debug, VIZ, hardware design, digital circuits, digital logic, pipelines, RISC-V, SystemVerilog, circuit visualization, waveform debugging, or asking about TLV syntax, compilation, or tools.'
 applyTo:
   - "**/*.tlv"
   - "**/*.sv"
   - "**/*.v"
   - "**/*.m5"
+user-invocable: true
 ---
 
 # TL-Verilog Ecosystem Guide
@@ -42,6 +45,9 @@ TL-Verilog files use `.tlv` extension and combine:
 
 When helping with TL-Verilog, **reference these primary sources** in the Makerchip resources folder:
 
+### README
+- `resources/README.md` - Overview of all resources, documentation, examples, and courses available for TL-Verilog and Makerchip
+
 ### Specifications
 - **[Makerchip-public/docs/TLXSpec.pdf](../Makerchip-public/docs/TLXSpec.pdf)** - Complete TL-X language specification (authoritative reference)
 - **[Makerchip-public/docs/M5_spec.pdf](../Makerchip-public/docs/M5_spec.pdf)** - M5 macro processor language specification
@@ -58,6 +64,8 @@ When helping with TL-Verilog, **reference these primary sources** in the Makerch
 - **[warp-v_includes/](../warp-v_includes/)** - RISC-V ISA definitions and library patterns
 - **[tlv_lib/](../tlv_lib/)** - General-purpose TL-Verilog component libraries
 - **[tlv_flow_lib/](../tlv_flow_lib/)** - Transaction flow components and `$ANY` patterns
+
+Note: For development, there may be a more recent working version of `Makerchip-public` in the workspace to reference instead.
 
 ## Working with the Makerchip VS Code Extension
 
@@ -122,6 +130,60 @@ For complete IDE Plugin API reference, see:
 - `~/.vscode-makerchip/resources/Makerchip-public/docs/plugin_api/index.html` (local)
 - [IdePlugin API Documentation](https://github.com/rweda/Makerchip-public/blob/main/docs/plugin_api/index.html) (online)
 
+### IDE Layout Management
+
+**Layout State Tools** - Use these tools to customize the IDE pane arrangement:
+
+- `makerchip_get_layout_state` - Get current layout configuration (splits, tabs, active panes)
+- `makerchip_set_layout_state` - Apply a custom layout (arrange panes in splits/tabs)
+- `makerchip_get_available_panes` - List all available panes with mnemonics and availability
+- `makerchip_open_pane` - Open or activate a specific pane by mnemonic (supports both static and non-static panes)
+
+**Pane Mnemonics:**
+All panes are identified by mnemonics (unique identifiers). Use `makerchip_get_available_panes` to discover available panes. Mnemonics follow the pattern:
+- Simple: `"Diagram"`, `"Waveform"`, `"Log"`
+- With uniquifier: `"Course Slides+Udemy"`, `"RISC-V Videos+Workshop"`
+
+**Important**: Mnemonics use the "+" character as a delimiter for uniquifiers. When passing mnemonics in URLs, encode "+" as "%2B".
+
+**Pane Types:**
+- **Editor Pane**: Not available in VS Code extension (VS Code provides its own editor)
+- **(Other) Main Panes**: Always open (Log,Nav-TLV, Diagram, Waveform, VIZ)
+- **Static Panes**: Defined in blade files, opened on demand
+
+**Blade File Names**: Static pane blade files in `~/.vscode-makerchip/resources/Makerchip-public/pane-blade/` use **mnemonics as filenames** (with spaces and "+" characters). Examples:
+- `Combo Tutorial.blade`
+- `Course Slides+Udemy.blade`
+- `RISC-V Videos+Workshop.blade`
+- `Examples.blade`
+
+These file names **exactly match** the mnemonics returned by `makerchip_get_available_panes` and used in `makerchip_set_layout_state`.
+
+**Layout State Structure:**
+```json
+// Single tabbed view
+{
+  "panes": ["Log", "Diagram", "Waveform"],
+  "activePane": "Diagram"
+}
+
+// Horizontal split (left/right)
+{
+  "sides": {
+    "left": { "panes": ["Log", "Nav-TLV"] },
+    "right": { "panes": ["Diagram", "Waveform", "Viz"], "activePane": "Diagram" }
+  }
+}
+
+// Vertical split (top/bottom)
+{
+  "sides": {
+    "top": { "panes": ["Diagram"] },
+    "bottom": { "panes": ["Waveform", "Log"] }
+  }
+}
+```
+
 ### API Reference Documentation
 
 **IDE Plugin API**: `~/.vscode-makerchip/resources/Makerchip-public/docs/plugin_api/index.html`
@@ -139,3 +201,9 @@ For complete IDE Plugin API reference, see:
 3. **Reference docs**: Point to specific PDF files and API documentation in this resources folder when explaining concepts
 4. **Show progression**: For tutorials, build up complexity step-by-step
 5. **Include VIZ**: When demonstrating circuits, include `\viz` annotations for better visualization
+
+## Assisting with the Makerchip VS Code Extension
+
+The user interacts with the Makerchip extension as follow and may need your guidance on how to use it effectively:
+
+- **Keyboard Shortcut**: Press `Ctrl+Shift+Enter` to compile current file (in the "default" Makerchip webview, which opens if unavailable).

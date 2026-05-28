@@ -39,38 +39,47 @@ Example prompts:
 
 ## Development
 
-### Quick Start
+### Quick Start with Launch Script
 
-1. Install dependencies: `npm install`
-2. Load repo into VS Code workspace. Extension and webview change auto-compile
-   when changed (`npm run watch`).
-3. Press `F5` to launch extension in debug mode
+The `./launch` script provides a convenient way to test the extension:
 
-### Testing with Local Makerchip Server
+```bash
+# Launch extension connected to default server (beta.makerchip.com)
+./launch
 
-To test extension changes with a local mono_vscode (SandHost) server:
+# Launch connected to a specific server URL
+./launch https://makerchip.com
 
-1. Start local server with tunnel in mono_vscode repo:
+# Launch with local SandHost via cloudflared tunnel (auto-cleanup on close)
+./launch :8800         # Tunnel to localhost:8800
+./launch :             # Tunnel to localhost:8080 (default port)
+```
+
+**Workflow for local development:**
+
+1. **Start local SandHost** (in mono repo):
    ```bash
-   <mono>/bin/start_cloudflared 8800 <makerchip-vscode-extension>
+   cd ../mono_vscode
+   bin/start 8800
    ```
-   This creates a public tunnel and writes the URL to
-   `<makerchip-vscode-extension>/.makerchip-server-url` and launches SandHost to
-   use that `basePath` URL.
 
-2. Extension reads `.makerchip-server-url` and connects to your local server
+2. **Launch extension with tunnel** (in extension repo):
+   ```bash
+   cd ../makerchip-vscode-extension
+   ./launch :8800
+   ```
 
-3. Make changes, press `F5` to reload extension or `Ctrl+R` to refresh webview,
-   test your changes
+3. Make changes to mono → restart SandHost (step 1), no need to restart extension
 
-4. Check logs:
-   - **Makerchip Tools** output panel (opens automatically)
-   - **Developer Console** (`Ctrl+Shift+I`) for extension host logs
-   - **Webview DevTools** (`Ctrl+Shift+P` → "Makerchip: Open Webview Developer Tools")
+4. Make changes to extension → close VS Code window and rerun `./launch :8800`
 
-Server URL priority: `.makerchip-server-url` file → VS Code setting → `beta.makerchip.com`
+The tunnel is automatically created and torn down when VS Code closes. The server URL is passed via environment variable.
 
-See also: [mono_vscode README](https://github.com/redwood-eda/mono_vscode#debugging-with-vs-code-extension) for server-side debugging.
+### Server Configuration
+
+By default, the extension connects to `beta.makerchip.com`. You can override this:
+- **Environment Variable**: `MAKERCHIP_SERVER_URL` (automatically set by `./launch` script)
+- **VS Code Setting**: `makerchip.serverUrl` in your settings
 
 ## Copilot Enablement Architecture
 
@@ -103,11 +112,40 @@ Generic tool for calling any IDE method directly.
 - `getCode(lastChangeGeneration)` - Get current code
 - `setCodeFromURL(url, readOnly)` - Load code from URL
 - `activatePane(name)` - Switch to a specific pane ("Diagram", "Waveform", "Nav-TLV", etc.)
-- `openStaticPane(name, background)` - Open a static pane
+- `openPane(name, background)` - Open and/or activate a pane
 
 For complete IDE Plugin API documentation, see:
 - Local: `~/.vscode-makerchip/resources/Makerchip-public/docs/plugin_api/index.html`
 - Online: [IdePlugin API Documentation](https://github.com/rweda/Makerchip-public/blob/main/docs/plugin_api/index.html)
+
+### 3. IDE Layout Management Tools
+
+Several tools enable programmatic control of IDE pane layouts:
+
+**`makerchip_get_layout_state`** - Get current layout configuration
+- Returns: Layout state object describing current split/tab arrangement
+
+**`makerchip_set_layout_state`** - Apply custom layout configuration
+- Parameters: `state` (layout state object with panes, splits, active pane)
+- Use to arrange panes in custom configurations (horizontal/vertical splits, tabs)
+
+**`makerchip_get_available_panes`** - List all available panes
+- Returns: Array of pane objects with mnemonic, display name, description, and availability
+
+**`makerchip_open_pane`** - Open or activate a specific pane by mnemonic
+
+**Identifying Panes:**
+All panes are identified by unique mnemonics used by layout tools and reported by `makerchip_get_available_panes`. Content for most panes can be found in `~/.vscode-makerchip/resources/Makerchip-public/pane-blade/` in files named <mnemonic>.blade. So, to display the content of `~/.vscode-makerchip/resources/Makerchip-public/pane-blade/Combo Tutorial.blade`, use the `makerchip_open_pane` tool with the name "Combo Tutorial" (the mnemonic returned by `makerchip_get_available_panes` for that pane).
+
+**Main Panes:**
+The following main panes are always open and available:
+- "Editor"
+- "Log"
+- "Diagram"
+- "Waveform"
+- "Nav-TLV"
+- "VIZ"
+
 
 ### Generic Message Protocol
 

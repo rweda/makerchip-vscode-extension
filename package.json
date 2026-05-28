@@ -37,11 +37,6 @@
         "icon": "$(list-tree)"
       },
       {
-        "command": "makerchip.openDevTools",
-        "title": "Makerchip: Open Webview Developer Tools",
-        "icon": "$(debug-console)"
-      },
-      {
         "command": "makerchip.updateResources",
         "title": "Makerchip: Update Reference Data",
         "icon": "$(cloud-download)"
@@ -159,7 +154,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(symbol-method)",
         "userDescription": "Call any Makerchip IDE method directly.",
-        "modelDescription": "Invokes any method on the Makerchip IDE instance. Available methods include: compile(code), setCode(code, readOnly), getCode(lastChangeGeneration), setCodeFromURL(url, readOnly), activatePane(name), openStaticPane(name, background). Use this for advanced IDE control like changing panes, setting code without compiling, or loading code from URLs. Methods like onReady, onCodeChange, onCompilationLog are callbacks and should not be called directly.",
+        "modelDescription": "Invokes any method on the Makerchip IDE instance. Available methods include: compile(code), setCode(code, readOnly), getCode(lastChangeGeneration), setCodeFromURL(url, readOnly), activatePane(name), openPane(name, background). Use this for advanced IDE control like changing panes, setting code without compiling, or loading code from URLs. Methods like onReady, onCodeChange, onCompilationLog are callbacks and should not be called directly.",
         "tags": [
           "makerchip",
           "ide",
@@ -175,7 +170,7 @@
           "properties": {
             "method": {
               "type": "string",
-              "description": "The IDE method to invoke (e.g., 'compile', 'activatePane', 'setCode', 'getCode', 'setCodeFromURL', 'openStaticPane')"
+              "description": "The IDE method to invoke (e.g., 'compile', 'activatePane', 'setCode', 'getCode', 'setCodeFromURL', 'openPane')"
             },
             "args": {
               "type": "array",
@@ -238,6 +233,257 @@
             "saveToFile": {
               "type": ["boolean", "string"],
               "description": "Optional: save image to file for user visibility. If true, saves to /tmp with auto-generated name. If string, uses as file path. Image data is always returned to the model."
+            }
+          }
+        }
+      },
+      {
+        "name": "makerchip_get_layout_state",
+        "displayName": "Get IDE Layout State",
+        "toolReferenceName": "makerchipGetLayoutState",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(layout)",
+        "userDescription": "Get the current IDE pane layout configuration.",
+        "modelDescription": "Retrieves the current Makerchip IDE layout state as a serializable object. Returns either a TabbedView state (single pane container) or FlexSplit state (split layout).\n\nRETURNED STRUCTURE:\n\nTabbedView state:\n{\n  \"panes\": [\"Log\", \"Diagram\", ...],  // Array of pane mnemonics in tab order\n  \"activePane\": \"Diagram\"              // Currently active pane mnemonic (or null)\n}\n\nFlexSplit state (horizontal):\n{\n  \"sides\": {\n    \"left\": <TabbedView or nested FlexSplit>,\n    \"right\": <TabbedView or nested FlexSplit>\n  },\n  \"splitAt\": 0.5  // Split position (0.0-1.0)\n}\n\nFlexSplit state (vertical):\n{\n  \"sides\": {\n    \"top\": <TabbedView or nested FlexSplit>,\n    \"bottom\": <TabbedView or nested FlexSplit>\n  },\n  \"splitAt\": 0.5  // Split position (0.0-1.0)\n}\n\nAvailable pane mnemonics: \"Log\", \"Nav-TLV\", \"Diagram\", \"Viz\", \"Waveform\" (plus static panes - use makerchip_get_available_panes to see all). Note: Editor pane is NOT available in VS Code extension (VS Code provides its own editor).\n\nUse this to: capture current layout for later restoration, understand current IDE configuration, or create modified layouts based on the current state. The returned object can be passed directly to makerchip_set_layout_state or modified before restoration.",
+        "tags": [
+          "makerchip",
+          "ide",
+          "layout",
+          "state",
+          "panes",
+          "configuration"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "panelName": {
+              "type": "string",
+              "description": "Optional panel name to target. If not provided, uses the default panel."
+            }
+          }
+        }
+      },
+      {
+        "name": "makerchip_set_layout_state",
+        "displayName": "Set IDE Layout State",
+        "toolReferenceName": "makerchipSetLayoutState",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(layout-panel)",
+        "userDescription": "Configure the IDE pane layout (create splits, arrange panes in tabs, set active pane).",
+        "modelDescription": "Sets the Makerchip IDE layout from a state object. You can restore a previously saved state OR craft a custom layout defining pane arrangement, splits, tabs, and active panes.\n\nThe state is either a TabbedView (single pane container with tabs) or FlexSplit (split layout with left/right or top/bottom sides). FlexSplit sides recursively contain TabbedView or nested FlexSplit states.\n\nAvailable pane mnemonics: Use makerchip_get_available_panes to get the complete list. Main panes: Log, Nav-TLV, Diagram, Viz, Waveform. Many static panes also available (tutorials, documentation, etc.). NOTE: Editor pane is NOT available (VS Code provides the editor).\n\nEXAMPLES:\n\nSingle view with tabs: {\"panes\": [\"Diagram\", \"Waveform\"], \"activePane\": \"Diagram\"}\n\nHorizontal split (Log left, Diagram+Waveform right): {\"sides\": {\"left\": {\"panes\": [\"Log\"], \"activePane\": \"Log\"}, \"right\": {\"panes\": [\"Diagram\", \"Waveform\"], \"activePane\": \"Diagram\"}}, \"splitAt\": 0.3}\n\nVertical split (Nav-TLV top, Diagram bottom): {\"sides\": {\"top\": {\"panes\": [\"Nav-TLV\"], \"activePane\": \"Nav-TLV\"}, \"bottom\": {\"panes\": [\"Diagram\"], \"activePane\": \"Diagram\"}}, \"splitAt\": 0.3}\n\nNested 3-way (Log left, Diagram top-right, Waveform bottom-right): {\"sides\": {\"left\": {\"panes\": [\"Log\"], \"activePane\": \"Log\"}, \"right\": {\"sides\": {\"top\": {\"panes\": [\"Diagram\"], \"activePane\": \"Diagram\"}, \"bottom\": {\"panes\": [\"Waveform\"], \"activePane\": \"Waveform\"}}, \"splitAt\": 0.5}}, \"splitAt\": 0.3}",
+        "tags": [
+          "makerchip",
+          "ide",
+          "layout",
+          "state",
+          "panes",
+          "restore",
+          "configuration",
+          "split",
+          "tabs"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "required": ["state"],
+          "properties": {
+            "state": {
+              "$ref": "#/$defs/layoutState",
+              "description": "Layout state defining pane arrangement (TabbedView or FlexSplit)"
+            },
+            "panelName": {
+              "type": "string",
+              "description": "Optional panel name to target. If not provided, uses the default panel."
+            }
+          },
+          "$defs": {
+            "layoutState": {
+              "oneOf": [
+                { "$ref": "#/$defs/tabbedViewState" },
+                { "$ref": "#/$defs/flexSplitState" }
+              ]
+            },
+            "tabbedViewState": {
+              "type": "object",
+              "required": ["panes"],
+              "properties": {
+                "panes": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "Array of pane mnemonics in tab order"
+                },
+                "activePane": {
+                  "type": ["string", "null"],
+                  "description": "Mnemonic of active pane (or null)"
+                }
+              },
+              "additionalProperties": false
+            },
+            "flexSplitState": {
+              "type": "object",
+              "required": ["sides"],
+              "properties": {
+                "sides": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "required": ["left", "right"],
+                      "properties": {
+                        "left": { "$ref": "#/$defs/layoutState" },
+                        "right": { "$ref": "#/$defs/layoutState" }
+                      },
+                      "additionalProperties": false,
+                      "description": "Horizontal split with left and right sides"
+                    },
+                    {
+                      "type": "object",
+                      "required": ["top", "bottom"],
+                      "properties": {
+                        "top": { "$ref": "#/$defs/layoutState" },
+                        "bottom": { "$ref": "#/$defs/layoutState" }
+                      },
+                      "additionalProperties": false,
+                      "description": "Vertical split with top and bottom sides"
+                    }
+                  ]
+                },
+                "splitAt": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "description": "Split position (0.0-1.0), default 0.5"
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      {
+        "name": "makerchip_get_available_panes",
+        "displayName": "Get Available Panes",
+        "toolReferenceName": "makerchipGetAvailablePanes",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(list-tree)",
+        "userDescription": "List all available IDE panes with descriptions.",
+        "modelDescription": "Retrieves a complete list of all panes in the Makerchip IDE, including main IDE panes, static panes (tutorials, documentation, etc.), and third-party panes (if any). Each pane entry includes its mnemonic (unique identifier used in layout operations), display name, description, and availability status.\n\nMAIN IDE PANES (in VS Code extension context):\n- Log: Compilation error log and messages\n- Nav-TLV: TL-Verilog code navigation tree\n- Diagram: Circuit diagram visualization\n- Viz: VIZ canvas for visual debug\n- Waveform: Waveform viewer for signals\n\nNOTE: Editor pane is NOT available in VS Code extension (VS Code provides its own editor). The Editor will appear in the list with available=false.\n\nSTATIC PANES (always available, opened on demand):\n- About, Help, Settings\n- Tutorials (Makerchip Tutorial, Tutorial-Combo, Tutorial-Seq, Tutorial-Pipes, etc.)\n- Documentation (VIZ Guide, TL-X Spec, M5 Spec, etc.)\n- Courses and Videos\n- Code Examples\n\nTHIRD-PARTY PANES (dynamically created):\n- Custom panes added by the platform via openThirdPartyPane API\n- Can include PDFs, iframes, or other external content\n- Listed separately with their content type\n\nEach pane has an 'available' field: true if the pane can be used, false if not available in this context (e.g., Editor is always false in VS Code extension).\n\nUse this tool to: discover what panes are available for layout configuration, check which panes are actually usable in the current IDE instance, find the correct mnemonic for a specific pane, understand what content each pane provides, or present options to users. Only use panes with available=true in makerchip_set_layout_state calls.",
+        "tags": [
+          "makerchip",
+          "ide",
+          "panes",
+          "list",
+          "discovery",
+          "layout"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "panelName": {
+              "type": "string",
+              "description": "Optional panel name to target. If not provided, uses the default panel."
+            }
+          }
+        }
+      },
+      {
+        "name": "makerchip_open_pane",
+        "displayName": "Open/Activate Pane",
+        "toolReferenceName": "makerchipOpenPane",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(open-preview)",
+        "userDescription": "Open or activate a specific IDE pane by mnemonic.",
+        "modelDescription": "Opens and/or activates a pane by its mnemonic identifier.\n\nThis tool works with both:\n- Static panes (tutorials, documentation, courses) - opened on demand\n- Always-open main IDE panes (Log, Diagram, Waveform, etc.) can be activated (made visible)\n\nUse makerchip_get_available_panes to discover valid pane mnemonics. Only use panes with available=true.\n\nCommon use cases:\n- Open tutorials: \"Makerchip Tutorial\", \"Combo Tutorial\", \"Pipelining Tutorial\" (found in `resources/Makerchip-public/pane-blade`)\n- Open documentation: \"VIZ Guide\", \"TL-X Spec\", \"Help\"\n- Activate IDE panes: \"Diagram\", \"Waveform\", \"Log\"\n- Open courses: \"RISC-V Course+Single-Cycle\"\n\nERROR HANDLING: Returns an error if the pane mnemonic is not found. The error message includes a complete list of available panes with their mnemonics and descriptions.\n\nNOTE: For complex layout changes (splits, multiple panes), use makerchip_set_layout_state instead. This tool is best for simply opening/activating a single pane.",
+        "tags": [
+          "makerchip",
+          "ide",
+          "pane",
+          "open",
+          "activate",
+          "tutorial",
+          "documentation"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "required": ["mnemonic"],
+          "properties": {
+            "mnemonic": {
+              "type": "string",
+              "description": "The mnemonic (unique identifier) of the pane to open or activate. Use makerchip_get_available_panes to discover valid mnemonics."
+            },
+            "background": {
+              "type": "boolean",
+              "description": "If true, opens the pane in the background without activating it. Default is false (activate the pane).",
+              "default": false
+            },
+            "panelName": {
+              "type": "string",
+              "description": "Optional panel name to target. If not provided, uses the default panel."
+            }
+          }
+        }
+      },
+      {
+        "name": "makerchip_open_third_party_pane",
+        "displayName": "Open Third-Party Pane",
+        "toolReferenceName": "makerchipOpenThirdPartyPane",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(new-file)",
+        "userDescription": "Open custom content (PDFs, web pages) in IDE panes.",
+        "modelDescription": "Opens a third-party pane in the Makerchip IDE to display external content like PDFs or web pages within the IDE's tabbed interface.\n\nSUPPORTED CONTENT TYPES:\n\n1. PDF (contentType: \"pdf\"):\n   - Displays PDF files using the IDE's built-in PDF viewer\n   - Supports any URL: https://, http://, file://, vscode-webview://, data URIs\n   - Example: Technical documentation, datasheets, user guides\n\n2. Iframe (contentType: \"iframe\"):\n   - Embeds web pages in an iframe\n   - Subject to browser same-origin policy and CSP restrictions\n   - Target page must allow iframe embedding (no X-Frame-Options: DENY)\n   - Example: External documentation sites, web tools, reference materials\n\nPARAMETERS:\n\n- mnemonic: Display name for the pane (appears in tab). Auto-uniquified if name conflicts occur.\n- contentType: Either \"pdf\" or \"iframe\"\n- contentParams.contentUrl: URL to the content (required)\n- options.background: If true, opens without activating (default: false)\n- options.nonTransferrable: If true, won't save pane data for layout recovery (default: false)\n\nRETURN VALUE: The actual mnemonic (may differ if uniquified to avoid conflicts)\n\nUSE CASES:\n- Display tutorial PDFs alongside code examples\n- Show external API documentation while developing\n- Embed reference materials or specification documents\n- Open web-based tools or calculators within the IDE\n- Present course materials or learning resources\n\nEXAMPLES:\n\nOpen PDF tutorial:\n{\n  \"mnemonic\": \"TL-Verilog Guide\",\n  \"contentType\": \"pdf\",\n  \"contentParams\": {\n    \"contentUrl\": \"https://example.com/tlv-guide.pdf\"\n  }\n}\n\nEmbed documentation website:\n{\n  \"mnemonic\": \"API Docs\",\n  \"contentType\": \"iframe\",\n  \"contentParams\": {\n    \"contentUrl\": \"https://docs.example.com\"\n  },\n  \"options\": {\n    \"background\": true\n  }\n}\n\nNOTE: Third-party panes are tracked in layout state when forTransfer=true is used with makerchip_get_layout_state (unless nonTransferrable=true).",
+        "tags": [
+          "makerchip",
+          "ide",
+          "pane",
+          "pdf",
+          "iframe",
+          "documentation",
+          "tutorial",
+          "reference",
+          "third-party",
+          "external"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "required": ["mnemonic", "contentType", "contentParams"],
+          "properties": {
+            "mnemonic": {
+              "type": "string",
+              "description": "Display name for the pane (tab label). Will be uniquified automatically if a pane with this name already exists."
+            },
+            "contentType": {
+              "type": "string",
+              "enum": ["pdf", "iframe"],
+              "description": "Type of content to display: 'pdf' for PDF viewer or 'iframe' for embedded web content."
+            },
+            "contentParams": {
+              "type": "object",
+              "required": ["contentUrl"],
+              "properties": {
+                "contentUrl": {
+                  "type": "string",
+                  "description": "URL to the content. For PDFs: supports https://, http://, file://, vscode-webview://, data URIs. For iframes: must support iframe embedding."
+                }
+              },
+              "description": "Content parameters. Currently only contentUrl is supported, but future versions may add format-specific options."
+            },
+            "options": {
+              "type": "object",
+              "properties": {
+                "background": {
+                  "type": "boolean",
+                  "description": "If true, opens the pane without activating it (leaves current pane active). Default is false.",
+                  "default": false
+                },
+                "nonTransferrable": {
+                  "type": "boolean",
+                  "description": "If true, pane construction data won't be stored for layout recovery. Use for temporary panes. Default is false.",
+                  "default": false
+                }
+              },
+              "description": "Optional settings for pane behavior."
+            },
+            "panelName": {
+              "type": "string",
+              "description": "Optional VS Code panel name to target. If not provided, uses the default panel."
             }
           }
         }
