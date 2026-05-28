@@ -742,6 +742,100 @@ export class OpenThirdPartyPaneTool implements vscode.LanguageModelTool<OpenThir
   }
 }
 
+interface UpdatePlayStateInput {
+  /** Whether to start (true) or stop (false) waveform playback */
+  isPlaying: boolean;
+  /** Optional delay in milliseconds between cycles. If not provided, keeps current timeout (default 1000ms). */
+  cycleTimeout?: number;
+  /** Optional starting cycle. If provided, jumps to this cycle before starting playback. */
+  startCyc?: number;
+  /** Optional ending cycle. If provided, playback stops at this cycle; otherwise plays to end of waveform. */
+  endCyc?: number;
+  /** Optional panel name to target. If not provided, uses the default panel. */
+  panelName?: string;
+}
+
+/**
+ * Language Model tool to control waveform playback in the IDE
+ */
+export class UpdatePlayStateTool implements vscode.LanguageModelTool<UpdatePlayStateInput> {
+  
+  async prepareInvocation(
+    options: vscode.LanguageModelToolInvocationPrepareOptions<UpdatePlayStateInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.PreparedToolInvocation> {
+    const { isPlaying, cycleTimeout, startCyc, endCyc, panelName } = options.input;
+    
+    let message = isPlaying ? 'Starting' : 'Stopping';
+    message += ' waveform playback';
+    
+    if (isPlaying && startCyc !== undefined) {
+      message += ` from cycle ${startCyc}`;
+    }
+    
+    if (isPlaying && endCyc !== undefined) {
+      message += ` to cycle ${endCyc}`;
+    }
+    
+    if (isPlaying && cycleTimeout !== undefined) {
+      message += ` at ${cycleTimeout}ms per cycle`;
+    }
+    
+    const panelInfo = panelName ? ` in panel '${panelName}'` : '';
+    message += panelInfo + '...';
+    
+    return { invocationMessage: message };
+  }
+
+  async invoke(
+    options: vscode.LanguageModelToolInvocationOptions<UpdatePlayStateInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.LanguageModelToolResult> {
+    try {
+      const { isPlaying, cycleTimeout, startCyc, endCyc, panelName } = options.input;
+      
+      // Call the IDE method
+      await vscode.commands.executeCommand(
+        'makerchip.invokeIdeMethod',
+        'updatePlayState',
+        [isPlaying, cycleTimeout, startCyc, endCyc],
+        panelName
+      );
+      
+      // Build success message
+      let message = isPlaying ? 'Started' : 'Stopped';
+      message += ' waveform playback';
+      
+      if (isPlaying && startCyc !== undefined) {
+        message += ` from cycle ${startCyc}`;
+      }
+      
+      if (isPlaying && endCyc !== undefined) {
+        message += ` to cycle ${endCyc}`;
+      } else if (isPlaying) {
+        message += ' to end of waveform';
+      }
+      
+      if (isPlaying && cycleTimeout !== undefined) {
+        message += ` at ${cycleTimeout}ms per cycle`;
+      }
+      
+      const panelInfo = panelName ? ` in panel '${panelName}'` : '';
+      
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(message + panelInfo)
+      ]);
+      
+    } catch (error: any) {
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(
+          `Failed to update play state: ${error.message}`
+        )
+      ]);
+    }
+  }
+}
+
 /**
  * Register the Makerchip tools with the Language Model API
  */
@@ -790,6 +884,11 @@ export function registerMakerchipTool(context: vscode.ExtensionContext): void {
   log('Open third-party pane tool registered:', !!openThirdPartyPaneTool);
   context.subscriptions.push(openThirdPartyPaneTool);
   
+  // Register the update play state tool
+  const updatePlayStateTool = vscode.lm.registerTool('makerchip_update_play_state', new UpdatePlayStateTool());
+  log('Update play state tool registered:', !!updatePlayStateTool);
+  context.subscriptions.push(updatePlayStateTool);
+  
   // Verify tools are in the list
   setTimeout(() => {
     log('All registered tools:', vscode.lm.tools.map(t => t.name));
@@ -801,6 +900,7 @@ export function registerMakerchipTool(context: vscode.ExtensionContext): void {
     const ourAvailablePanesTool = vscode.lm.tools.find(t => t.name === 'makerchip_get_available_panes');
     const ourOpenPaneTool = vscode.lm.tools.find(t => t.name === 'makerchip_open_pane');
     const ourOpenThirdPartyPaneTool = vscode.lm.tools.find(t => t.name === 'makerchip_open_third_party_pane');
+    const ourUpdatePlayStateTool = vscode.lm.tools.find(t => t.name === 'makerchip_update_play_state');
     log('Found our compile tool:', !!ourRunTool);
     log('Found our IDE tool:', !!ourIdeTool);
     log('Found our VIZ image tool:', !!ourVizImageTool);
@@ -809,6 +909,7 @@ export function registerMakerchipTool(context: vscode.ExtensionContext): void {
     log('Found our get available panes tool:', !!ourAvailablePanesTool);
     log('Found our open pane tool:', !!ourOpenPaneTool);
     log('Found our open third-party pane tool:', !!ourOpenThirdPartyPaneTool);
+    log('Found our update play state tool:', !!ourUpdatePlayStateTool);
     
     showOutputChannel(); // Show output channel on startup
   }, 1000);

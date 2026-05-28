@@ -5,10 +5,9 @@ VS Code extension for Makerchip IDE integration, providing TL-Verilog developmen
 ## Features
 
 - **Compile/Simulate TL-Verilog**: Compile and visualize circuits directly in VS Code
-- **Multiple Panels**: Work with different circuits simultaneously in named panels
+- **Multiple Panes**: Work with different circuits simultaneously in named panes (views)
 - **GitHub Copilot Integration**: Language Model tools allow Copilot to launch Makerchip and demonstrate examples
 - **Reference Data Management**: Automatic setup of documentation and examples
-- **Keyboard Shortcut**: Press `Ctrl+Shift+Enter` to compile current file
 - **Chat Participant**: Use `@makerchip` for direct interaction
 
 ## Usage
@@ -113,6 +112,9 @@ Generic tool for calling any IDE method directly.
 - `setCodeFromURL(url, readOnly)` - Load code from URL
 - `activatePane(name)` - Switch to a specific pane ("Diagram", "Waveform", "Nav-TLV", etc.)
 - `openPane(name, background)` - Open and/or activate a pane
+- `getCycle()` - Get the current waveform cycle/time step
+- `setCycle(cycle)` - Set the current waveform cycle/time step
+- `updatePlayState(isPlaying, cycleTimeout, startCyc, endCyc)` - Control waveform playback
 
 For complete IDE Plugin API documentation, see:
 - Local: `~/.vscode-makerchip/resources/Makerchip-public/docs/plugin_api/index.html`
@@ -133,6 +135,14 @@ Several tools enable programmatic control of IDE pane layouts:
 - Returns: Array of pane objects with mnemonic, display name, description, and availability
 
 **`makerchip_open_pane`** - Open or activate a specific pane by mnemonic
+
+**`makerchip_update_play_state`** - Control waveform playback
+- Parameters:
+  - `isPlaying` (required): true to start, false to stop
+  - `cycleTimeout` (optional): milliseconds between cycles
+  - `startCyc` (optional): starting cycle
+  - `endCyc` (optional): ending cycle (plays to waveform end if omitted)
+- Use to start/stop Visual Debug playback with control over speed and cycle range
 
 **Identifying Panes:**
 All panes are identified by unique mnemonics used by layout tools and reported by `makerchip_get_available_panes`. Content for most panes can be found in `~/.vscode-makerchip/resources/Makerchip-public/pane-blade/` in files named <mnemonic>.blade. So, to display the content of `~/.vscode-makerchip/resources/Makerchip-public/pane-blade/Combo Tutorial.blade`, use the `makerchip_open_pane` tool with the name "Combo Tutorial" (the mnemonic returned by `makerchip_get_available_panes` for that pane).

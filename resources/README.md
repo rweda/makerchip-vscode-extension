@@ -61,8 +61,8 @@ This skill provides Copilot with:
 - Technology overviews and how they relate
 - References to all specifications and documentation  
 - Pointers to examples and tutorials
-- Syntax quick reference
-- Best practices for assistance
+- Best practices for working with the Makerchip VS Code extension
+- Best practices for collaborating with extension users
 
 When this directory is added to your VS Code workspace, Copilot automatically uses this skill to provide context-aware help for TL-Verilog development.
 

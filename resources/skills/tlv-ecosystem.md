@@ -69,82 +69,45 @@ Note: For development, there may be a more recent working version of `Makerchip-
 
 ## Working with the Makerchip VS Code Extension
 
-### Showing Examples and Visualizations
+### Typical Workflow
 
-**IMPORTANT**: When the user asks to see, show, demonstrate, or visualize TL-Verilog code or examples:
-- **Use the `makerchip_compile` tool** to open code in the Makerchip IDE
-- **Do NOT just show code in the chat** - prefer opening it in the visual IDE
-- The IDE provides circuit diagrams, waveforms, and Visual Debug output
+The Makerchip IDE is not just a development environment for humans. It is also accessible to you to code and debug. It provides access to SandPiper™, M5, and Verilator for compilation and simulation. It provides access to logs and waveform data for conventional debugging. Additionally, it's Visual Debug (VIZ) feature gives you the ability to create custom visualizations of machine state, which you can access as images as an alternative approach to text-based logging and debugging. [Coming soon: You can use the API to query specific signal values.]
 
-**Use `makerchip_compile` tool when the user wants to:**
-- See an example
-- Visualize a circuit
-- Run or compile TL-Verilog
-- View waveforms or diagrams
-- Test or demonstrate code
+Makerchip enables you to develop productively with the user. By presenting a design in this environment, the user can interact with code, waveforms, logic diagrams, and visualizations, all of which represent or can be annotated with simulation data. They can click on signals and other elements of the design in the various views (called panes) to highlight them across the views and correlate the various representations of the design and its simulation data. [Soon, you can highlight elements as well.]
 
-**Tool parameters:**
-```json
-{
-  "code": "\\TLV_version 1d: tl-x.org\\n...",  // TL-Verilog code to show
-  "filePath": "path/to/file.tlv"              // Or path to existing file
-}
-```
+Visual Debug is especially valuable in your collaboration with the user. You can convey your work visually and interactively by including `\viz_js` (VIZ) blocks within or alongside the TL-Verilog or Verilog code. It is much more natural for the user to understand your work visually than by reading static code and prose. A picture is worth a thousand words, and an animation is worth even more. Paired programming is much more productive with streamlined communication. The user continues to benefit from the visualizations in collaboration with their human peers and in sharing your open-source designs with others online.
 
-**Example workflow:**
-1. User asks: "Show me a simple counter in TL-Verilog"
-2. Generate the TL-Verilog code
-3. **Use `makerchip_compile` tool** with the `code` parameter
-4. The code opens in Makerchip IDE with visual output
+Makerchip is also a teaching tool. When users request help with a digital logic concept or want to understand a feature of TL-Verilog or Makerchip, don't just describe it; demonstrate it in Makerchip. You can write code that implements a concept, write a testbench that drives meaningful stimulus, and show the user your design in action. You can code `\viz_js` blocks to represent your design to the user in the most natural way. And you can even play them back for the user to animate a concept or showcase your design. You can layout the Makerchip IDE to show the most relevant views. You can open tutorials, examples, and documents, available in the resources folder as well as third-party content found on-line, to include them right there in the IDE webview, accompanying the design.
 
-### Advanced IDE Control
+#### Workflow pattern
 
-Use the `makerchip_ide_call` tool for advanced IDE operations:
+1. Code TL-Verilog (or old-school Verilog, if specifically requested) with a testbench, VIZ, and assertions [integrated formal verification to come].
+2. Compile code in the IDE (use `makerchip_compile` tool), awaiting logs and VCD simulation data.
+3. Debug any errors and warnings (even non-fatal ones) indicated in the logs. Use simulation logs (if `$display` is used) and VCD simulation data (if not overwhelming). Interactively query Makerchip for simulation data and VIZ snapshots as needed to debug the issues.
+4. Explain concepts and issues to the user using VIZ and by controlling the IDE layout, playback, etc.
+5. Summarize your work. The user is likely not to read your prose explanations, so keep them to the point, favoring IDE visualizations to convey your points. Include a TL;DR summary.
 
-**Switch to different panes:**
-```json
-{
-  "method": "activatePane",
-  "args": ["Waveform"]  // Options: "Diagram", "Waveform", "Nav-TLV", "Editor", "Log"
-}
-```
+#### Constraints
 
-**Set code without compiling:**
-```json
-{
-  "method": "setCode",
-  "args": ["code here", false]  // second arg is readOnly flag
-}
-```
+Makerchip is currently limited to compiling a single file. A single TL-Verilog file can include `\TLV` regions (where TL-Verilog constructs are enabled), within at most one Verilog module. These constraints imply that the testbench should be written in the same file using (System)Verilog (see the `Makerchip-public/tutorial/tlv/sv_tb_example.tlv` file), so the DUT module can use TL-Verilog. If the DUT does not need to be delivered as a self-contained module, you can, more simply, embed the testbench logic with the DUT logic in the same `top` module.
 
-**Load code from URL:**
-```json
-{
-  "method": "setCodeFromURL",
-  "args": ["https://example.com/code.tlv", false]
-}
-```
+Makerchip is also currently limited to a single simulation. For early DUT-level development, this tends to work fine in practice and helps to keep things simple.
 
-**API Documentation:**
-For complete IDE Plugin API reference, see:
+### IDE Plugin API Reference
+
+Complete API documentation available at:
 - `~/.vscode-makerchip/resources/Makerchip-public/docs/plugin_api/index.html` (local)
 - [IdePlugin API Documentation](https://github.com/rweda/Makerchip-public/blob/main/docs/plugin_api/index.html) (online)
 
 ### IDE Layout Management
 
-**Layout State Tools** - Use these tools to customize the IDE pane arrangement:
+The IDE supports customizable pane layouts with splits and tabs. Layout management tools allow you to arrange panes programmatically.
 
-- `makerchip_get_layout_state` - Get current layout configuration (splits, tabs, active panes)
-- `makerchip_set_layout_state` - Apply a custom layout (arrange panes in splits/tabs)
-- `makerchip_get_available_panes` - List all available panes with mnemonics and availability
-- `makerchip_open_pane` - Open or activate a specific pane by mnemonic (supports both static and non-static panes)
-
-**Pane Mnemonics:**
-All panes are identified by mnemonics (unique identifiers). Use `makerchip_get_available_panes` to discover available panes. Mnemonics follow the pattern:
-- Simple: `"Diagram"`, `"Waveform"`, `"Log"`
-- With uniquifier: `"Course Slides+Udemy"`, `"RISC-V Videos+Workshop"`
-
-**Important**: Mnemonics use the "+" character as a delimiter for uniquifiers. When passing mnemonics in URLs, encode "+" as "%2B".
+**Pane Identification:**
+- Panes are identified by **mnemonics** (unique identifiers like `"Diagram"`, `"Waveform"`, `"Log"`)
+- Complex panes may include uniquifiers: `"Course Slides+Udemy"`, `"RISC-V Videos+Workshop"`
+- The "+" character in mnemonics must be URL-encoded as "%2B" when used in URLs
+- Use `makerchip_get_available_panes` tool to discover available panes and their mnemonics
 
 **Pane Types:**
 - **Editor Pane**: Not available in VS Code extension (VS Code provides its own editor)
@@ -159,23 +122,28 @@ All panes are identified by mnemonics (unique identifiers). Use `makerchip_get_a
 
 These file names **exactly match** the mnemonics returned by `makerchip_get_available_panes` and used in `makerchip_set_layout_state`.
 
-**Layout State Structure:**
+**Layout State Structure Examples:**
+
+Tabbed view (single container):
 ```json
-// Single tabbed view
 {
   "panes": ["Log", "Diagram", "Waveform"],
   "activePane": "Diagram"
 }
+```
 
-// Horizontal split (left/right)
+Horizontal split (left/right):
+```json
 {
   "sides": {
     "left": { "panes": ["Log", "Nav-TLV"] },
     "right": { "panes": ["Diagram", "Waveform", "Viz"], "activePane": "Diagram" }
   }
 }
+```
 
-// Vertical split (top/bottom)
+Vertical split (top/bottom):
+```json
 {
   "sides": {
     "top": { "panes": ["Diagram"] },
@@ -191,8 +159,8 @@ These file names **exactly match** the mnemonics returned by `makerchip_get_avai
 - Includes IdePlugin class documentation with method signatures and descriptions
 
 **VIZ API**: `~/.vscode-makerchip/resources/Makerchip-public/docs/viz_codo/index.html`
-- SignalValue and SignalValueSet classes for waveform data access
-- Used for custom visualization code
+- SignalValue and SignalValueSet classes for accessing waveform data
+- Used when writing custom visualization code in VIZ panes
 
 ### Best Practices for Assistance
 
