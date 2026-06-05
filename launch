@@ -4,18 +4,23 @@
 #
 # Usage:
 #   ./launch                              # Connect to default server (beta.makerchip.com)
+#   ./launch "" <workspace>               # Default server + workspace
 #   ./launch https://makerchip.com        # Connect to production
 #   ./launch https://makerchip.com/v123   # Connect to specific version (path-based)
 #   ./launch :8800                        # Create tunnel to localhost:8800
 #   ./launch :                            # Create tunnel to localhost:8080 (default)
+#   ./launch : <workspace>                # Tunnel + workspace
+#   ./launch https://url <workspace>      # URL + workspace
 #
-# For tunnel mode (:port), cloudflared is started in background and cleaned up
-# when the VS Code window closes.
+# For tunnel mode (:port), cloudflared is started in background.
+# The script remains running - press Ctrl+C to stop the tunnel and exit.
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ARG="${1:-}"
+WORKSPACE="${2:-}"
+TUNNEL_STATE_FILE="$SCRIPT_DIR/ACTIVE_TUNNEL"
 
 # Default server URL
 DEFAULT_SERVER="https://beta.makerchip.com"
@@ -48,16 +53,16 @@ start_tunnel() {
   
   # Check if cloudflared is installed
   if ! command -v cloudflared &> /dev/null; then
-    echo "Error: cloudflared is not installed"
-    echo ""
-    echo "Install with:"
-    echo "  Ubuntu/Debian: sudo apt install cloudflared"
-    echo "  macOS: brew install cloudflared"
-    echo "  Or visit: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
+    echo "Error: cloudflared is not installed" >&2
+    echo "" >&2
+    echo "Install with:" >&2
+    echo "  Ubuntu/Debian: sudo apt install cloudflared" >&2
+    echo "  macOS: brew install cloudflared" >&2
+    echo "  Or visit: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/" >&2
     exit 1
   fi
   
-  echo "Starting Cloudflare tunnel to localhost:$port..."
+  echo "Starting Cloudflare tunnel to localhost:$port..." >&2
   
   # Start cloudflared in background, save logs to temp file
   local log_file=$(mktemp)
@@ -79,25 +84,91 @@ start_tunnel() {
   done
   
   if [ -z "$tunnel_url" ]; then
-    echo "Error: Failed to establish tunnel"
-    echo "Check logs: cat $log_file"
+    echo "Error: Failed to establish tunnel" >&2
+    echo "Check logs: cat $log_file" >&2
     kill $pid 2>/dev/null || true
     exit 1
   fi
   
-  echo "✓ Tunnel established: $tunnel_url"
+  echo "✓ Tunnel established: $tunnel_url" >&2
   
-  # Return both PID and URL (space-separated)
+  # Return both PID and URL (space-separated) to stdout
   echo "$pid $tunnel_url $log_file"
 }
 
+# Build code command arguments
+CODE_ARGS=(--extensionDevelopmentPath="$SCRIPT_DIR")
+if [ -n "$WORKSPACE" ]; then
+  CODE_ARGS+=("$WORKSPACE")
+fi
+
 # Handle tunnel mode
 if [ "$MODE" = "tunnel" ]; then
-  # Start tunnel and capture output
+  # Check if existing tunnel can be reused
+  if [ -f "$TUNNEL_STATE_FILE" ]; then
+    source "$TUNNEL_STATE_FILE"
+    
+    # Check if tunnel process is still alive
+    if kill -0 "$TUNNEL_PID" 2>/dev/null; then
+      # Tunnel is running
+      if [ "$TUNNEL_PORT" = "$PORT" ]; then
+        # Same port - just reuse it
+        echo "Tunnel already running on port $PORT (PID: $TUNNEL_PID)"
+        echo "Tunnel URL: $TUNNEL_URL"
+        echo ""
+        echo "The Extension Development Host will reload with this tunnel."
+        echo "To stop the tunnel, Ctrl+C in the terminal that started it or"
+        echo "see ${TUNNEL_STATE_FILE}."
+        SERVER_URL="$TUNNEL_URL"
+        # Don't set up cleanup trap - not our tunnel to manage
+        # Launch code and exit
+        echo ""
+        echo "Launching VS Code Extension Development Host..."
+        code "${CODE_ARGS[@]}"
+        exit 0
+      else
+        # Different port - ask user
+        echo "Tunnel already running on port $TUNNEL_PORT (PID: $TUNNEL_PID)"
+        echo "You requested port $PORT"
+        echo ""
+        read -p "Press ENTER to replace tunnel, or Ctrl+C to cancel: "
+        
+        echo "Stopping existing tunnel..."
+        kill "$TUNNEL_PID" 2>/dev/null || true
+        rm -f "$TUNNEL_LOG_FILE" 2>/dev/null || true
+        rm -f "$TUNNEL_STATE_FILE"
+        sleep 1
+        # Fall through to create new tunnel
+      fi
+    else
+      # Tunnel process is dead - clean up stale state
+      echo "Cleaning up stale tunnel state..."
+      rm -f "$TUNNEL_STATE_FILE"
+    fi
+  fi
+  
+  # Start new tunnel (if we get here)
   tunnel_info=$(start_tunnel "$PORT")
   CLOUDFLARED_PID=$(echo "$tunnel_info" | cut -d' ' -f1)
   SERVER_URL=$(echo "$tunnel_info" | cut -d' ' -f2)
   TUNNEL_LOG=$(echo "$tunnel_info" | cut -d' ' -f3)
+  
+  # Save tunnel state
+  cat > "$TUNNEL_STATE_FILE" << TUNNEL_EOF
+# ACTIVE CLOUDFLARE TUNNEL
+# This file indicates an active tunnel created by the ./launch script.
+# 
+# To stop the tunnel:
+#   1. Press Ctrl+C in the terminal running ./launch, OR
+#   2. Manually run: kill $CLOUDFLARED_PID && rm -f $TUNNEL_LOG && rm -f "$TUNNEL_STATE_FILE"
+#      (or just "kill $CLOUDFLARED_PID" is probably sufficient)
+#
+# Tunnel details:
+TUNNEL_PORT=$PORT
+TUNNEL_PID=$CLOUDFLARED_PID
+TUNNEL_URL=$SERVER_URL
+TUNNEL_LOG_FILE=$TUNNEL_LOG
+TUNNEL_EOF
   
   echo "Cloudflared PID: $CLOUDFLARED_PID"
   echo "Tunnel logs: $TUNNEL_LOG"
@@ -106,40 +177,41 @@ fi
 echo "Server URL: $SERVER_URL"
 echo ""
 
-# Create cleanup script that will be executed after VS Code closes
-CLEANUP_SCRIPT=$(mktemp)
-cat > "$CLEANUP_SCRIPT" << EOF
-#!/bin/bash
-# Cleanup script - runs after VS Code window closes
-
-echo "VS Code window closed, cleaning up..."
-
+# Setup cleanup on exit/interrupt (for tunnel mode)
 if [ "$MODE" = "tunnel" ]; then
-  echo "Stopping cloudflared (PID: $CLOUDFLARED_PID)..."
-  kill "$CLOUDFLARED_PID" 2>/dev/null || true
-  rm -f "$TUNNEL_LOG"
+  cleanup() {
+    echo ""
+    echo "Stopping tunnel (PID: $CLOUDFLARED_PID)..."
+    kill "$CLOUDFLARED_PID" 2>/dev/null || true
+    rm -f "$TUNNEL_LOG"
+    rm -f "$TUNNEL_STATE_FILE"
+    echo "Cleanup complete"
+    exit 0
+  }
+  trap cleanup INT TERM EXIT
 fi
 
-echo "Cleanup complete"
-
-# Remove this cleanup script
-rm -f "$CLEANUP_SCRIPT"
-EOF
-chmod +x "$CLEANUP_SCRIPT"
-
-# Launch VS Code with --wait (blocks until window closes), then run cleanup
-echo "Launching VS Code..."
-echo "VS Code will open shortly..."
-echo ""
+# Launch VS Code Extension Development Host
+echo "Launching VS Code Extension Development Host..."
+code "${CODE_ARGS[@]}"
 
 if [ "$MODE" = "tunnel" ]; then
-  echo "Tunnel active on PID: $CLOUDFLARED_PID"
-  echo "Tunnel logs: $TUNNEL_LOG"
   echo ""
+  echo "✓ Extension Development Host launched"
+  echo "Tunnel active on PID: $CLOUDFLARED_PID"
+  echo "Tunnel URL: $SERVER_URL"
+  echo ""
+  echo "Press Ctrl+C to stop the tunnel and exit"
+  echo ""
+  
+  # Keep script running to maintain tunnel
+  while true; do
+    sleep 1
+    # Check if cloudflared is still running
+    if ! kill -0 "$CLOUDFLARED_PID" 2>/dev/null; then
+      echo ""
+      echo "Error: Tunnel process died unexpectedly"
+      exit 1
+    fi
+  done
 fi
-
-echo "Close the VS Code window to stop the tunnel and clean up"
-echo ""
-
-# Run in background: launch VS Code with server URL as env var, wait for close, then cleanup
-nohup bash -c "MAKERCHIP_SERVER_URL='$SERVER_URL' code --extensionDevelopmentPath='$SCRIPT_DIR' --wait && '$CLEANUP_SCRIPT'" > /dev/null 2>&1 &
