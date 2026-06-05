@@ -23,18 +23,26 @@ VS Code extension for Makerchip IDE integration, providing TL-Verilog developmen
 - Compare different designs side-by-side
 - Quick panel selection from existing panels or create new ones
 
+**Highlighting Signals and Entities:**
+- Use "Makerchip: Highlight Entity" to highlight signals, scopes, or pipeline stages across all views
+- Use "Makerchip: Clear All Highlights" to remove all highlights
+- Enter TL-Verilog paths like `/cpu|decode$valid`, `|fetch@1`, or `/cpu`
+
 ### With GitHub Copilot
 
-Copilot can automatically:
+Copilot can:
 - Compile and visualize TL-Verilog files directly in Makerchip
 - Show examples directly in the Makerchip IDE (not just in chat)
+- Layout the IDE panes.
 - Switch between different IDE panes (Diagram, Waveform, Nav-TLV, etc.)
-- Load code from files or URLs
+- Load third-party content like HTML, PDF, etc. into panes
+- Highlight signals, scopes, and pipeline stages to guide exploration
 
 Example prompts:
 - "Show me a simple counter in Makerchip"
 - "Open this in Makerchip and show the waveform"
 - "Demonstrate a pipeline design in TL-Verilog"
+- "Which signal are you talking about?"
 
 ## Development
 
@@ -49,7 +57,7 @@ The `./launch` script provides a convenient way to test the extension:
 # Launch connected to a specific server URL
 ./launch https://makerchip.com
 
-# Launch with local SandHost via cloudflared tunnel (auto-cleanup on close)
+# Launch with local SandHost via cloudflared tunnel
 ./launch :8800         # Tunnel to localhost:8800
 ./launch :             # Tunnel to localhost:8080 (default port)
 ```
@@ -68,94 +76,49 @@ The `./launch` script provides a convenient way to test the extension:
    ./launch :8800
    ```
 
-3. Make changes to mono → restart SandHost (step 1), no need to restart extension
+3. Make changes to mono → restart SandHost (step 1) on same port, no need to restart extension
 
-4. Make changes to extension → close VS Code window and rerun `./launch :8800`
+4. Make changes to extension → reload VS Code window (Developer: Reload Window)
 
-The tunnel is automatically created and torn down when VS Code closes. The server URL is passed via environment variable.
+5. **Press Ctrl+C** in the terminal running `./launch` to stop the tunnel and clean up
+
+The tunnel URL is stored in `ACTIVE_TUNNEL` file and reused across window reloads.
 
 ### Server Configuration
 
 By default, the extension connects to `beta.makerchip.com`. You can override this:
-- **Environment Variable**: `MAKERCHIP_SERVER_URL` (automatically set by `./launch` script)
+- **Tunnel mode**: (development only) `./launch :port` creates a tunnel and stores the URL in `ACTIVE_TUNNEL` (won't exist in production)
 - **VS Code Setting**: `makerchip.serverUrl` in your settings
 
 ## Copilot Enablement Architecture
 
-This extension provides two Language Model tools that make Makerchip features accessible to Copilot:
+This extension provides Language Model tools that make Makerchip features accessible to Copilot. Tools are registered both declaratively (`package.json` contributions) and programmatically (tool class implementations).
 
-### 1. `makerchip_compile` Tool
+**Tool specifications** (parameters, return values, detailed descriptions) are defined in `package.json` under `contributes.languageModelTools`. See that file for complete API documentation.
 
-High-level tool for compiling/simulating files or code in Makerchip.
+### Available Tools
 
-**Parameters:**
-- `filePath` (optional): Path to a `.tlv` file to compile
-- `code` (optional): TL-Verilog code to compile directly
+**General:**
+- `makerchip_compile` - High-level tool for compiling/simulating files or code. **Only this tool can open new panels** (when `code` or `filePath` is provided).
+- `makerchip_ide_call` - Generic tool for calling any IDE Plugin API method directly. Many of these methods are explicitly exposed as tools. For full IDE Plugin details, see:
+  - Local: `~/.vscode-makerchip/resources/Makerchip-public/docs/plugin_api/index.html`
+  - Online: [IdePlugin API Documentation](https://github.com/rweda/Makerchip-public/blob/main/docs/plugin_api/index.html)
+- `makerchip_list_panels` - List all currently open Makerchip panels. This can be good to call before starting work.
 
-**When invoked:**
-1. Opens the specified file or creates a new document with the provided code
-2. Launches the Makerchip IDE webview
-3. Compiles the code and displays results
+**Layout Management:**
+- `makerchip_get_layout_state` - Get current IDE pane layout configuration
+- `makerchip_set_layout_state` - Apply custom layout (splits, tabs, active pane)
+- `makerchip_get_available_panes` - List all available panes with metadata
+- `makerchip_open_pane` - Open/activate a specific pane by mnemonic
+- `makerchip_open_third_party_pane` - Load third-party content (HTML/PDF) into panes
 
-### 2. `makerchip_ide_call` Tool
-
-Generic tool for calling any IDE method directly.
-
-**Parameters:**
-- `method` (required): IDE method name (e.g., `activatePane`, `setCode`, `getCode`)
-- `args` (optional): Array of arguments to pass to the method
-
-**Available Methods:**
-- `compile(code)` - Compile TL-Verilog code
-- `setCode(code, readOnly)` - Set editor code
-- `getCode(lastChangeGeneration)` - Get current code
-- `setCodeFromURL(url, readOnly)` - Load code from URL
-- `activatePane(name)` - Switch to a specific pane ("Diagram", "Waveform", "Nav-TLV", etc.)
-- `openPane(name, background)` - Open and/or activate a pane
-- `getCycle()` - Get the current waveform cycle/time step
-- `setCycle(cycle)` - Set the current waveform cycle/time step
-- `updatePlayState(isPlaying, cycleTimeout, startCyc, endCyc)` - Control waveform playback
-
-For complete IDE Plugin API documentation, see:
-- Local: `~/.vscode-makerchip/resources/Makerchip-public/docs/plugin_api/index.html`
-- Online: [IdePlugin API Documentation](https://github.com/rweda/Makerchip-public/blob/main/docs/plugin_api/index.html)
-
-### 3. IDE Layout Management Tools
-
-Several tools enable programmatic control of IDE pane layouts:
-
-**`makerchip_get_layout_state`** - Get current layout configuration
-- Returns: Layout state object describing current split/tab arrangement
-
-**`makerchip_set_layout_state`** - Apply custom layout configuration
-- Parameters: `state` (layout state object with panes, splits, active pane)
-- Use to arrange panes in custom configurations (horizontal/vertical splits, tabs)
-
-**`makerchip_get_available_panes`** - List all available panes
-- Returns: Array of pane objects with mnemonic, display name, description, and availability
-
-**`makerchip_open_pane`** - Open or activate a specific pane by mnemonic
-
-**`makerchip_update_play_state`** - Control waveform playback
-- Parameters:
-  - `isPlaying` (required): true to start, false to stop
-  - `cycleTimeout` (optional): milliseconds between cycles
-  - `startCyc` (optional): starting cycle
-  - `endCyc` (optional): ending cycle (plays to waveform end if omitted)
-- Use to start/stop Visual Debug playback with control over speed and cycle range
-
-**Identifying Panes:**
-All panes are identified by unique mnemonics used by layout tools and reported by `makerchip_get_available_panes`. Content for most panes can be found in `~/.vscode-makerchip/resources/Makerchip-public/pane-blade/` in files named <mnemonic>.blade. So, to display the content of `~/.vscode-makerchip/resources/Makerchip-public/pane-blade/Combo Tutorial.blade`, use the `makerchip_open_pane` tool with the name "Combo Tutorial" (the mnemonic returned by `makerchip_get_available_panes` for that pane).
-
-**Main Panes:**
-The following main panes are always open and available:
-- "Editor"
-- "Log"
-- "Diagram"
-- "Waveform"
-- "Nav-TLV"
-- "VIZ"
-
+**View Interaction:**
+- `makerchip_get_cycle` - Get active cycle/time step
+- `makerchip_set_cycle` - Jump to a specific cycle
+- `makerchip_update_play_state` - Control waveform playback (play/pause/speed)
+- `makerchip_get_viz_image` - Capture VIZ visualization as image
+- `makerchip_highlight` - Highlight signals/scopes/stages across all views
+- `makerchip_clear_highlights` - Clear all highlights
 
 ### Generic Message Protocol
 
@@ -241,12 +204,12 @@ npm run compile
 - VS Code 1.110.0 or higher
 - GitHub Copilot (for AI features)
 
-## Resources
+## RAG Data
 
-The extension manages a directory `~/.vscode-makerchip/`, which it adds to your workspace. It contains:
-- `reference/`: Quick access to reference data, especially for use by LLM agents (e.g., Copilot), including specifications, examples, the IDE API (exposed to this extension as `callIDE(...)`), etc.
-- `compile-cache/`: A file cache of compilation results for debugging, analysis, and reloading without recompilation.
-- `.vscode/skills/tlv-ecosystem.md`: A Copilot skill that references available reference resources and provides TL-Verilog ecosystem context.
+The extension manages `~/.vscode-makerchip/` containing reference data for AI assistants:
+- **resources/**: Documentation, examples, and specifications
+- **compile-cache/**: Compilation results for debugging - see [compile-cache/README.md](resources/compile-cache-README.md)
+- **skills/**: Copilot skills including [tlv-ecosystem.md](resources/skills/tlv-ecosystem.md)
 
 ## License
 

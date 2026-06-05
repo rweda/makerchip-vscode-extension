@@ -171,7 +171,7 @@ import(`${serverUrl}/dist/makerchip-plugin.js`).then((module: any) => {
           id, 
           fileName,
           chunk,
-          complete 
+          complete
         } as CompileFileChunkMessage);
       });
     }
@@ -246,8 +246,36 @@ import(`${serverUrl}/dist/makerchip-plugin.js`).then((module: any) => {
   }
 
   // @ts-ignore - IdePlugin constructor signature
-  new VSCodeMakerchip('my-makerchip', { hasEditor: false }).then((ide: any) => {
+  new VSCodeMakerchip('webview-makerchip', { hasEditor: false }).then((ide: any) => {
     console.log('IdePlugin initialized successfully');
+    
+    // Setup resize event forwarding to iframe
+    // VS Code webview doesn't automatically propagate resize events to iframes,
+    // so we need to manually trigger resize events in the iframe's window when
+    // the parent webview is resized. This ensures jQuery Layout's resizeWithWindow
+    // option works correctly and VizPane canvas resizes properly.
+    window.addEventListener('resize', () => {
+      console.log('[webview] Window resized, triggering iframe resize event');
+      const iframe = ide.iframe;
+      if (iframe && iframe.contentWindow) {
+        // Use setTimeout to let the browser actually resize the iframe first
+        setTimeout(() => {
+          const iframeWindow = iframe.contentWindow as any;
+          console.log('[webview] iframe dimensions:', iframe.clientWidth, 'x', iframe.clientHeight);
+          
+          // jQuery Layout listens for jQuery's resize event, not native DOM events
+          if (iframeWindow && iframeWindow.jQuery) {
+            iframeWindow.jQuery(iframeWindow).trigger('resize');
+          } else {
+            // Fallback to native event if jQuery not available
+            if (iframeWindow) {
+              const resizeEvent = new Event('resize');
+              iframeWindow.dispatchEvent(resizeEvent);
+            }
+          }
+        }, 0);
+      }
+    });
     
     // Generic IDE method invocation handler
     window.addEventListener('message', async (event: MessageEvent) => {
@@ -274,8 +302,8 @@ import(`${serverUrl}/dist/makerchip-plugin.js`).then((module: any) => {
           const result = await ide.api[method](...args);
           console.log(`[webview] Result from ide.api.${method}:`, result ? (typeof result === 'string' && result.length > 100 ? typeof result + ' (' + result.length + ' chars)' : result) : result);
           
-          // Send result back if there is one
-          if (result !== undefined) {
+          // Send result back if there is one OR if a requestId is present (caller expects response)
+          if (result !== undefined || requestId !== undefined) {
             console.log('[webview] Sending ideResult message');
             vscode.postMessage({ 
               type: 'ideResult', 
@@ -284,7 +312,7 @@ import(`${serverUrl}/dist/makerchip-plugin.js`).then((module: any) => {
               requestId  // Include requestId if present
             } as IdeResultMessage);
           } else {
-            console.log('[webview] Result is undefined, not sending message');
+            console.log('[webview] Result is undefined and no requestId, not sending message');
           }
         } catch (error: any) {
           console.error('[webview] Error calling IDE method:', method, error);

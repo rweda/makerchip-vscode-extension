@@ -14,6 +14,7 @@ import * as os from 'os';
 export const MAKERCHIP_DIR = path.join(os.homedir(), '.vscode-makerchip');
 export const RESOURCES_DIR = path.join(MAKERCHIP_DIR, 'resources');
 export const CACHE_DIR = path.join(MAKERCHIP_DIR, 'compile-cache');
+export const TMP_DIR = path.join(MAKERCHIP_DIR, 'tmp');
 export const RESOURCES_VERSION = '2.0.0';
 
 interface Repository {
@@ -29,6 +30,7 @@ const REPOSITORIES: Repository[] = [
   { name: 'warp-v_includes', url: 'https://github.com/stevehoover/warp-v_includes.git' },
   { name: 'tlv_lib', url: 'https://github.com/TL-X-org/tlv_lib.git' },
   { name: 'tlv_flow_lib', url: 'https://github.com/TL-X-org/tlv_flow_lib.git' },
+  { name: 'Virtual-FPGA-Lab', url: 'git@github.com:os-fpga/Virtual-FPGA-Lab.git'},
   { name: 'M5', url: 'https://github.com/rweda/M5.git' },
   { name: 'LLM_TLV', url: 'https://github.com/stevehoover/LLM_TLV' },
 ];
@@ -41,6 +43,7 @@ interface PopulateResult {
   success: number;
   total: number;
   failed: string[];
+  localChanges: string[];
 }
 
 /**
@@ -60,9 +63,13 @@ export async function populateResources(context: vscode.ExtensionContext, output
   log('=========================================');
   log('');
 
+  // Move tmp directory contents to /tmp for cleanup before updating
+  await stageTmpForDeletion(log);
+
   // Create directory structure
   await fs.mkdir(RESOURCES_DIR, { recursive: true });
   await fs.mkdir(CACHE_DIR, { recursive: true });
+  await fs.mkdir(TMP_DIR, { recursive: true });
 
   // Clean up unexpected resources
   await cleanupUnexpectedResources(log);
@@ -70,8 +77,11 @@ export async function populateResources(context: vscode.ExtensionContext, output
   // Clone or update repositories
   const result = await updateRepositories(log);
 
-  // Copy README
-  await copyReadme(context, log);
+  // Copy READMEs
+  await copyReadmeFile(context, 'README.md', MAKERCHIP_DIR, log);
+  await copyReadmeFile(context, 'compile-cache-README.md', CACHE_DIR, log);
+  await copyReadmeFile(context, '.copilot-instructions.md', MAKERCHIP_DIR, log);
+  await copyReadmeFile(context, 'tmp-README.md', TMP_DIR, log);
 
   // Create version metadata
   await createVersionMetadata();
@@ -87,6 +97,7 @@ export async function populateResources(context: vscode.ExtensionContext, output
   log(`Location: ${MAKERCHIP_DIR}`);
   log(`  Resources: ${RESOURCES_DIR}`);
   log(`  Cache: ${CACHE_DIR}`);
+  log(`  Tmp: ${TMP_DIR}`);
   log(`Repositories: ${result.success}/${result.total} updated successfully`);
   log('');
 
@@ -96,7 +107,68 @@ export async function populateResources(context: vscode.ExtensionContext, output
     log('');
   }
 
+  // Show persistent warnings for repositories with local changes
+  if (result.localChanges.length > 0) {
+    const message = result.localChanges.length === 1
+      ? `Repository has local changes and was not updated: ${result.localChanges[0]}. Commit or stash your changes to allow updates.`
+      : `${result.localChanges.length} repositories have local changes and were not updated. Example: ${result.localChanges[0]}. Commit or stash your changes to allow updates.`;
+    
+    vscode.window.showWarningMessage(
+      message,
+      { modal: false },
+      'Open Folder'
+    ).then(selection => {
+      if (selection === 'Open Folder') {
+        vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(result.localChanges[0]));
+      }
+    });
+  }
+
+  // Show manual retry instructions if there were network failures
+  const networkFailures = result.failed.filter(f => !f.includes('local changes'));
+  if (networkFailures.length > 0) {
+    log('To manually retry failed updates, run:');
+    log('  Command Palette → "Makerchip: Update Reference Data"');
+    log('');
+  }
+
   return result;
+}
+
+/**
+ * Move tmp directory to /tmp for cleanup before updates
+ */
+async function stageTmpForDeletion(log: (message: string) => void): Promise<void> {
+  try {
+    const tmpStat = await fs.stat(TMP_DIR);
+    if (!tmpStat.isDirectory()) {
+      return;
+    }
+
+    // Check if tmp directory has any contents
+    const tmpContents = await fs.readdir(TMP_DIR);
+    if (tmpContents.length === 0) {
+      return;
+    }
+
+    // Create staging directory with timestamp for uniqueness
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19); // YYYY-MM-DDTHH-MM-SS
+    const stagingDir = path.join(os.tmpdir(), `vscode-makerchip-${timestamp}`);
+    
+    log(`🗑️  Staging tmp directory for deletion: ${stagingDir}...`);
+    
+    // Move entire directory to /tmp
+    await fs.rename(TMP_DIR, stagingDir);
+    
+    log('  ✓ Tmp directory moved to /tmp (will be deleted on reboot)');
+    log('');
+  } catch (error) {
+    // Tmp directory doesn't exist or other error, which is fine
+    if ((error as any).code !== 'ENOENT') {
+      log(`  Warning: Failed to stage tmp directory: ${error}`);
+      log('');
+    }
+  }
 }
 
 /**
@@ -131,6 +203,34 @@ async function cleanupUnexpectedResources(log: (message: string) => void): Promi
   }
 
   log('');
+}
+
+/**
+ * Check if a git repository has local changes (uncommitted or unpushed)
+ */
+async function hasLocalChanges(repoPath: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    // Check for uncommitted changes
+    const proc = spawn('git', ['status', '--porcelain'], { cwd: repoPath, stdio: 'pipe' });
+    let output = '';
+    
+    proc.stdout?.on('data', (data) => {
+      output += data.toString();
+    });
+
+    proc.on('close', (code) => {
+      if (code !== 0) {
+        resolve(false);
+        return;
+      }
+      // If there's any output, there are local changes
+      resolve(output.trim().length > 0);
+    });
+
+    proc.on('error', () => {
+      resolve(false);
+    });
+  });
 }
 
 /**
@@ -177,6 +277,7 @@ async function updateRepositories(log: (message: string) => void): Promise<Popul
 
   let successCount = 0;
   const failed: string[] = [];
+  const localChanges: string[] = [];
 
   for (const repo of REPOSITORIES) {
     const repoPath = path.join(RESOURCES_DIR, repo.name);
@@ -185,14 +286,32 @@ async function updateRepositories(log: (message: string) => void): Promise<Popul
     if (isRepo) {
       // Update existing repository
       log(`  ⟳ Updating: ${repo.name}`);
+      
+      // Check for local changes before attempting update
+      const hasChanges = await hasLocalChanges(repoPath);
+      
+      if (hasChanges) {
+        log('    ⚠ Skipping update - resource repository has local changes');
+        log('    Resource repositories should not be edited manually.');
+        log(`    Path: ${repoPath}`);
+        log('    Be sure these changes are captured elsewhere, remove the clone, and');
+        log('    update using Ctrl+Shift+P → "Makerchip: Update Reference Data"');
+        failed.push(`${repo.name} (local changes)`);
+        localChanges.push(repoPath);
+        continue;
+      }
+      
       const success = await gitOperation(repoPath, repo.url, true);
       
       if (success) {
         log('    ✓ Updated successfully');
         successCount++;
       } else {
-        log('    ⚠ Update failed (may have local changes)');
-        failed.push(`${repo.name} (update)`);
+        log('    ⚠ Update failed - likely network issue');
+        log(`    Path: ${repoPath}`);
+        log('    The repository will use cached data until next update.');
+        log('    To retry: Ctrl+Shift+P → "Makerchip: Update Reference Data"');
+        failed.push(`${repo.name} (update failed)`);
       }
     } else {
       // Clone new repository
@@ -227,20 +346,30 @@ async function updateRepositories(log: (message: string) => void): Promise<Popul
     success: successCount,
     total: REPOSITORIES.length,
     failed,
+    localChanges,
   };
 }
 
 /**
- * Copy README.md from template
+ * Copy a README file from extension resources to a target directory
  */
-async function copyReadme(context: vscode.ExtensionContext, log: (message: string) => void): Promise<void> {
-  const templatePath = path.join(context.extensionPath, 'resources', 'README.md');
-  const readmePath = path.join(MAKERCHIP_DIR, 'README.md');
+async function copyReadmeFile(
+  context: vscode.ExtensionContext,
+  sourceFilename: string,
+  targetDir: string,
+  log: (message: string) => void
+): Promise<void> {
+  const templatePath = path.join(context.extensionPath, 'resources', sourceFilename);
+  // Map specific source files to their target names
+  const targetFilename = sourceFilename === 'compile-cache-README.md' || sourceFilename === 'tmp-README.md'
+    ? 'README.md' 
+    : sourceFilename;
+  const targetPath = path.join(targetDir, targetFilename);
   
   try {
-    await fs.copyFile(templatePath, readmePath);
+    await fs.copyFile(templatePath, targetPath);
   } catch (error) {
-    log(`  Warning: Failed to copy README: ${error}`);
+    log(`  Warning: Failed to copy file to ${targetPath}: ${error}`);
   }
 }
 

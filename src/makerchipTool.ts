@@ -3,6 +3,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { log, showOutputChannel } from './logger';
+import * as compileCache from './compileCache';
+import { MAKERCHIP_DIR } from './populateResources';
 
 interface MakerchipToolInput {
   /** Optional file path to open and compile. If not provided, uses the active editor. */
@@ -106,6 +108,9 @@ export class MakerchipTool implements vscode.LanguageModelTool<MakerchipToolInpu
     try {
       const { filePath, code, panelName } = options.input;
       
+      // Determine if we should create a new panel (only if code/filePath provided)
+      const createIfNeeded = !!(code || filePath);
+      
       // If code is provided, create a new unsaved document with it
       if (code) {
         const doc = await vscode.workspace.openTextDocument({
@@ -129,17 +134,40 @@ export class MakerchipTool implements vscode.LanguageModelTool<MakerchipToolInpu
         ]);
       }
       
-      // Get the code and invoke IDE directly with panel name
+      // Get the code and invoke IDE with result to get compile ID
       const sourceCode = editor.document.getText();
-      await vscode.commands.executeCommand('makerchip.invokeIdeMethod', 'compile', [sourceCode], panelName);
+      const compileId = await vscode.commands.executeCommand<string>(
+        'makerchip.callIdeMethodWithResult',
+        'compile',
+        [sourceCode],
+        panelName,
+        createIfNeeded
+      );
       
-      const fileName = code ? 'example code' : editor.document.fileName;
+      if (!compileId) {
+        return new vscode.LanguageModelToolResult([
+          new vscode.LanguageModelTextPart('Failed to start compilation - no compile ID returned')
+        ]);
+      }
+      
+      // Build non-blocking response message with compile ID and log path
+      const fileName = code ? 'example code' : path.basename(editor.document.fileName);
       const panelInfo = panelName ? ` in panel '${panelName}'` : '';
+      const cacheDir = path.join(MAKERCHIP_DIR, 'compile-cache', compileId);
+      const metadataPath = path.join(cacheDir, 'metadata.json');
+      const stdallPath = path.join(cacheDir, 'stdall');
+      
+      let resultMessage = `Compilation started for ${fileName}${panelInfo}\n\n`;
+      resultMessage += `**Compile ID:** ${compileId}\n`;
+      resultMessage += `**Cache Directory:** ${cacheDir}\n`;
+      resultMessage += `\nCompilation is running asynchronously. To check status:\n`;
+      resultMessage += `1. Open metadata: ${metadataPath}\n`;
+      resultMessage += `2. Check for errors in stdall: ${stdallPath}\n`;
+      resultMessage += `3. Look for \`"complete": true\` and \`"passed": true/false\` in metadata\n`;
+      resultMessage += `\nThe Makerchip IDE panel shows live compilation results and visualizations.`;
+      
       return new vscode.LanguageModelToolResult([
-        new vscode.LanguageModelTextPart(
-          `Successfully opened Makerchip IDE${panelInfo} and started compiling ${fileName}. ` +
-          `The Makerchip panel should now be visible beside your editor with the compilation results and diagram visualization.`
-        )
+        new vscode.LanguageModelTextPart(resultMessage)
       ]);
       
     } catch (error: any) {
@@ -742,6 +770,148 @@ export class OpenThirdPartyPaneTool implements vscode.LanguageModelTool<OpenThir
   }
 }
 
+interface GetCycleInput {
+  /** Optional panel name to target. If not provided, uses the default panel. */
+  panelName?: string;
+}
+
+/**
+ * Language Model tool to get the active cycle/time step
+ */
+export class GetCycleTool implements vscode.LanguageModelTool<GetCycleInput> {
+  
+  async prepareInvocation(
+    options: vscode.LanguageModelToolInvocationPrepareOptions<GetCycleInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.PreparedToolInvocation> {
+    const { panelName } = options.input;
+    const panelInfo = panelName ? ` from panel '${panelName}'` : '';
+    return {
+      invocationMessage: `Getting active cycle${panelInfo}...`
+    };
+  }
+
+  async invoke(
+    options: vscode.LanguageModelToolInvocationOptions<GetCycleInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.LanguageModelToolResult> {
+    try {
+      const { panelName } = options.input;
+      
+      // Call the IDE method and get the result
+      const cycle = await vscode.commands.executeCommand(
+        'makerchip.callIdeMethodWithResult',
+        'getCycle',
+        [],
+        panelName
+      ) as number;
+      
+      const panelInfo = panelName ? ` in panel '${panelName}'` : '';
+      
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(
+          `Active cycle${panelInfo}: ${cycle}`
+        )
+      ]);
+      
+    } catch (error: any) {
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(
+          `Failed to get current cycle: ${error.message}`
+        )
+      ]);
+    }
+  }
+}
+
+interface SetCycleInput {
+  /** Absolute cycle to jump to (0-based, will be clamped to [0, endCycle]). Mutually exclusive with offset. */
+  cycle?: number;
+  /** Relative offset from current cycle (can be negative). Mutually exclusive with cycle. */
+  offset?: number;
+  /** Optional panel name to target. If not provided, uses the default panel. */
+  panelName?: string;
+}
+
+/**
+ * Language Model tool to set the active cycle/time step
+ */
+export class SetCycleTool implements vscode.LanguageModelTool<SetCycleInput> {
+  
+  async prepareInvocation(
+    options: vscode.LanguageModelToolInvocationPrepareOptions<SetCycleInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.PreparedToolInvocation> {
+    const { cycle, offset, panelName } = options.input;
+    const panelInfo = panelName ? ` in panel '${panelName}'` : '';
+    const action = offset !== undefined 
+      ? `Advancing active cycle by ${offset}`
+      : `Setting active cycle to ${cycle}`;
+    return {
+      invocationMessage: `${action}${panelInfo}...`
+    };
+  }
+
+  async invoke(
+    options: vscode.LanguageModelToolInvocationOptions<SetCycleInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.LanguageModelToolResult> {
+    try {
+      const { cycle, offset, panelName } = options.input;
+      
+      // Validate that exactly one of cycle or offset is provided
+      if ((cycle === undefined && offset === undefined) || 
+          (cycle !== undefined && offset !== undefined)) {
+        return new vscode.LanguageModelToolResult([
+          new vscode.LanguageModelTextPart(
+            'Must provide exactly one of "cycle" (absolute) or "offset" (relative), not both or neither.'
+          )
+        ]);
+      }
+      
+      let targetCycle: number;
+      
+      // If offset provided, get current cycle and add offset
+      if (offset !== undefined) {
+        const currentCycle = await vscode.commands.executeCommand(
+          'makerchip.callIdeMethodWithResult',
+          'getCycle',
+          [],
+          panelName
+        ) as number;
+        
+        targetCycle = currentCycle + offset;
+      } else {
+        targetCycle = cycle!;
+      }
+      
+      // Call the IDE method and wait for completion (setCycle returns Promise<void>)
+      await vscode.commands.executeCommand(
+        'makerchip.callIdeMethodWithResult',
+        'setCycle',
+        [targetCycle],
+        panelName
+      );
+      
+      const panelInfo = panelName ? ` in panel '${panelName}'` : '';
+      const message = offset !== undefined
+        ? `Advanced active cycle by ${offset} to ${targetCycle}${panelInfo}`
+        : `Set active cycle to ${cycle}${panelInfo}`;
+      
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(message)
+      ]);
+      
+    } catch (error: any) {
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(
+          `Failed to set cycle: ${error.message}`
+        )
+      ]);
+    }
+  }
+}
+
 interface UpdatePlayStateInput {
   /** Whether to start (true) or stop (false) waveform playback */
   isPlaying: boolean;
@@ -836,6 +1006,191 @@ export class UpdatePlayStateTool implements vscode.LanguageModelTool<UpdatePlayS
   }
 }
 
+interface HighlightToolInput {
+  /** 
+   * The TL-Verilog path identifier to highlight.
+   * Examples:
+   * - Signal: '/cpu|my_pipe$data'
+   * - Scope/hierarchy: '/cpu', '/cpu|my_pipe', '/cpu|my_pipe/reg'
+   * - Pipeline stage: '|my_pipe@2'
+   */
+  id: string;
+  /** 
+   * If true, adds to existing highlights (like Ctrl+click).
+   * If false or omitted, replaces all existing highlights.
+   */
+  accumulate?: boolean;
+  /** Optional panel name to target. If not provided, uses the default panel. */
+  panelName?: string;
+}
+
+/**
+ * Language Model tool for highlighting logical entities in the IDE
+ */
+export class HighlightTool implements vscode.LanguageModelTool<HighlightToolInput> {
+  
+  async prepareInvocation(
+    options: vscode.LanguageModelToolInvocationPrepareOptions<HighlightToolInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.PreparedToolInvocation> {
+    const { id, accumulate } = options.input;
+    const action = accumulate ? 'Adding highlight' : 'Highlighting';
+    return {
+      invocationMessage: `${action} ${id}...`
+    };
+  }
+
+  async invoke(
+    options: vscode.LanguageModelToolInvocationOptions<HighlightToolInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.LanguageModelToolResult> {
+    try {
+      const { id, accumulate = false, panelName } = options.input;
+      
+      // Call the IDE highlight method and wait for result
+      const result = await vscode.commands.executeCommand(
+        'makerchip.callIdeMethodWithResult',
+        'highlight',
+        [id, accumulate],
+        panelName
+      );
+      
+      // Check if highlight was successful (IDE returns boolean: true on success, false on failure)
+      if (result === false) {
+        return new vscode.LanguageModelToolResult([
+          new vscode.LanguageModelTextPart(
+            `Failed to highlight ${id}: Entity not found or invalid path. Check the entity path syntax and ensure the design has been compiled.`
+          )
+        ]);
+      }
+      
+      const action = accumulate ? 'Added highlight for' : 'Highlighted';
+      const panelInfo = panelName ? ` in panel '${panelName}'` : '';
+      
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(
+          `${action} ${id}${panelInfo}. The entity is now highlighted in all IDE views (Diagram, Waveform, Nav-TLV).`
+        )
+      ]);
+      
+    } catch (error: any) {
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(
+          `Failed to highlight entity: ${error.message}`
+        )
+      ]);
+    }
+  }
+}
+
+interface ClearHighlightsToolInput {
+  /** Optional panel name to target. If not provided, uses the default panel. */
+  panelName?: string;
+}
+
+/**
+ * Language Model tool for clearing all highlights in the IDE
+ */
+export class ClearHighlightsTool implements vscode.LanguageModelTool<ClearHighlightsToolInput> {
+  
+  async prepareInvocation(
+    options: vscode.LanguageModelToolInvocationPrepareOptions<ClearHighlightsToolInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.PreparedToolInvocation> {
+    return {
+      invocationMessage: 'Clearing all highlights...'
+    };
+  }
+
+  async invoke(
+    options: vscode.LanguageModelToolInvocationOptions<ClearHighlightsToolInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.LanguageModelToolResult> {
+    try {
+      const { panelName } = options.input;
+      
+      // Call the IDE clearHighlights method
+      await vscode.commands.executeCommand(
+        'makerchip.invokeIdeMethod',
+        'clearHighlights',
+        [],
+        panelName
+      );
+      
+      const panelInfo = panelName ? ` in panel '${panelName}'` : '';
+      
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(
+          `Cleared all highlights${panelInfo}. All highlighted entities have been removed from IDE views.`
+        )
+      ]);
+      
+    } catch (error: any) {
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(
+          `Failed to clear highlights: ${error.message}`
+        )
+      ]);
+    }
+  }
+}
+
+interface ListPanelsToolInput {
+  // No parameters needed - lists all open panels
+}
+
+/**
+ * Language Model tool for listing all open Makerchip panels
+ */
+export class ListPanelsTool implements vscode.LanguageModelTool<ListPanelsToolInput> {
+  
+  async prepareInvocation(
+    options: vscode.LanguageModelToolInvocationPrepareOptions<ListPanelsToolInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.PreparedToolInvocation> {
+    return {
+      invocationMessage: 'Listing open Makerchip panels...'
+    };
+  }
+
+  async invoke(
+    options: vscode.LanguageModelToolInvocationOptions<ListPanelsToolInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.LanguageModelToolResult> {
+    try {
+      // Get list of panels from the extension
+      const panels = await vscode.commands.executeCommand<string[]>(
+        'makerchip.getPanelNames'
+      );
+      
+      if (!panels || panels.length === 0) {
+        return new vscode.LanguageModelToolResult([
+          new vscode.LanguageModelTextPart(
+            'No Makerchip panels are currently open. Use makerchip_compile with code or filePath to open a new panel.'
+          )
+        ]);
+      }
+      
+      let result = `**Open Makerchip Panels (${panels.length}):**\n\n`;
+      for (const panel of panels) {
+        result += `- ${panel}\n`;
+      }
+      result += `\nUse the \`panelName\` parameter in other tools to target a specific panel.`;
+      
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(result)
+      ]);
+      
+    } catch (error: any) {
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(
+          `Failed to list panels: ${error.message}`
+        )
+      ]);
+    }
+  }
+}
+
 /**
  * Register the Makerchip tools with the Language Model API
  */
@@ -884,10 +1239,35 @@ export function registerMakerchipTool(context: vscode.ExtensionContext): void {
   log('Open third-party pane tool registered:', !!openThirdPartyPaneTool);
   context.subscriptions.push(openThirdPartyPaneTool);
   
+  // Register the get cycle tool
+  const getCycleTool = vscode.lm.registerTool('makerchip_get_cycle', new GetCycleTool());
+  log('Get cycle tool registered:', !!getCycleTool);
+  context.subscriptions.push(getCycleTool);
+  
+  // Register the set cycle tool
+  const setCycleTool = vscode.lm.registerTool('makerchip_set_cycle', new SetCycleTool());
+  log('Set cycle tool registered:', !!setCycleTool);
+  context.subscriptions.push(setCycleTool);
+  
   // Register the update play state tool
   const updatePlayStateTool = vscode.lm.registerTool('makerchip_update_play_state', new UpdatePlayStateTool());
   log('Update play state tool registered:', !!updatePlayStateTool);
   context.subscriptions.push(updatePlayStateTool);
+  
+  // Register the highlight tool
+  const highlightTool = vscode.lm.registerTool('makerchip_highlight', new HighlightTool());
+  log('Highlight tool registered:', !!highlightTool);
+  context.subscriptions.push(highlightTool);
+  
+  // Register the clear highlights tool
+  const clearHighlightsTool = vscode.lm.registerTool('makerchip_clear_highlights', new ClearHighlightsTool());
+  log('Clear highlights tool registered:', !!clearHighlightsTool);
+  context.subscriptions.push(clearHighlightsTool);
+  
+  // Register the list panels tool
+  const listPanelsTool = vscode.lm.registerTool('makerchip_list_panels', new ListPanelsTool());
+  log('List panels tool registered:', !!listPanelsTool);
+  context.subscriptions.push(listPanelsTool);
   
   // Verify tools are in the list
   setTimeout(() => {
@@ -900,7 +1280,12 @@ export function registerMakerchipTool(context: vscode.ExtensionContext): void {
     const ourAvailablePanesTool = vscode.lm.tools.find(t => t.name === 'makerchip_get_available_panes');
     const ourOpenPaneTool = vscode.lm.tools.find(t => t.name === 'makerchip_open_pane');
     const ourOpenThirdPartyPaneTool = vscode.lm.tools.find(t => t.name === 'makerchip_open_third_party_pane');
+    const ourGetCycleTool = vscode.lm.tools.find(t => t.name === 'makerchip_get_cycle');
+    const ourSetCycleTool = vscode.lm.tools.find(t => t.name === 'makerchip_set_cycle');
     const ourUpdatePlayStateTool = vscode.lm.tools.find(t => t.name === 'makerchip_update_play_state');
+    const ourHighlightTool = vscode.lm.tools.find(t => t.name === 'makerchip_highlight');
+    const ourClearHighlightsTool = vscode.lm.tools.find(t => t.name === 'makerchip_clear_highlights');
+    const ourListPanelsTool = vscode.lm.tools.find(t => t.name === 'makerchip_list_panels');
     log('Found our compile tool:', !!ourRunTool);
     log('Found our IDE tool:', !!ourIdeTool);
     log('Found our VIZ image tool:', !!ourVizImageTool);
@@ -909,7 +1294,12 @@ export function registerMakerchipTool(context: vscode.ExtensionContext): void {
     log('Found our get available panes tool:', !!ourAvailablePanesTool);
     log('Found our open pane tool:', !!ourOpenPaneTool);
     log('Found our open third-party pane tool:', !!ourOpenThirdPartyPaneTool);
+    log('Found our get cycle tool:', !!ourGetCycleTool);
+    log('Found our set cycle tool:', !!ourSetCycleTool);
     log('Found our update play state tool:', !!ourUpdatePlayStateTool);
+    log('Found our highlight tool:', !!ourHighlightTool);
+    log('Found our clear highlights tool:', !!ourClearHighlightsTool);
+    log('Found our list panels tool:', !!ourListPanelsTool);
     
     showOutputChannel(); // Show output channel on startup
   }, 1000);

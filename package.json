@@ -40,6 +40,16 @@
         "command": "makerchip.updateResources",
         "title": "Makerchip: Update Reference Data",
         "icon": "$(cloud-download)"
+      },
+      {
+        "command": "makerchip.highlight",
+        "title": "Makerchip: Highlight Entity",
+        "icon": "$(highlight)"
+      },
+      {
+        "command": "makerchip.clearHighlights",
+        "title": "Makerchip: Clear All Highlights",
+        "icon": "$(clear-all)"
       }
     ],
     "configuration": {
@@ -112,7 +122,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(circuit-board)",
         "userDescription": "Compile and open TL-Verilog in Makerchip IDE.",
-        "modelDescription": "Opens the Makerchip IDE in VS Code and compiles the current or specified TL-Verilog file, showing the compiled circuit diagram, waveforms, and Visual Debug output. IMPORTANT: Use this tool whenever the user wants to SEE, SHOW, DEMONSTRATE, VISUALIZE, or VIEW TL-Verilog code or examples - don't just show code in the chat. Also use when they want to run, compile, open, launch, or test Makerchip or TL-Verilog. When providing TL-Verilog examples, prefer opening them in Makerchip rather than only displaying the code. The visual IDE is the primary way to interact with TL-Verilog.",
+        "modelDescription": "Opens IDE and compiles TL-Verilog code. **Returns immediately** - compilation is async. Returns compile ID and cache paths. Poll `~/.vscode-makerchip/compile-cache/<ID>/metadata.json` for status (check 'complete', 'passed', 'error' fields). Use this when user wants to VISUALIZE TL-Verilog, not just see code.",
         "tags": [
           "makerchip",
           "tlv",
@@ -142,7 +152,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. If not provided, uses the default panel. Use this to open multiple Makerchip panels for different designs or comparisons."
+              "description": "Optional panel name to target. Default: `default`. Use this to open multiple Makerchip panels for different designs or comparisons."
             }
           }
         }
@@ -154,7 +164,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(symbol-method)",
         "userDescription": "Call any Makerchip IDE method directly.",
-        "modelDescription": "Invokes any method on the Makerchip IDE instance. Available methods include: compile(code), setCode(code, readOnly), getCode(lastChangeGeneration), setCodeFromURL(url, readOnly), activatePane(name), openPane(name, background). Use this for advanced IDE control like changing panes, setting code without compiling, or loading code from URLs. Methods like onReady, onCodeChange, onCompilationLog are callbacks and should not be called directly.",
+        "modelDescription": "Generic tool for calling any IDE Plugin API method directly. Many of these methods are explicitly exposed as tools. For full IDE Plugin details, see `.vscode-makerchip/resources/Makerchip-public/docs/plugin_api/index.html`. Note that methods like onReady, onCodeChange, onCompilationLog are callbacks and should not be called directly.",
         "tags": [
           "makerchip",
           "ide",
@@ -188,7 +198,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. If not provided, uses the default panel."
+              "description": "Optional panel name to target. Default: `default`."
             }
           }
         }
@@ -200,7 +210,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(device-camera)",
         "userDescription": "Capture the current VIZ visualization as an image.",
-        "modelDescription": "Captures the current Makerchip VIZ (Visual Debug) canvas visualization as an image data URL. The VIZ must already be rendered (code must be compiled first). Returns a base64-encoded data URL that can be used to display or analyze the visualization. Use this to capture and examine the current state of the VIZ visualization for debugging or documentation purposes.",
+        "modelDescription": "Returns the current Makerchip VIZ (Visual Debug) canvas visualization (from an open IDE panel with compiled/simulated code). Returns a base64-encoded data URL. Use this to iterate on VIZ development.",
         "tags": [
           "makerchip",
           "viz",
@@ -228,7 +238,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. If not provided, uses the default panel."
+              "description": "Optional panel name to target. Default: `default`."
             },
             "saveToFile": {
               "type": ["boolean", "string"],
@@ -244,7 +254,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(layout)",
         "userDescription": "Get the current IDE pane layout configuration.",
-        "modelDescription": "Retrieves the current Makerchip IDE layout state as a serializable object. Returns either a TabbedView state (single pane container) or FlexSplit state (split layout).\n\nRETURNED STRUCTURE:\n\nTabbedView state:\n{\n  \"panes\": [\"Log\", \"Diagram\", ...],  // Array of pane mnemonics in tab order\n  \"activePane\": \"Diagram\"              // Currently active pane mnemonic (or null)\n}\n\nFlexSplit state (horizontal):\n{\n  \"sides\": {\n    \"left\": <TabbedView or nested FlexSplit>,\n    \"right\": <TabbedView or nested FlexSplit>\n  },\n  \"splitAt\": 0.5  // Split position (0.0-1.0)\n}\n\nFlexSplit state (vertical):\n{\n  \"sides\": {\n    \"top\": <TabbedView or nested FlexSplit>,\n    \"bottom\": <TabbedView or nested FlexSplit>\n  },\n  \"splitAt\": 0.5  // Split position (0.0-1.0)\n}\n\nAvailable pane mnemonics: \"Log\", \"Nav-TLV\", \"Diagram\", \"Viz\", \"Waveform\" (plus static panes - use makerchip_get_available_panes to see all). Note: Editor pane is NOT available in VS Code extension (VS Code provides its own editor).\n\nUse this to: capture current layout for later restoration, understand current IDE configuration, or create modified layouts based on the current state. The returned object can be passed directly to makerchip_set_layout_state or modified before restoration.",
+        "modelDescription": "Retrieves the current Makerchip IDE layout state as a serializable object from an open IDE panel. The returned data structure refects the recursive binary tree of splits and the tabbed panes at leaf splits, identified by their mnemonics.\n\nUse this to: capture current layout for later restoration, understand current IDE configuration, or create modified layouts based on the current state. The returned object can be passed directly to makerchip_set_layout_state or modified before restoration.\n\nSEE: `.vscode-makerchip/.vscode/skills/makerchip-api-features.md` for details about working with layouts and panes",
         "tags": [
           "makerchip",
           "ide",
@@ -258,7 +268,7 @@
           "properties": {
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. If not provided, uses the default panel."
+              "description": "Optional panel name to target. Default: `default`."
             }
           }
         }
@@ -270,7 +280,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(layout-panel)",
         "userDescription": "Configure the IDE pane layout (create splits, arrange panes in tabs, set active pane).",
-        "modelDescription": "Sets the Makerchip IDE layout from a state object. You can restore a previously saved state OR craft a custom layout defining pane arrangement, splits, tabs, and active panes.\n\nThe state is either a TabbedView (single pane container with tabs) or FlexSplit (split layout with left/right or top/bottom sides). FlexSplit sides recursively contain TabbedView or nested FlexSplit states.\n\nAvailable pane mnemonics: Use makerchip_get_available_panes to get the complete list. Main panes: Log, Nav-TLV, Diagram, Viz, Waveform. Many static panes also available (tutorials, documentation, etc.). NOTE: Editor pane is NOT available (VS Code provides the editor).\n\nEXAMPLES:\n\nSingle view with tabs: {\"panes\": [\"Diagram\", \"Waveform\"], \"activePane\": \"Diagram\"}\n\nHorizontal split (Log left, Diagram+Waveform right): {\"sides\": {\"left\": {\"panes\": [\"Log\"], \"activePane\": \"Log\"}, \"right\": {\"panes\": [\"Diagram\", \"Waveform\"], \"activePane\": \"Diagram\"}}, \"splitAt\": 0.3}\n\nVertical split (Nav-TLV top, Diagram bottom): {\"sides\": {\"top\": {\"panes\": [\"Nav-TLV\"], \"activePane\": \"Nav-TLV\"}, \"bottom\": {\"panes\": [\"Diagram\"], \"activePane\": \"Diagram\"}}, \"splitAt\": 0.3}\n\nNested 3-way (Log left, Diagram top-right, Waveform bottom-right): {\"sides\": {\"left\": {\"panes\": [\"Log\"], \"activePane\": \"Log\"}, \"right\": {\"sides\": {\"top\": {\"panes\": [\"Diagram\"], \"activePane\": \"Diagram\"}, \"bottom\": {\"panes\": [\"Waveform\"], \"activePane\": \"Waveform\"}}, \"splitAt\": 0.5}}, \"splitAt\": 0.3}",
+        "modelDescription": "Sets the Makerchip IDE layout of an open IDE panel from a state object. You can restore a previously saved state OR craft a custom layout defining pane arrangement, splits, tabs, and active panes.\n\nThe state is either a TabbedView (single pane container with tabs) or FlexSplit (split layout with left/right or top/bottom sides). FlexSplit sides recursively contain TabbedView or nested FlexSplit states.\n\nAvailable pane mnemonics: Use makerchip_get_available_panes to get the complete list. Main panes: Log, Nav-TLV, Diagram, Viz, Waveform should typically be included. Other \"static panes\" and any third-party panes loaded using makerchip_open_third_party_pane are also available.\n\nEXAMPLES:\n\nSingle view with tabs: {\"panes\": [\"Diagram\", \"Waveform\", ...], \"activePane\": \"Diagram\"}\n\nHorizontal split (Log left, others right): {\"sides\": {\"left\": {\"panes\": [\"Log\"], \"activePane\": \"Log\"}, \"right\": {\"panes\": [\"Diagram\", \"Waveform\", ...], \"activePane\": \"Diagram\"}}, \"splitAt\": 0.3}\n\nNested 3-way (Log left, Diagram top-right, Waveform, etc. bottom-right): {\"sides\": {\"left\": {\"panes\": [\"Log\"], \"activePane\": \"Log\"}, \"right\": {\"sides\": {\"top\": {\"panes\": [\"Diagram\"], \"activePane\": \"Diagram\"}, \"bottom\": {\"panes\": [\"Waveform\", ...], \"activePane\": \"Waveform\"}}, \"splitAt\": 0.5}}, \"splitAt\": 0.3}\n\nSEE: `.vscode-makerchip/.vscode/skills/makerchip-api-features.md` for details about working with layouts and panes",
         "tags": [
           "makerchip",
           "ide",
@@ -292,7 +302,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. If not provided, uses the default panel."
+              "description": "Optional panel name to target. Default: `default`."
             }
           },
           "$defs": {
@@ -365,7 +375,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(list-tree)",
         "userDescription": "List all available IDE panes with descriptions.",
-        "modelDescription": "Retrieves a complete list of all panes in the Makerchip IDE, including main IDE panes, static panes (tutorials, documentation, etc.), and third-party panes (if any). Each pane entry includes its mnemonic (unique identifier used in layout operations), display name, description, and availability status.\n\nMAIN IDE PANES (in VS Code extension context):\n- Log: Compilation error log and messages\n- Nav-TLV: TL-Verilog code navigation tree\n- Diagram: Circuit diagram visualization\n- Viz: VIZ canvas for visual debug\n- Waveform: Waveform viewer for signals\n\nNOTE: Editor pane is NOT available in VS Code extension (VS Code provides its own editor). The Editor will appear in the list with available=false.\n\nSTATIC PANES (always available, opened on demand):\n- About, Help, Settings\n- Tutorials (Makerchip Tutorial, Tutorial-Combo, Tutorial-Seq, Tutorial-Pipes, etc.)\n- Documentation (VIZ Guide, TL-X Spec, M5 Spec, etc.)\n- Courses and Videos\n- Code Examples\n\nTHIRD-PARTY PANES (dynamically created):\n- Custom panes added by the platform via openThirdPartyPane API\n- Can include PDFs, iframes, or other external content\n- Listed separately with their content type\n\nEach pane has an 'available' field: true if the pane can be used, false if not available in this context (e.g., Editor is always false in VS Code extension).\n\nUse this tool to: discover what panes are available for layout configuration, check which panes are actually usable in the current IDE instance, find the correct mnemonic for a specific pane, understand what content each pane provides, or present options to users. Only use panes with available=true in makerchip_set_layout_state calls.",
+        "modelDescription": "Returns all panes with mnemonics (name[+uniquifier]), display names, descriptions, and availability. Main panes: Log, Nav-TLV, Diagram, Viz, Waveform. Static panes: Tutorials, Examples, Courses. Third-party panes if any. Only use panes with available=true in layout operations.",
         "tags": [
           "makerchip",
           "ide",
@@ -379,7 +389,7 @@
           "properties": {
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. If not provided, uses the default panel."
+              "description": "Optional panel name to target. Default: `default`."
             }
           }
         }
@@ -391,7 +401,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(open-preview)",
         "userDescription": "Open or activate a specific IDE pane by mnemonic.",
-        "modelDescription": "Opens and/or activates a pane by its mnemonic identifier.\n\nThis tool works with both:\n- Static panes (tutorials, documentation, courses) - opened on demand\n- Always-open main IDE panes (Log, Diagram, Waveform, etc.) can be activated (made visible)\n\nUse makerchip_get_available_panes to discover valid pane mnemonics. Only use panes with available=true.\n\nCommon use cases:\n- Open tutorials: \"Makerchip Tutorial\", \"Combo Tutorial\", \"Pipelining Tutorial\" (found in `resources/Makerchip-public/pane-blade`)\n- Open documentation: \"VIZ Guide\", \"TL-X Spec\", \"Help\"\n- Activate IDE panes: \"Diagram\", \"Waveform\", \"Log\"\n- Open courses: \"RISC-V Course+Single-Cycle\"\n\nERROR HANDLING: Returns an error if the pane mnemonic is not found. The error message includes a complete list of available panes with their mnemonics and descriptions.\n\nNOTE: For complex layout changes (splits, multiple panes), use makerchip_set_layout_state instead. This tool is best for simply opening/activating a single pane.",
+        "modelDescription": "Opens and/or activates a pane by mnemonic in an open IDE panel. Works with static panes (Tutorials, Examples, opened on demand), main panes (Log, Diagram, etc.), and third-party panes. Use makerchip_get_available_panes for valid mnemonics. For complex layouts use makerchip_set_layout_state.",
         "tags": [
           "makerchip",
           "ide",
@@ -416,7 +426,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. If not provided, uses the default panel."
+              "description": "Optional panel name to target. Default: `default`."
             }
           }
         }
@@ -428,7 +438,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(new-file)",
         "userDescription": "Open custom content (PDFs, web pages) in IDE panes.",
-        "modelDescription": "Opens a third-party pane in the Makerchip IDE to display external content like PDFs or web pages within the IDE's tabbed interface.\n\nSUPPORTED CONTENT TYPES:\n\n1. PDF (contentType: \"pdf\"):\n   - Displays PDF files using the IDE's built-in PDF viewer\n   - Supports any URL: https://, http://, file://, vscode-webview://, data URIs\n   - Example: Technical documentation, datasheets, user guides\n\n2. Iframe (contentType: \"iframe\"):\n   - Embeds web pages in an iframe\n   - Subject to browser same-origin policy and CSP restrictions\n   - Target page must allow iframe embedding (no X-Frame-Options: DENY)\n   - Example: External documentation sites, web tools, reference materials\n\nPARAMETERS:\n\n- mnemonic: Display name for the pane (appears in tab). Auto-uniquified if name conflicts occur.\n- contentType: Either \"pdf\" or \"iframe\"\n- contentParams.contentUrl: URL to the content (required)\n- options.background: If true, opens without activating (default: false)\n- options.nonTransferrable: If true, won't save pane data for layout recovery (default: false)\n\nRETURN VALUE: The actual mnemonic (may differ if uniquified to avoid conflicts)\n\nUSE CASES:\n- Display tutorial PDFs alongside code examples\n- Show external API documentation while developing\n- Embed reference materials or specification documents\n- Open web-based tools or calculators within the IDE\n- Present course materials or learning resources\n\nEXAMPLES:\n\nOpen PDF tutorial:\n{\n  \"mnemonic\": \"TL-Verilog Guide\",\n  \"contentType\": \"pdf\",\n  \"contentParams\": {\n    \"contentUrl\": \"https://example.com/tlv-guide.pdf\"\n  }\n}\n\nEmbed documentation website:\n{\n  \"mnemonic\": \"API Docs\",\n  \"contentType\": \"iframe\",\n  \"contentParams\": {\n    \"contentUrl\": \"https://docs.example.com\"\n  },\n  \"options\": {\n    \"background\": true\n  }\n}\n\nNOTE: Third-party panes are tracked in layout state when forTransfer=true is used with makerchip_get_layout_state (unless nonTransferrable=true).",
+        "modelDescription": "Opens third-party pane with PDF or iframe content. PDF: uses built-in viewer, supports any URL. Iframe: embeds web pages, subject to CSP/X-Frame-Options. Mnemonic is tab label plus optional `+`-delimited uniquifier string (or allow auto-uniquification). Returns actual mnemonic used (same or uniquified).\n\nEXAMPLES:\n\nPDF: {\"mnemonic\": \"Guide\", \"contentType\": \"pdf\", \"contentParams\": {\"contentUrl\": \"https://example.com/guide.pdf\"}}\n\nIframe: {\"mnemonic\": \"Docs\", \"contentType\": \"iframe\", \"contentParams\": {\"contentUrl\": \"https://docs.example.com\"}, \"options\": {\"background\": true}}",
         "tags": [
           "makerchip",
           "ide",
@@ -483,9 +493,211 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional VS Code panel name to target. If not provided, uses the default panel."
+              "description": "Optional VS Code panel name to target. Default: `default`."
             }
           }
+        }
+      },
+      {
+        "name": "makerchip_get_cycle",
+        "displayName": "Get Active Cycle",
+        "toolReferenceName": "makerchipGetCycle",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(debug-step-over)",
+        "userDescription": "Get the active cycle/time step.",
+        "modelDescription": "Returns active cycle value. All \"live\" panes (Nav-TLV, Diagram, VIZ, Waveform) display data for this cycle. Cycle 0 is first cycle after reset.",
+        "tags": [
+          "makerchip",
+          "cycle",
+          "time",
+          "simulation",
+          "state",
+          "diagram",
+          "viz",
+          "waveform"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "panelName": {
+              "type": "string",
+              "description": "Optional panel name to target. Default: `default`."
+            }
+          }
+        }
+      },
+      {
+        "name": "makerchip_set_cycle",
+        "displayName": "Set Active Cycle",
+        "toolReferenceName": "makerchipSetCycle",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(debug-step-into)",
+        "userDescription": "Set the active cycle/time step.",
+        "modelDescription": "Sets active cycle, updating all \"live\" panes (Nav-TLV, Diagram, VIZ, Waveform). Provide either 'cycle' for absolute positioning or 'offset' for relative positioning (mutually exclusive). Final value clamped to [0, endCycle].\n\nEXAMPLES:\n- Jump to cycle 42: {\"cycle\": 42}\n- Reset to start: {\"cycle\": 0}\n- Advance 10 cycles: {\"offset\": 10}\n- Go back 5 cycles: {\"offset\": -5}",
+        "tags": [
+          "makerchip",
+          "cycle",
+          "time",
+          "simulation",
+          "navigate",
+          "jump",
+          "diagram",
+          "viz",
+          "waveform"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "cycle": {
+              "type": "integer",
+              "description": "Absolute cycle to jump to (0-based). Mutually exclusive with offset. Final value clamped to [0, endCycle]."
+            },
+            "offset": {
+              "type": "integer",
+              "description": "Relative offset from current cycle (can be negative). Mutually exclusive with cycle."
+            },
+            "panelName": {
+              "type": "string",
+              "description": "Optional panel name to target. Default: `default`."
+            }
+          },
+          "oneOf": [
+            {"required": ["cycle"]},
+            {"required": ["offset"]}
+          ]
+        }
+      },
+      {
+        "name": "makerchip_update_play_state",
+        "displayName": "Update Play State",
+        "toolReferenceName": "makerchipUpdatePlayState",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(play)",
+        "userDescription": "Start or stop waveform playback animation.",
+        "modelDescription": "Controls waveform playback animation (cycle advancement). Starts or stops playback, optionally setting cycle range and playback speed.\n\nWhen starting (isPlaying=true):\n- Advances active cycle automatically at specified interval (cycleTimeout, default 1000ms)\n- Optionally jumps to startCyc before starting\n- Stops at endCyc if provided, otherwise plays to end of waveform\n- Updates all live panes (Nav-TLV, Diagram, VIZ, Waveform) each cycle\n\nWhen stopping (isPlaying=false):\n- Stops cycle advancement at current position\n- Other parameters ignored\n\nEXAMPLES:\n- Start playback from beginning at 500ms/cycle: {\"isPlaying\": true, \"cycleTimeout\": 500, \"startCyc\": 0}\n- Play cycles 10-50 at default speed: {\"isPlaying\": true, \"startCyc\": 10, \"endCyc\": 50}\n- Stop playback: {\"isPlaying\": false}",
+        "tags": [
+          "makerchip",
+          "waveform",
+          "playback",
+          "animation",
+          "play",
+          "stop",
+          "cycle",
+          "simulation",
+          "visualize"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "required": ["isPlaying"],
+          "properties": {
+            "isPlaying": {
+              "type": "boolean",
+              "description": "Whether to start (true) or stop (false) waveform playback."
+            },
+            "cycleTimeout": {
+              "type": "integer",
+              "description": "Delay in milliseconds between cycles during playback. Default is 1000ms. Only used when isPlaying=true.",
+              "minimum": 1
+            },
+            "startCyc": {
+              "type": "integer",
+              "description": "Starting cycle for playback. If provided, jumps to this cycle before starting. Only used when isPlaying=true.",
+              "minimum": 0
+            },
+            "endCyc": {
+              "type": "integer",
+              "description": "Ending cycle for playback. If provided, playback stops at this cycle; otherwise plays to end of waveform. Only used when isPlaying=true.",
+              "minimum": 0
+            },
+            "panelName": {
+              "type": "string",
+              "description": "Optional panel name to target. Default: `default`."
+            }
+          }
+        }
+      },
+      {
+        "name": "makerchip_highlight",
+        "displayName": "Highlight Entity",
+        "toolReferenceName": "makerchipHighlight",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(highlight)",
+        "userDescription": "Highlight a signal, scope, or pipeline stage across all IDE views.",
+        "modelDescription": "Highlights all replicated instances of an entity across the IDE (Nav-TLV, Diagram, Waveform). If accumulate=false (default), replaces highlights. If true, adds to existing.\n\nPATH SYNTAX (varies by type):\n- Pipesignal: '/cpu|pipe$data' (full path)\n- Scope: '/cpu', '/core|in/flit', or '/unit|reg' (full path)\n- Stage: '|pipe@2' (not a full path; just pipeline and pipestage)\n\nNever include range/index expressions, like `[2]`.\nNEVER include M5 macros or `\\TLV` macro parameters, like `|inst\\m5_cnt` or `|_pipe`.\n\nEXAMPLES: {\"id\": \"/cpu|decode$valid\"}, {\"id\": \"|fetch@1\", \"accumulate\": true}",
+        "tags": [
+          "makerchip",
+          "highlight",
+          "signal",
+          "waveform",
+          "diagram",
+          "debug",
+          "visualize",
+          "navigate",
+          "scope",
+          "stage"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "required": ["id"],
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The TL-Verilog path identifier to highlight (e.g., '/cpu|my_pipe$data', '|my_pipe@2', '/cpu')"
+            },
+            "accumulate": {
+              "type": "boolean",
+              "description": "If true, adds to existing highlights (Ctrl+click behavior). If false (default), replaces all highlights.",
+              "default": false
+            },
+            "panelName": {
+              "type": "string",
+              "description": "Optional panel name to target. Default: `default`."
+            }
+          }
+        }
+      },
+      {
+        "name": "makerchip_clear_highlights",
+        "displayName": "Clear All Highlights",
+        "toolReferenceName": "makerchipClearHighlights",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(clear-all)",
+        "userDescription": "Clear all highlighted entities from IDE views.",
+        "modelDescription": "Removes all entity highlights from all views: Diagram, Waveform, Nav-TLV panes.",
+        "tags": [
+          "makerchip",
+          "highlight",
+          "clear",
+          "reset",
+          "cleanup"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "panelName": {
+              "type": "string",
+              "description": "Optional panel name to target. Default: `default`."
+            }
+          }
+        }
+      },
+      {
+        "name": "makerchip_list_panels",
+        "displayName": "List Open Panels",
+        "toolReferenceName": "makerchipListPanels",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(list-tree)",
+        "userDescription": "List all currently open Makerchip IDE panels.",
+        "modelDescription": "Returns open panel names. Use these in 'panelName' parameter to target specific IDE instances. New panels are created only via makerchip_compile with a code or filePath argument.",
+        "tags": [
+          "makerchip",
+          "panels",
+          "list",
+          "discovery"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {}
         }
       }
     ],
@@ -502,9 +714,10 @@
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./ && tsc -p src/tsconfig.webview.json && npm run copy-webview",
     "copy-webview": "cp src/webview.html out/webview.html",
-    "watch": "npm run copy-webview && tsc -watch -p ./ & tsc -watch -p src/tsconfig.webview.json & wait",
+    "watch": "npm run copy-webview && (npm run watch:main & npm run watch:webview & npm run watch:html & wait)",
     "watch:main": "tsc -watch -p ./",
     "watch:webview": "tsc -watch -p src/tsconfig.webview.json",
+    "watch:html": "nodemon --watch src/webview.html --exec 'npm run copy-webview'",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src",
     "test": "vscode-test"
@@ -516,6 +729,7 @@
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^2.5.2",
     "eslint": "^9.39.3",
+    "nodemon": "^3.0.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.56.1"
   }

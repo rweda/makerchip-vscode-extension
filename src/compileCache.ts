@@ -65,17 +65,52 @@ interface CompileHistory {
 
 const HISTORY_FILE = path.join(path.dirname(CACHE_DIR), 'compile-history.json');
 
-// Promise chain for serializing all file updates to prevent race conditions
-let updateChain: Promise<void> = Promise.resolve();
+// Queue for serializing all file updates to prevent race conditions
+const updateQueue: Array<() => Promise<any>> = [];
+let isProcessing = false;
+
+async function processQueue() {
+  if (isProcessing || updateQueue.length === 0) {
+    return;
+  }
+  
+  isProcessing = true;
+  
+  while (updateQueue.length > 0) {
+    const fn = updateQueue.shift()!;
+    try {
+      await fn();
+    } catch (error) {
+      console.error('[compileCache:processQueue] Function failed:', error);
+    }
+  }
+  
+  isProcessing = false;
+  
+  // Process any items that were added while we were working
+  if (updateQueue.length > 0) {
+    setTimeout(() => processQueue(), 0);
+  }
+}
 
 /**
  * Serialize file updates to prevent concurrent read-modify-write races
  */
 function serializeUpdate<T>(updateFn: () => Promise<T>): Promise<T> {
-  const result = updateChain.then(updateFn);
-  // Continue chain even if this update fails
-  updateChain = result.then(() => {}, () => {});
-  return result;
+  return new Promise<T>((resolve, reject) => {
+    updateQueue.push(async () => {
+      try {
+        const result = await updateFn();
+        resolve(result);
+      } catch (error) {
+        console.error('[compileCache:serializeUpdate] Update function failed:', error);
+        reject(error);
+      }
+    });
+    
+    // Use setTimeout to trigger processQueue in next tick (setImmediate doesn't work in VS Code extension host)
+    setTimeout(() => processQueue(), 0);
+  });
 }
 
 // Pruning policy constants
@@ -162,7 +197,9 @@ export async function recordExitStatus(id: string, stage: 'sandpiper' | 'verilat
 export async function completeFile(id: string, fileName: string): Promise<void> {
   return serializeUpdate(async () => {
     const metadata = await loadMetadata(id);
-    if (!metadata) return;
+    if (!metadata) {
+      return;
+    }
     
     // Mark this file as complete
     metadata.fileComplete[fileName as 'stdall' | 'make.out' | 'vlt_dump.vcd'] = true;
@@ -214,18 +251,17 @@ async function detectPassFail(id: string, fileName: string): Promise<boolean | u
  * Update pass/fail status in history
  */
 async function updateHistoryStatus(id: string, passed: boolean | undefined): Promise<void> {
-  return serializeUpdate(async () => {
-    try {
-      const history = await getHistory();
-      const entry = history.compilations.find(e => e.id === id);
-      if (entry) {
-        (entry as any).passed = passed;
-        await fs.writeFile(HISTORY_FILE, JSON.stringify(history, null, 2), 'utf-8');
-      }
-    } catch (error) {
-      console.error('Failed to update history status:', error);
+  // Note: No serializeUpdate here - this is always called from within completeFile() which is already serialized
+  try {
+    const history = await getHistory();
+    const entry = history.compilations.find(e => e.id === id);
+    if (entry) {
+      (entry as any).passed = passed;
+      await fs.writeFile(HISTORY_FILE, JSON.stringify(history, null, 2), 'utf-8');
     }
-  });
+  } catch (error) {
+    console.error('Failed to update history status:', error);
+  }
 }
 
 /**
@@ -238,7 +274,7 @@ export function getCompileDir(id: string): string {
 /**
  * Load metadata for a compilation
  */
-async function loadMetadata(id: string): Promise<CompileMetadata | null> {
+export async function loadMetadata(id: string): Promise<CompileMetadata | null> {
   try {
     const metadataFile = path.join(CACHE_DIR, id, 'metadata.json');
     const content = await fs.readFile(metadataFile, 'utf-8');
@@ -260,7 +296,7 @@ async function saveMetadata(id: string, metadata: CompileMetadata): Promise<void
  * Add compilation to history index
  */
 async function addToHistory(id: string, timestamp: string): Promise<void> {
-  return serializeUpdate(async () => {
+  const promise = serializeUpdate(async () => {
     let history: CompileHistory;
     
     try {
@@ -275,6 +311,7 @@ async function addToHistory(id: string, timestamp: string): Promise<void> {
 
     await fs.writeFile(HISTORY_FILE, JSON.stringify(history, null, 2), 'utf-8');
   });
+  await promise;
 }
 
 /**

@@ -69,8 +69,19 @@ export async function updateResources(context: vscode.ExtensionContext): Promise
   try {
     const result = await populateResources(context, outputChannel);
     
-    const message = `Makerchip reference data updated: ${result.success}/${result.total} repositories`;
-    vscode.window.showInformationMessage(message);
+    let message = `Makerchip reference data updated: ${result.success}/${result.total} repositories`;
+    if (result.localChanges.length > 0) {
+      message += ` (${result.localChanges.length} skipped due to local changes)`;
+    }
+    
+    if (result.success === result.total) {
+      vscode.window.showInformationMessage(message);
+    } else if (result.localChanges.length > 0) {
+      // Don't show another message here; populateResources already showed a warning
+      outputChannel.appendLine(message);
+    } else {
+      vscode.window.showWarningMessage(message);
+    }
   } catch (error: any) {
     console.error('Failed to update reference data:', error);
     vscode.window.showErrorMessage(`Failed to update Makerchip reference data: ${error.message}`);
