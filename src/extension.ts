@@ -28,6 +28,12 @@ import * as compileCache from './compileCache';
 // Default Makerchip server URL
 const DEFAULT_SERVER_URL = 'https://beta.makerchip.com';
 
+// How long to wait for a newly opened panel's webview to signal readiness
+// before rejecting. Without this, a webview that fails to load (e.g. plugin
+// import failure, or a startup race with VS Code) leaves the ready promise
+// pending forever, hanging every awaiting caller.
+const READY_TIMEOUT_MS = 30_000;
+
 // Track multiple panels by name
 const panels = new Map<string, vscode.WebviewPanel>();
 const panelReadyPromises = new Map<string, Promise<void>>();
@@ -352,6 +358,40 @@ export function activate(ctx: vscode.ExtensionContext) {
  */
 async function openMakerchipPanel(panelKey: string): Promise<void> {
   return new Promise(async (resolve, reject) => {
+    // Guard so the promise settles exactly once, and a timeout guards against
+    // a webview that never signals readiness.
+    let settled = false;
+    let readyTimeout: ReturnType<typeof setTimeout> | undefined;
+
+    const clearReadyTimeout = () => {
+      if (readyTimeout) {
+        clearTimeout(readyTimeout);
+        readyTimeout = undefined;
+      }
+    };
+
+    const settleResolve = () => {
+      if (settled) { return; }
+      settled = true;
+      clearReadyTimeout();
+      resolve();
+    };
+
+    // Reject the ready promise and tear down the panel so a later call can
+    // retry with a clean slate. Disposing triggers onDidDispose, which cleans
+    // up the tracking maps.
+    const settleReject = (err: Error) => {
+      if (settled) { return; }
+      settled = true;
+      clearReadyTimeout();
+      panelReadyPromises.delete(panelKey);
+      const existing = panels.get(panelKey);
+      if (existing) {
+        existing.dispose();
+      }
+      reject(err);
+    };
+
     // Create display name
     const displayName = panelKey === 'default' ? 'Makerchip IDE' : `Makerchip: ${panelKey}`;
     
@@ -377,10 +417,7 @@ async function openMakerchipPanel(panelKey: string): Promise<void> {
     } catch (error: any) {
       const errorMsg = error.message || 'Failed to get server URL';
       vscode.window.showErrorMessage(errorMsg);
-      panel.dispose();
-      panels.delete(panelKey);
-      panelReadyPromises.delete(panelKey);
-      reject(error);
+      settleReject(error instanceof Error ? error : new Error(errorMsg));
       return;
     }
     
@@ -389,14 +426,29 @@ async function openMakerchipPanel(panelKey: string): Promise<void> {
       vscode.Uri.joinPath(context.extensionUri, 'out', 'webview.js')
     );
 
+    // Detect VS Code theme to match Makerchip IDE dark mode
+    const isDarkTheme = vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark ||
+                        vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.HighContrast;
+
     // Load HTML template and replace placeholders
     const htmlPath = path.join(context.extensionPath, 'out', 'webview.html');
     let html = fs.readFileSync(htmlPath, 'utf8');
     html = html.replace(/{{nonce}}/g, nonce);
     html = html.replace(/{{scriptUri}}/g, scriptUri.toString());
     html = html.replace(/{{serverUrl}}/g, serverUrl);
+    html = html.replace(/{{defaultDarkMode}}/g, isDarkTheme.toString());
     
     panel.webview.html = html;
+
+    // Arm the readiness timeout. If the webview never posts 'ready' (e.g. the
+    // plugin failed to load, or activation raced VS Code startup), reject so
+    // callers surface an error instead of hanging indefinitely.
+    readyTimeout = setTimeout(() => {
+      settleReject(new Error(
+        `Makerchip panel '${panelKey}' did not become ready within ${READY_TIMEOUT_MS / 1000}s. ` +
+        `Check the server connection (${serverUrl}) and try again.`
+      ));
+    }, READY_TIMEOUT_MS);
 
     // Handle messages from webview: IDE ready state, compilation results, errors, and method responses
     panel.webview.onDidReceiveMessage(async (msg) => {
@@ -407,7 +459,13 @@ async function openMakerchipPanel(panelKey: string): Promise<void> {
       
       if (msg.type === 'ready') {
         log(`✓ Connected to ${serverUrl}`);
-        resolve();   // 🔹 resolve when IDE is ready
+        settleResolve();   // 🔹 resolve when IDE is ready
+      }
+
+      if (msg.type === 'initError') {
+        // Webview reported an initialization failure - reject now rather than
+        // waiting for the ready timeout.
+        settleReject(new Error(`Makerchip webview failed to initialize: ${msg.error}`));
       }
       
       if (msg.type === 'notification') {
@@ -505,6 +563,13 @@ async function openMakerchipPanel(panelKey: string): Promise<void> {
     });
 
     panel.onDidDispose(() => { 
+      clearReadyTimeout();
+      // If the panel is closed before it ever became ready, reject any pending
+      // waiter so it doesn't hang.
+      if (!settled) {
+        settled = true;
+        reject(new Error(`Makerchip panel '${panelKey}' was closed before it became ready.`));
+      }
       panels.delete(panelKey);
       panelReadyPromises.delete(panelKey);
       pendingCompiles.delete(panelKey);

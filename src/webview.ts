@@ -24,6 +24,14 @@ interface VsCodeApi {
   setState(state: any): void;
 }
 
+// Global variables injected by the extension
+declare global {
+  interface Window {
+    MAKERCHIP_SERVER_URL: string;
+    DEFAULT_DARK_MODE: boolean;
+  }
+}
+
 declare function acquireVsCodeApi(): VsCodeApi;
 
 // Type for messages sent to the extension
@@ -92,7 +100,17 @@ interface NotificationMessage {
   context?: any;
 }
 
-type ToExtensionMessage = IdeResultMessage | IdeErrorMessage | ReadyMessage | CompileFileChunkMessage | CompileErrorMessage | CompileExitStatusMessage | CompileDeniedMessage | NotificationMessage;
+/**
+ * Sent when the webview fails to initialize (plugin load or IdePlugin construction).
+ * Lets the extension reject its "panel ready" promise immediately instead of
+ * hanging until the ready timeout expires.
+ */
+interface InitErrorMessage {
+  type: 'initError';
+  error: string;
+}
+
+type ToExtensionMessage = IdeResultMessage | IdeErrorMessage | ReadyMessage | CompileFileChunkMessage | CompileErrorMessage | CompileExitStatusMessage | CompileDeniedMessage | NotificationMessage | InitErrorMessage;
 
 const vscode = acquireVsCodeApi();
 console.log('[webview.ts] Script loaded and executing');
@@ -246,7 +264,9 @@ import(`${serverUrl}/dist/makerchip-plugin.js`).then((module: any) => {
   }
 
   // @ts-ignore - IdePlugin constructor signature
-  new VSCodeMakerchip('webview-makerchip', { hasEditor: false }).then((ide: any) => {
+  // Return the promise so construction failures propagate to the outer .catch()
+  // below (otherwise onReady never fires and the extension hangs).
+  return new VSCodeMakerchip('webview-makerchip', { hasEditor: false, defaultDarkMode: window.DEFAULT_DARK_MODE }).then((ide: any) => {
     console.log('IdePlugin initialized successfully');
     
     // Setup resize event forwarding to iframe
@@ -327,7 +347,7 @@ import(`${serverUrl}/dist/makerchip-plugin.js`).then((module: any) => {
     });
   });
 }).catch((error: any) => {
-  console.error('[webview.ts] Failed to load makerchip-plugin.js:', error);
+  console.error('[webview.ts] Failed to initialize Makerchip webview:', error);
   console.error('[webview.ts] Server URL was:', serverUrl);
   
   // Notify extension of connection failure
@@ -337,4 +357,12 @@ import(`${serverUrl}/dist/makerchip-plugin.js`).then((module: any) => {
     'Open DevTools',
     { serverUrl, error: errorMsg }
   );
+
+  // Tell the extension to reject its "panel ready" promise now, so callers
+  // fail fast instead of waiting for the ready timeout to elapse.
+  vscode.postMessage({ type: 'initError', error: errorMsg } as InitErrorMessage);
 });
+
+// Marks this file as an ES module so the `declare global` augmentation above is
+// valid (a file with no top-level import/export is otherwise treated as a script).
+export {};

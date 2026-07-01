@@ -40,9 +40,11 @@ Copilot can:
 
 Example prompts:
 - "Show me a simple counter in Makerchip"
-- "Open this in Makerchip and show the waveform"
+- "Open this CPU in Makerchip and show the waveform and live logic diagram at cycle 20, highlighting signals related to the bypass logic."
 - "Demonstrate a pipeline design in TL-Verilog"
+- "Create a tic-tac-toe game in TL-Verilog with VIZ and show it in Makerchip"
 - "Which signal are you talking about?"
+- "I'm having trouble understanding 'when' conditions. Create a simple course with exercises to step me through it and open it in Makerchip."
 
 ## Development
 
@@ -185,6 +187,8 @@ resources/           - Cloned TL-Verilog documentation and examples
 ```
 
 ### Building
+
+Using NPM 18+:
 
 ```bash
 npm install

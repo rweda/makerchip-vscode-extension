@@ -438,7 +438,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(new-file)",
         "userDescription": "Open custom content (PDFs, web pages) in IDE panes.",
-        "modelDescription": "Opens third-party pane with PDF or iframe content. PDF: uses built-in viewer, supports any URL. Iframe: embeds web pages, subject to CSP/X-Frame-Options. Mnemonic is tab label plus optional `+`-delimited uniquifier string (or allow auto-uniquification). Returns actual mnemonic used (same or uniquified).\n\nEXAMPLES:\n\nPDF: {\"mnemonic\": \"Guide\", \"contentType\": \"pdf\", \"contentParams\": {\"contentUrl\": \"https://example.com/guide.pdf\"}}\n\nIframe: {\"mnemonic\": \"Docs\", \"contentType\": \"iframe\", \"contentParams\": {\"contentUrl\": \"https://docs.example.com\"}, \"options\": {\"background\": true}}",
+        "modelDescription": "Opens third-party pane with PDF or iframe content. PDF: uses built-in viewer, supports any URL. Iframe: embeds web pages, subject to CSP/X-Frame-Options. Provide content via either `contentUrl` (a URL/data URI) OR `filePath` (an absolute path to a local file). Prefer `filePath` for local files: the extension reads the file and builds a data: URI internally, so large file contents never pass through the model context. Mnemonic is tab label plus optional `+`-delimited uniquifier string (or allow auto-uniquification). Returns actual mnemonic used (same or uniquified).\n\nEXAMPLES:\n\nLocal file (preferred for local content): {\"mnemonic\": \"Guide\", \"contentType\": \"iframe\", \"contentParams\": {\"filePath\": \"/home/user/docs/guide.html\"}}\n\nPDF URL: {\"mnemonic\": \"Guide\", \"contentType\": \"pdf\", \"contentParams\": {\"contentUrl\": \"https://example.com/guide.pdf\"}}\n\nIframe URL: {\"mnemonic\": \"Docs\", \"contentType\": \"iframe\", \"contentParams\": {\"contentUrl\": \"https://docs.example.com\"}, \"options\": {\"background\": true}}",
         "tags": [
           "makerchip",
           "ide",
@@ -466,14 +466,17 @@
             },
             "contentParams": {
               "type": "object",
-              "required": ["contentUrl"],
               "properties": {
                 "contentUrl": {
                   "type": "string",
-                  "description": "URL to the content. For PDFs: supports https://, http://, file://, vscode-webview://, data URIs. For iframes: must support iframe embedding."
+                  "description": "URL to the content. For PDFs: supports https://, http://, file://, vscode-webview://, data URIs. For iframes: must support iframe embedding. Provide this OR filePath."
+                },
+                "filePath": {
+                  "type": "string",
+                  "description": "Absolute path to a local file to load. The extension reads the file and builds a data: URI internally, so large file contents never pass through the model context. Preferred over contentUrl for local files. Takes precedence when both are provided."
                 }
               },
-              "description": "Content parameters. Currently only contentUrl is supported, but future versions may add format-specific options."
+              "description": "Content parameters. Provide either contentUrl or filePath."
             },
             "options": {
               "type": "object",
@@ -679,6 +682,80 @@
               "description": "Optional panel name to target. Default: `default`."
             }
           }
+        }
+      },
+      {
+        "name": "makerchip_set_dark_mode",
+        "displayName": "Set Dark Mode",
+        "toolReferenceName": "makerchipSetDarkMode",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(color-mode)",
+        "userDescription": "Enable or disable dark mode in the Makerchip IDE.",
+        "modelDescription": "Controls dark/light theme for all IDE views (editor, diagram, waveform). Pass true for dark mode, false for light mode. Updates localStorage and all panes immediately.",
+        "tags": [
+          "makerchip",
+          "dark",
+          "light",
+          "theme",
+          "appearance",
+          "mode"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable dark mode (true) or light mode (false)."
+            },
+            "panelName": {
+              "type": "string",
+              "description": "Optional panel name to target. Default: `default`."
+            }
+          },
+          "required": [
+            "enabled"
+          ]
+        }
+      },
+      {
+        "name": "makerchip_set_live_mode",
+        "displayName": "Set Live Mode",
+        "toolReferenceName": "makerchipSetLiveMode",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(pulse)",
+        "userDescription": "Enable or disable live mode for a specific pane (Diagram, Nav-TLV).",
+        "modelDescription": "Controls live/dead mode for panes that support it. Live panes auto-update as cycle changes during playback/stepping. Dead panes freeze at current cycle. Supported: Diagram, Nav-TLV. VIZ is always live. Returns true if successful, false if pane not found or doesn't support live mode.",
+        "tags": [
+          "makerchip",
+          "live",
+          "dead",
+          "mode",
+          "pane",
+          "diagram",
+          "nav-tlv",
+          "freeze",
+          "update"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "mnemonic": {
+              "type": "string",
+              "description": "The mnemonic of the pane to control (e.g., 'Diagram', 'Nav-TLV')."
+            },
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable live mode (true) or dead mode/freeze (false)."
+            },
+            "panelName": {
+              "type": "string",
+              "description": "Optional panel name to target. Default: `default`."
+            }
+          },
+          "required": [
+            "mnemonic",
+            "enabled"
+          ]
         }
       },
       {

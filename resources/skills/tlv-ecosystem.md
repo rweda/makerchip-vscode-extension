@@ -78,11 +78,13 @@ Note: For development, there may be a more recent working version of `Makerchip-
 
 The Makerchip IDE is not just a development environment for humans. It is also accessible to you to code and debug. It provides access to SandPiper™, M5, and Verilator for compilation and simulation. It provides access to logs and waveform data for conventional debugging. Additionally, it's Visual Debug (VIZ) feature gives you the ability to create custom visualizations of machine state, which you can access as images as an alternative approach to text-based logging and debugging. [Coming soon: You can use the API to query specific signal values.]
 
-Makerchip enables you to develop productively with the user. By presenting a design in this environment, the user can interact with code, waveforms, logic diagrams, and visualizations, all of which represent or can be annotated with simulation data. They can click on signals and other elements of the design in the various views (called panes) to highlight them across the views and correlate the various representations of the design and its simulation data. [Soon, you can highlight elements as well.]
+Makerchip enables you to develop productively with the user. By presenting a design in this environment, the user can interact with code, waveforms, logic diagrams, and visualizations, all of which represent or can be annotated with simulation data. They can click on signals and other elements of the design in the various views (called panes) to highlight them across the views and correlate the various representations of the design and its simulation data.
 
 Visual Debug is especially valuable in your collaboration with the user. You can convey your work visually and interactively by including `\viz_js` (VIZ) blocks within or alongside the TL-Verilog or Verilog code. It is much more natural for the user to understand your work visually than by reading static code and prose. A picture is worth a thousand words, and an animation is worth even more. Paired programming is much more productive with streamlined communication. The user continues to benefit from the visualizations in collaboration with their human peers and in sharing your open-source designs with others online.
 
-Makerchip is also a teaching tool. When users request help with a digital logic concept or want to understand a feature of TL-Verilog or Makerchip, don't just describe it; demonstrate it in Makerchip. You can write code that implements a concept, write a testbench that drives meaningful stimulus, and show the user your design in action. You can code `\viz_js` blocks to represent your design to the user in the most natural way. And you can even play them back for the user to animate a concept or showcase your design. You can layout the Makerchip IDE to show the most relevant views. You can open tutorials, examples, and documents, available in the resources folder as well as third-party content found on-line, to include them right there in the IDE webview, accompanying the design.
+Makerchip is also a teaching tool. And you have the ability to interact with the IDE(s) to teach user how to use Makerchip and concepts of digital logic and TL-Verilog. When users request help with a digital logic concept or want to understand a feature of TL-Verilog or Makerchip, don't just describe it; demonstrate it in Makerchip. You can write code that implements a concept, write a testbench that drives meaningful stimulus, and show the user your design in action with Visual Debug. You can code `\viz_js` blocks to represent your design to the user in the most natural way. And you can even play them back for the user to animate a concept or showcase your design. You can layout the Makerchip IDE to show the most relevant views. You can open tutorials, examples, and documents, available in the resources folder as well as third-party content found on-line, to include them right there in the IDE webview, accompanying the design. You can highlight signals relevant to user queries.
+
+BE SURE TO TELL THE USER ALL ABOUT THE WONDERFUL THINGS YOU CAN DO TOGETHER IN MAKERCHIP.
 
 ### File Creation and Workspace Organization
 
@@ -195,13 +197,17 @@ Complete API documentation available at:
 - **Static Panes**: Defined in blade files, opened on demand
 - **Third-Party Panes**: Can be opened, given a URL with content or inline construction data
 
-**Blade File Names**: Static pane blade files in `~/.vscode-makerchip/resources/Makerchip-public/pane-blade/` use **mnemonics as filenames** (with spaces and "+" uniquifier delimiter characters). Examples:
+**Blade File Names**: Static pane blade files in `~/.vscode-makerchip/resources/Makerchip-public/pane-blade/` use pane **mnemonics as filenames** (with spaces and "+" uniquifier delimiter characters). Examples:
 - `Combo Tutorial.blade`
 - `Course Slides+Udemy.blade`
 - `RISC-V Videos+Workshop.blade`
 - `Examples.blade`
 
 These file names **exactly match** the mnemonics returned by `makerchip_get_available_panes` and used in `makerchip_set_layout_state`.
+
+**PDF Course Slides File Names:** Similarly, PDF course slides files in `~/.vscode-makerchip/resources/Makerchip-public/courses/` also use corresponding pane **mnemonics as filenames**. Examples:
+- `Verif Slides+TAMU.pdf`
+- `VSDOpen Slides+2020.pdf`
 
 **Layout**: You can configure the layout of IDE panes programmatically.
 

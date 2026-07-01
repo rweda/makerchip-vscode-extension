@@ -347,6 +347,230 @@ export class GetVizImageTool implements vscode.LanguageModelTool<GetVizImageInpu
   }
 }
 
+interface CaptureVideoInput {
+  /** Starting cycle (inclusive) */
+  startCyc: number;
+  /** Ending cycle (inclusive) */
+  endCyc: number;
+  /** Video format: 'auto', 'gif', or 'webm' (default: 'auto' - GIF for framesPerCycle=1, WebM otherwise) */
+  format?: 'auto' | 'gif' | 'webm';
+  /** Number of frames to capture per cycle (default: 1) */
+  framesPerCycle?: number;
+  /** Milliseconds per cycle in playback (default: 1000) */
+  cycleTimeMs?: number;
+  /** GIF encoding quality 1-30, lower is better (default: 10) */
+  quality?: number;
+  /** WebM bitrate in Mbps (default: 2.5, recommended: 10 for high quality) */
+  Mbps?: number;
+  /** Restore cycle after capture: true for original, false to stay at endCyc, or number for specific cycle (default: true) */
+  restoreCycle?: boolean | number;
+  /** Optional panel name to target. If not provided, uses the default panel. */
+  panelName?: string;
+  /** Save to file. If true, auto-generates filename. If string, uses as file path. If false/undefined, only saves if video is large. */
+  saveToFile?: boolean | string;
+}
+
+/**
+ * Language Model tool to capture VIZ simulation as video (GIF or WebM)
+ */
+export class CaptureVideoTool implements vscode.LanguageModelTool<CaptureVideoInput> {
+  
+  async prepareInvocation(
+    options: vscode.LanguageModelToolInvocationPrepareOptions<CaptureVideoInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.PreparedToolInvocation> {
+    const { startCyc, endCyc, format = 'auto' } = options.input;
+    const cycles = endCyc - startCyc + 1;
+    return {
+      invocationMessage: `Capturing VIZ simulation (cycles ${startCyc}-${endCyc}, ${cycles} frames) as ${format.toUpperCase()} video...`
+    };
+  }
+
+  async invoke(
+    options: vscode.LanguageModelToolInvocationOptions<CaptureVideoInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.LanguageModelToolResult> {
+    log('[CaptureVideoTool] ========== TOOL INVOKED ==========');
+    try {
+      const { 
+        startCyc, 
+        endCyc, 
+        format = 'auto',
+        framesPerCycle = 1,
+        cycleTimeMs = 1000,
+        quality = 10,
+        Mbps = 2.5,
+        restoreCycle = true,
+        panelName,
+        saveToFile
+      } = options.input;
+      
+      log('[CaptureVideoTool] Invoked with:', { 
+        startCyc, endCyc, format, framesPerCycle, cycleTimeMs, quality, Mbps, restoreCycle, panelName, saveToFile 
+      });
+      
+      // Validate cycle range
+      if (typeof startCyc !== 'number' || typeof endCyc !== 'number' || startCyc > endCyc) {
+        return new vscode.LanguageModelToolResult([
+          new vscode.LanguageModelTextPart('Invalid cycle range. startCyc must be less than or equal to endCyc.')
+        ]);
+      }
+      
+      // Build options for IDE method (exclude panelName and saveToFile)
+      const videoOptions: any = {
+        format,
+        framesPerCycle,
+        cycleTimeMs,
+        quality,
+        Mbps,
+        restoreCycle,
+        filename: null  // Don't download in IDE, we'll handle it here
+      };
+      
+      log('[CaptureVideoTool] Calling captureVideo with options:', videoOptions);
+      
+      // Call the IDE method to get the video blob
+      const result = await vscode.commands.executeCommand(
+        'makerchip.callIdeMethodWithResult', 
+        'captureVideo', 
+        [startCyc, endCyc, videoOptions], 
+        panelName
+      ) as Blob | null;
+      
+      log('[CaptureVideoTool] Result received:', result ? `Blob (${result.size} bytes, type: ${result.type})` : 'null');
+      
+      if (!result) {
+        log('[CaptureVideoTool] No result - VIZ canvas not available');
+        return new vscode.LanguageModelToolResult([
+          new vscode.LanguageModelTextPart(
+            'VIZ canvas is not available or has no simulation data. Make sure you have compiled code with VIZ visualization.'
+          )
+        ]);
+      }
+      
+      // Determine actual format (handle auto-selection)
+      const actualFormat = format === 'auto' ? (framesPerCycle === 1 ? 'gif' : 'webm') : format;
+      const ext = actualFormat === 'gif' ? 'gif' : 'webm';
+      
+      // Convert Blob to buffer
+      const arrayBuffer = await result.arrayBuffer();
+      const videoBuffer = Buffer.from(arrayBuffer);
+      const videoBytes = new Uint8Array(videoBuffer);
+      
+      // Determine MIME type from blob or format
+      const mimeType = result.type || `video/${ext}`;
+      
+      // Panel info for logging
+      const panelInfo = panelName ? ` from panel '${panelName}'` : '';
+      const cycles = endCyc - startCyc + 1;
+      
+      // Determine if we should save to file
+      // Auto-save for larger files or if explicitly requested
+      const shouldSave = saveToFile !== false && (saveToFile || videoBuffer.length > 100 * 1024); // Save if >100KB
+      
+      let savedPath: string | undefined;
+      if (shouldSave) {
+        if (typeof saveToFile === 'string') {
+          // Use provided path
+          savedPath = saveToFile;
+        } else {
+          // Auto-generate path
+          const timestamp = Date.now();
+          const filename = `makerchip-viz-${startCyc}-${endCyc}.${ext}`;
+          savedPath = path.join(os.tmpdir(), filename);
+        }
+        fs.writeFileSync(savedPath, videoBuffer);
+        log('[CaptureVideoTool] Saved video to file:', savedPath);
+      }
+      
+      // Try to use the proposed API for direct video return
+      const LanguageModelToolResult2 = (vscode as any).LanguageModelToolResult2;
+      const LanguageModelDataPart = (vscode as any).LanguageModelDataPart;
+      
+      if (LanguageModelToolResult2 && LanguageModelDataPart && LanguageModelDataPart.video) {
+        log('[CaptureVideoTool] Using proposed API (LanguageModelDataPart) to return video directly');
+        try {
+          const message = savedPath 
+            ? `Successfully captured VIZ simulation${panelInfo} as ${actualFormat.toUpperCase()} video (${cycles} cycles, ${Math.round(videoBytes.length / 1024)}KB).\nSaved to: ${savedPath}`
+            : `Successfully captured VIZ simulation${panelInfo} as ${actualFormat.toUpperCase()} video (${cycles} cycles, ${Math.round(videoBytes.length / 1024)}KB).`;
+          
+          return new LanguageModelToolResult2([
+            new vscode.LanguageModelTextPart(message),
+            LanguageModelDataPart.video(videoBytes, mimeType)
+          ]);
+        } catch (error) {
+          log('[CaptureVideoTool] Failed to use proposed API, falling back to file:', error);
+        }
+      }
+      
+      // Fallback: Save to file if not already saved
+      if (!savedPath) {
+        const timestamp = Date.now();
+        const filename = `makerchip-viz-${startCyc}-${endCyc}.${ext}`;
+        savedPath = path.join(os.tmpdir(), filename);
+        fs.writeFileSync(savedPath, videoBuffer);
+      }
+      log('[CaptureVideoTool] Proposed API not available, using file fallback:', savedPath);
+      
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(
+          `Successfully captured VIZ simulation${panelInfo} as ${actualFormat.toUpperCase()} video.\n` +
+          `Cycles: ${startCyc}-${endCyc} (${cycles} total)\n` +
+          `Format: ${actualFormat.toUpperCase()} (${framesPerCycle} frames/cycle)\n` +
+          `Duration: ${cycles * cycleTimeMs / 1000}s at ${cycleTimeMs}ms/cycle\n` +
+          `File: ${savedPath}\n` +
+          `Size: ${Math.round(videoBuffer.length / 1024)}KB\n\n` +
+          `The video file is available for viewing.`
+        )
+      ]);
+      
+    } catch (error: any) {
+      log('[CaptureVideoTool] ERROR:', error);
+      log('[CaptureVideoTool] Error message:', error?.message);
+      log('[CaptureVideoTool] Error stack:', error?.stack);
+      
+      // Check for specific error cases
+      if (error?.message?.includes('Method captureVideo not found')) {
+        return new vscode.LanguageModelToolResult([
+          new vscode.LanguageModelTextPart(
+            'The captureVideo method is not available. This could mean:\n\n' +
+            '1. No Makerchip panel is currently open - open one with Ctrl+Shift+P → "Makerchip: Open Panel"\n' +
+            '2. The Makerchip IDE hasn\'t fully loaded yet - wait a moment and try again\n' +
+            '3. You\'re using a server that doesn\'t have the captureVideo method yet\n\n' +
+            'Try opening a Makerchip panel and compiling a design with VIZ first.'
+          )
+        ]);
+      }
+      
+      if (error?.message?.includes('Panel') && error?.message?.includes('not found')) {
+        return new vscode.LanguageModelToolResult([
+          new vscode.LanguageModelTextPart(
+            'No Makerchip panel is open. Please open one first:\n' +
+            'Ctrl+Shift+P → "Makerchip: Open Panel"'
+          )
+        ]);
+      }
+      
+      if (error?.message?.includes('No simulation data available')) {
+        return new vscode.LanguageModelToolResult([
+          new vscode.LanguageModelTextPart(
+            'No simulation data available. Make sure you have:\n' +
+            '1. Compiled TL-Verilog code with VIZ\n' +
+            '2. The compilation completed successfully\n' +
+            '3. The VIZ pane is visible and showing simulation results'
+          )
+        ]);
+      }
+      
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(
+          `Failed to capture VIZ video: ${error?.message || 'Unknown error'}`
+        )
+      ]);
+    }
+  }
+}
+
 interface GetAvailablePanesInput {
   /** Optional panel name to target. If not provided, uses the default panel. */
   panelName?: string;
@@ -606,10 +830,16 @@ interface OpenThirdPartyPaneInput {
   mnemonic: string;
   /** Content type: "pdf" for PDF viewer or "iframe" for embedded web content */
   contentType: 'pdf' | 'iframe';
-  /** Content parameters - must include contentUrl */
+  /** Content parameters - must include either contentUrl or filePath */
   contentParams: {
     /** URL to the content (PDF file or web page). Supports https://, http://, file://, data URIs, etc. */
-    contentUrl: string;
+    contentUrl?: string;
+    /**
+     * Absolute path to a local file to load. The extension reads the file and builds a
+     * `data:` URI internally, so large file contents never pass through the model context.
+     * Takes precedence over contentUrl when both are provided.
+     */
+    filePath?: string;
   };
   /** Optional settings for the pane */
   options?: {
@@ -702,6 +932,32 @@ export class OpenPaneTool implements vscode.LanguageModelTool<OpenPaneInput> {
 }
 
 /**
+ * Infer a MIME type from a file's extension for use in `data:` URIs.
+ * Falls back to application/octet-stream for unknown types.
+ */
+function mimeTypeForFile(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase();
+  const map: { [ext: string]: string } = {
+    '.html': 'text/html',
+    '.htm': 'text/html',
+    '.pdf': 'application/pdf',
+    '.svg': 'image/svg+xml',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+    '.css': 'text/css',
+    '.js': 'text/javascript',
+    '.json': 'application/json',
+    '.txt': 'text/plain',
+    '.md': 'text/markdown',
+    '.xml': 'application/xml'
+  };
+  return map[ext] ?? 'application/octet-stream';
+}
+
+/**
  * Language Model tool to open third-party panes (PDFs, iframes) in the IDE
  */
 export class OpenThirdPartyPaneTool implements vscode.LanguageModelTool<OpenThirdPartyPaneInput> {
@@ -736,17 +992,37 @@ export class OpenThirdPartyPaneTool implements vscode.LanguageModelTool<OpenThir
         ]);
       }
       
-      if (!contentParams || !contentParams.contentUrl) {
+      if (!contentParams || (!contentParams.contentUrl && !contentParams.filePath)) {
         return new vscode.LanguageModelToolResult([
-          new vscode.LanguageModelTextPart('contentParams.contentUrl is required')
+          new vscode.LanguageModelTextPart('contentParams must include either contentUrl or filePath')
         ]);
+      }
+
+      // When a local filePath is provided, read it here and build a data: URI internally so the
+      // (potentially large) file contents never pass through the model context window.
+      const resolvedParams: { contentUrl: string } = { contentUrl: contentParams.contentUrl ?? '' };
+      if (contentParams.filePath) {
+        const filePath = contentParams.filePath;
+        if (!path.isAbsolute(filePath)) {
+          return new vscode.LanguageModelToolResult([
+            new vscode.LanguageModelTextPart(`filePath must be an absolute path, got: ${filePath}`)
+          ]);
+        }
+        if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+          return new vscode.LanguageModelToolResult([
+            new vscode.LanguageModelTextPart(`File not found: ${filePath}`)
+          ]);
+        }
+        const mimeType = mimeTypeForFile(filePath);
+        const base64 = fs.readFileSync(filePath).toString('base64');
+        resolvedParams.contentUrl = `data:${mimeType};base64,${base64}`;
       }
       
       // Call the IDE method to open the third-party pane
       const actualMnemonic = await vscode.commands.executeCommand(
         'makerchip.callIdeMethodWithResult', 
         'openThirdPartyPane', 
-        [mnemonic, contentType, contentParams, paneOptions || {}], 
+        [mnemonic, contentType, resolvedParams, paneOptions || {}], 
         panelName
       ) as string;
       
@@ -1135,6 +1411,130 @@ export class ClearHighlightsTool implements vscode.LanguageModelTool<ClearHighli
   }
 }
 
+interface SetDarkModeToolInput {
+  /** Enable or disable dark mode (true for dark, false for light) */
+  enabled: boolean;
+  /** Optional panel name to target. If not provided, uses the default panel. */
+  panelName?: string;
+}
+
+/**
+ * Language Model tool for setting dark mode in the Makerchip IDE
+ */
+export class SetDarkModeTool implements vscode.LanguageModelTool<SetDarkModeToolInput> {
+  
+  async prepareInvocation(
+    options: vscode.LanguageModelToolInvocationPrepareOptions<SetDarkModeToolInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.PreparedToolInvocation> {
+    const { enabled } = options.input;
+    const mode = enabled ? 'dark' : 'light';
+    return {
+      invocationMessage: `Setting IDE to ${mode} mode...`
+    };
+  }
+
+  async invoke(
+    options: vscode.LanguageModelToolInvocationOptions<SetDarkModeToolInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.LanguageModelToolResult> {
+    try {
+      const { enabled, panelName } = options.input;
+      
+      // Call the IDE setDarkMode method
+      await vscode.commands.executeCommand(
+        'makerchip.invokeIdeMethod',
+        'setDarkMode',
+        [enabled],
+        panelName
+      );
+      
+      const panelInfo = panelName ? ` in panel '${panelName}'` : '';
+      const mode = enabled ? 'dark' : 'light';
+      
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(
+          `Successfully set IDE to ${mode} mode${panelInfo}. The editor, diagram, waveform, and all IDE views have been updated.`
+        )
+      ]);
+      
+    } catch (error: any) {
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(
+          `Failed to set dark mode: ${error.message}`
+        )
+      ]);
+    }
+  }
+}
+
+interface SetLiveModeToolInput {
+  /** The mnemonic of the pane to control (e.g., "Diagram", "Nav-TLV") */
+  mnemonic: string;
+  /** Enable or disable live mode (true for live, false for dead/frozen) */
+  enabled: boolean;
+  /** Optional panel name to target. If not provided, uses the default panel. */
+  panelName?: string;
+}
+
+/**
+ * Language Model tool for setting live mode in specific Makerchip IDE panes
+ */
+export class SetLiveModeTool implements vscode.LanguageModelTool<SetLiveModeToolInput> {
+  
+  async prepareInvocation(
+    options: vscode.LanguageModelToolInvocationPrepareOptions<SetLiveModeToolInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.PreparedToolInvocation> {
+    const { mnemonic, enabled } = options.input;
+    const mode = enabled ? 'live' : 'dead';
+    return {
+      invocationMessage: `Setting ${mnemonic} pane to ${mode} mode...`
+    };
+  }
+
+  async invoke(
+    options: vscode.LanguageModelToolInvocationOptions<SetLiveModeToolInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.LanguageModelToolResult> {
+    try {
+      const { mnemonic, enabled, panelName } = options.input;
+      
+      // Call the IDE setLiveMode method with result to check success
+      const success = await vscode.commands.executeCommand<boolean>(
+        'makerchip.callIdeMethodWithResult',
+        'setLiveMode',
+        [mnemonic, enabled],
+        panelName
+      );
+      
+      if (!success) {
+        return new vscode.LanguageModelToolResult([
+          new vscode.LanguageModelTextPart(
+            `Failed to set live mode for pane '${mnemonic}'. The pane may not exist, is not open, or does not support live mode. Only Diagram and Nav-TLV support live mode (VIZ is always live).`
+          )
+        ]);
+      }
+      
+      const panelInfo = panelName ? ` in panel '${panelName}'` : '';
+      const mode = enabled ? 'live' : 'dead (frozen)';
+      
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(
+          `Successfully set '${mnemonic}' pane to ${mode} mode${panelInfo}. ${enabled ? 'The pane will now update automatically as the cycle changes.' : 'The pane is frozen at the current cycle.'}`
+        )
+      ]);
+      
+    } catch (error: any) {
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(
+          `Failed to set live mode: ${error.message}`
+        )
+      ]);
+    }
+  }
+}
+
 interface ListPanelsToolInput {
   // No parameters needed - lists all open panels
 }
@@ -1214,6 +1614,11 @@ export function registerMakerchipTool(context: vscode.ExtensionContext): void {
   log('VIZ image tool registered:', !!vizImageTool);
   context.subscriptions.push(vizImageTool);
   
+  // Register the VIZ video capture tool
+  const captureVideoTool = vscode.lm.registerTool('makerchip_capture_video', new CaptureVideoTool());
+  log('Capture video tool registered:', !!captureVideoTool);
+  context.subscriptions.push(captureVideoTool);
+  
   // Register the get layout state tool
   const getLayoutTool = vscode.lm.registerTool('makerchip_get_layout_state', new GetLayoutStateTool());
   log('Get layout state tool registered:', !!getLayoutTool);
@@ -1264,6 +1669,16 @@ export function registerMakerchipTool(context: vscode.ExtensionContext): void {
   log('Clear highlights tool registered:', !!clearHighlightsTool);
   context.subscriptions.push(clearHighlightsTool);
   
+  // Register the set dark mode tool
+  const setDarkModeTool = vscode.lm.registerTool('makerchip_set_dark_mode', new SetDarkModeTool());
+  log('Set dark mode tool registered:', !!setDarkModeTool);
+  context.subscriptions.push(setDarkModeTool);
+  
+  // Register the set live mode tool
+  const setLiveModeTool = vscode.lm.registerTool('makerchip_set_live_mode', new SetLiveModeTool());
+  log('Set live mode tool registered:', !!setLiveModeTool);
+  context.subscriptions.push(setLiveModeTool);
+  
   // Register the list panels tool
   const listPanelsTool = vscode.lm.registerTool('makerchip_list_panels', new ListPanelsTool());
   log('List panels tool registered:', !!listPanelsTool);
@@ -1275,6 +1690,7 @@ export function registerMakerchipTool(context: vscode.ExtensionContext): void {
     const ourRunTool = vscode.lm.tools.find(t => t.name === 'makerchip_compile');
     const ourIdeTool = vscode.lm.tools.find(t => t.name === 'makerchip_ide_call');
     const ourVizImageTool = vscode.lm.tools.find(t => t.name === 'makerchip_get_viz_image');
+    const ourCaptureVideoTool = vscode.lm.tools.find(t => t.name === 'makerchip_capture_video');
     const ourGetLayoutTool = vscode.lm.tools.find(t => t.name === 'makerchip_get_layout_state');
     const ourSetLayoutTool = vscode.lm.tools.find(t => t.name === 'makerchip_set_layout_state');
     const ourAvailablePanesTool = vscode.lm.tools.find(t => t.name === 'makerchip_get_available_panes');
@@ -1289,6 +1705,7 @@ export function registerMakerchipTool(context: vscode.ExtensionContext): void {
     log('Found our compile tool:', !!ourRunTool);
     log('Found our IDE tool:', !!ourIdeTool);
     log('Found our VIZ image tool:', !!ourVizImageTool);
+    log('Found our capture video tool:', !!ourCaptureVideoTool);
     log('Found our get layout state tool:', !!ourGetLayoutTool);
     log('Found our set layout state tool:', !!ourSetLayoutTool);
     log('Found our get available panes tool:', !!ourAvailablePanesTool);
