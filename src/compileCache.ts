@@ -2,6 +2,10 @@
  * Compilation cache management for Makerchip extension
  * 
  * Stores compilation results in ~/.vscode-makerchip/compile-cache/ organized by compile ID.
+ * This is dual purpose. It enables restoration of webviews on VS Code reload, and it provides
+ * reference data for LLM agents (Copilot). Note that navtlv.html and graph.svg are not very
+ * useful to agents. They are just for restoration. Alternatively, we could omit caching them
+ * locally and restore them instead from the server's compile cache (via /compile/<id>/...).
  * 
  * Each compilation directory contains:
  *   - top.tlv: Full source code (retained longest)
@@ -9,6 +13,9 @@
  *   - stdall: SandPiper (TL-Verilog compiler) logs
  *   - make.out: Verilator (C++ simulator) logs
  *   - vlt_dump.vcd: Waveform data
+ *   - graph.svg: Diagram (SandPiper-generated SVG)
+ *   - parse_model.json: VIZ parse model (JSON string)
+ *   - navtlv.html: Nav-TLV HTML
  * 
  * Pruning policy (age-based, automatic on activation):
  *   - Results (logs/VCD): Keep Nth entry if N ≤ 15 - days_old
@@ -28,22 +35,66 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { CACHE_DIR } from './populateResources';
 
+/** All result files a compilation can produce. */
+export const RESULT_FILES = [
+  'stdall',            // SandPiper (TL-Verilog compiler) log  [streamed]
+  'make.out',          // Verilator (C++ simulator) log        [streamed]
+  'vlt_dump.vcd',      // Waveform data                        [streamed]
+  'graph.svg',         // Diagram SVG                          [single payload]
+  'parse_model.json',  // VIZ parse model (JSON string)        [single payload]
+  'navtlv.html',       // Nav-TLV HTML                         [single payload]
+] as const;
+
+export type ResultFileName = typeof RESULT_FILES[number];
+
+/** Streamed files may hold meaningful partial content even after an error. */
+const STREAMED_FILES: ResultFileName[] = ['stdall', 'make.out', 'vlt_dump.vcd'];
+
+/**
+ * Maps a server `err` type to the specific result file it terminates.
+ * (compile / compile-timeout are handled separately as a SandPiper-stage failure.)
+ */
+const ERROR_TYPE_TO_FILE: Record<string, ResultFileName> = {
+  'stdall': 'stdall',
+  'makeout': 'make.out',
+  'make.out': 'make.out',
+  'vcd-stream': 'vlt_dump.vcd',
+  'vcd': 'vlt_dump.vcd',
+  'vcd-timeout': 'vlt_dump.vcd',
+  'json': 'parse_model.json',
+  'navtlv': 'navtlv.html',
+  'navtlv-timeout': 'navtlv.html',
+  'graph': 'graph.svg',
+  'graph-timeout': 'graph.svg',
+};
+
+/** A SandPiper-stage error means these downstream files will never be produced. */
+const SANDPIPER_ERROR_TYPES = new Set(['compile', 'compile-timeout']);
+const MODEL_DEPENDENT_FILES: ResultFileName[] = ['make.out', 'vlt_dump.vcd', 'parse_model.json', 'navtlv.html'];
+
+/** Per-file error record. Streamed files may still have partial content on disk. */
+interface FileErrorInfo {
+  type: string;       // Server error type (e.g. 'graph', 'vcd-timeout', 'json')
+  timeout?: boolean;  // True for '*-timeout' errors
+}
+
 interface CompileMetadata {
   id: string;
   timestamp: string;
-  fileComplete: {           // Track completion status for each result file
-    'stdall'?: boolean;     // SandPiper log streaming complete
-    'make.out'?: boolean;   // Verilator log streaming complete
-    'vlt_dump.vcd'?: boolean; // VCD streaming complete
-  };
-  complete: boolean;        // Whether compilation+simulation is complete (all files complete)
+  sim?: boolean;            // Simulation requested (default true) (from server 'newcompile'). Gates vlt_dump.vcd (waveform).
+  dot?: boolean;            // Diagram requested (default true) (from server 'newcompile'). Gates graph.svg (diagram).
+  fileComplete: Partial<Record<ResultFileName, boolean>>; // true = file fully received OK
+  fileError?: Partial<Record<ResultFileName, FileErrorInfo>>; // Per-file error (streamed files may retain partial content; single-payload files have null content)
+  fileSkipped?: Partial<Record<ResultFileName, boolean>>; // File won't be produced (upstream failure, or sim/dot disabled)
+  complete: boolean;        // True once ALL expected files are settled (complete | error | skipped). For finer checks, inspect fileComplete.
   passed?: boolean;         // Whether simulation passed (true/false/undefined if not yet determined)
   exitStatus?: {            // Exit codes from compilation stages
     sandpiper?: number;     // SandPiper compiler exit code
     verilator?: number;     // Verilator simulator exit code
   };
-  error?: {                 // Error information if compilation/simulation failed
-    type: string;           // Error type: 'denied', 'compile-timeout', 'compile', 'graph-timeout', 'graph', 'vcd-timeout', 'vcd', 'navtlv', 'json', 'stdall', 'makeout', 'vcd-stream'
+  error?: {                 // Compilation-level error (SandPiper-stage failure or denial). File-specific errors live in fileError.
+    type: string;           // Error type: 'denied', 'compile-timeout', 'compile'
+    timeout?: boolean;      // True for '*-timeout' errors
     message?: string;       // Optional error message (for 'denied' errors)
     reason?: string;        // Denial reason (for 'denied' errors)
     retryAfterSeconds?: number; // Retry delay (for 'denied' errors)
@@ -51,6 +102,23 @@ interface CompileMetadata {
   hasResults: boolean;      // Whether result files still exist (false indicates pruning)
   hasSource: boolean;       // Whether full source file still exists
 }
+
+/**
+ * Recompute `metadata.complete`: true once every EXPECTED result file is settled
+ * (received, errored, or skipped). Expected set depends on sim/dot: the diagram
+ * (graph.svg) is expected unless dot is disabled; the waveform (vlt_dump.vcd) is
+ * expected unless sim is disabled. When sim/dot are unknown (undefined) we assume
+ * the file is expected so `complete` is never reported prematurely.
+ */
+function recomputeComplete(m: CompileMetadata): void {
+  const expected: ResultFileName[] = ['stdall', 'make.out', 'parse_model.json', 'navtlv.html'];
+  if (m.sim !== false) { expected.push('vlt_dump.vcd'); }
+  if (m.dot !== false) { expected.push('graph.svg'); }
+  const settled = (f: ResultFileName): boolean =>
+    !!(m.fileComplete[f] || m.fileError?.[f] || m.fileSkipped?.[f]);
+  m.complete = expected.every(settled);
+}
+
 
 interface CompileHistoryEntry {
   id: string;
@@ -123,20 +191,30 @@ const PASSING_RATE = 0.15;        // Passing results: keep more as they age
 const METADATA_BASE_KEEP = 150;   // Keep source/metadata up to 150 entries
 
 /**
- * Initialize a new compilation in the cache
+ * Initialize a new compilation in the cache.
+ *
+ * @param params - sim/dot flags from the server 'newcompile' event, determining
+ *                 which result files are expected. When a flag is explicitly false,
+ *                 the corresponding file is pre-marked skipped.
  */
-export async function initCompile(id: string, sourceCode?: string): Promise<void> {
+export async function initCompile(id: string, sourceCode?: string, params?: { sim?: boolean; dot?: boolean }): Promise<void> {
   const compileDir = path.join(CACHE_DIR, id);
   await fs.mkdir(compileDir, { recursive: true });
 
   const metadata: CompileMetadata = {
     id,
     timestamp: new Date().toISOString(),
+    sim: params?.sim,
+    dot: params?.dot,
     fileComplete: {},
+    fileSkipped: {},
     complete: false,
     hasResults: true,   // Initially true, set to false when pruned
-    hasSource: true,    // Will be saved below
+    hasSource: !!sourceCode,
   };
+  if (params?.sim === false) { metadata.fileSkipped!['vlt_dump.vcd'] = true; }
+  if (params?.dot === false) { metadata.fileSkipped!['graph.svg'] = true; }
+  recomputeComplete(metadata);
 
   // Save full source code separately
   if (sourceCode) {
@@ -157,19 +235,42 @@ export async function appendFile(id: string, fileName: string, chunk: string): P
 }
 
 /**
- * Record an error in compilation metadata
+ * Record a compilation error from a server `err` event.
+ *
+ * SandPiper-stage failures (compile / compile-timeout) are recorded at the
+ * compilation level and cause downstream model-dependent files to be marked
+ * skipped. All other error types are recorded against the specific file they
+ * terminate. Streamed files keep whatever partial content was already written;
+ * single-payload files simply have null content (no file written).
  */
-export async function recordError(id: string, errorType: string, message?: string, details?: any): Promise<void> {
+export async function recordFileError(id: string, errorType: string): Promise<void> {
   return serializeUpdate(async () => {
     const metadata = await loadMetadata(id);
-    if (!metadata) return;
-    
-    metadata.error = {
-      type: errorType,
-      message,
-      ...details
-    };
-    
+    if (!metadata) { return; }
+
+    const timeout = errorType.endsWith('-timeout');
+
+    if (SANDPIPER_ERROR_TYPES.has(errorType)) {
+      // SandPiper (model compilation) failed: downstream files won't be produced.
+      metadata.error = { type: errorType, timeout };
+      if (!metadata.fileSkipped) { metadata.fileSkipped = {}; }
+      for (const f of MODEL_DEPENDENT_FILES) {
+        if (!metadata.fileComplete[f] && !metadata.fileError?.[f]) {
+          metadata.fileSkipped[f] = true;
+        }
+      }
+    } else {
+      const file = ERROR_TYPE_TO_FILE[errorType];
+      if (file) {
+        if (!metadata.fileError) { metadata.fileError = {}; }
+        metadata.fileError[file] = { type: errorType, timeout };
+      } else {
+        // Unknown error type: record at the compilation level.
+        metadata.error = { type: errorType, timeout };
+      }
+    }
+
+    recomputeComplete(metadata);
     await saveMetadata(id, metadata);
   });
 }
@@ -192,7 +293,7 @@ export async function recordExitStatus(id: string, stage: 'sandpiper' | 'verilat
 }
 
 /**
- * Mark a file as complete (updates metadata and checks overall completion)
+ * Mark a file as successfully completed and recompute overall completion.
  */
 export async function completeFile(id: string, fileName: string): Promise<void> {
   return serializeUpdate(async () => {
@@ -200,24 +301,19 @@ export async function completeFile(id: string, fileName: string): Promise<void> 
     if (!metadata) {
       return;
     }
-    
+
     // Mark this file as complete
-    metadata.fileComplete[fileName as 'stdall' | 'make.out' | 'vlt_dump.vcd'] = true;
-    
+    metadata.fileComplete[fileName as ResultFileName] = true;
+
     // Determine pass/fail from SandPiper logs
     if (fileName === 'stdall') {
       const passed = await detectPassFail(id, fileName);
       metadata.passed = passed;
       await updateHistoryStatus(id, passed);
     }
-    
-    // Check if all files are complete
-    if (metadata.fileComplete['stdall'] && 
-        metadata.fileComplete['make.out'] && 
-        metadata.fileComplete['vlt_dump.vcd']) {
-      metadata.complete = true;
-    }
-    
+
+    recomputeComplete(metadata);
+
     await saveMetadata(id, metadata);
   });
 }
@@ -282,6 +378,63 @@ export async function loadMetadata(id: string): Promise<CompileMetadata | null> 
   } catch {
     return null;
   }
+}
+
+/** Result files that can be injected into a fresh IDE to restore a compilation. */
+export type RestoreFileName = ResultFileName;
+
+export interface RestoreData {
+  id: string;
+  /** True when cached result files exist and can be injected (no recompile needed). */
+  available: boolean;
+  /** Cached result file contents keyed by file name (only present when available). */
+  files?: Partial<Record<RestoreFileName, string>>;
+  /** Exit codes captured during the original compilation. */
+  exitStatus?: { sandpiper?: number; verilator?: number };
+  /** Original source (top.tlv) for recompile fallback when results were pruned. */
+  source?: string;
+}
+
+/**
+ * Read everything needed to restore a compilation into a freshly reloaded IDE.
+ *
+ * Returns `available: true` with cached result files when the results still exist
+ * (inject directly). When results were pruned but the source survives, returns
+ * `available: false` with `source` set so the caller can recompile. When nothing
+ * remains, returns `available: false` with no source.
+ */
+export async function getRestoreData(id: string): Promise<RestoreData> {
+  const metadata = await loadMetadata(id);
+  const dir = path.join(CACHE_DIR, id);
+
+  // Source is retained longest; read it for the recompile fallback.
+  let source: string | undefined;
+  try {
+    source = await fs.readFile(path.join(dir, 'top.tlv'), 'utf-8');
+  } catch {
+    source = undefined;
+  }
+
+  // Read whatever result files are still on disk.
+  const files: Partial<Record<RestoreFileName, string>> = {};
+  await Promise.all(
+    RESULT_FILES.map(async (name) => {
+      try {
+        files[name] = await fs.readFile(path.join(dir, name), 'utf-8');
+      } catch {
+        // Missing file (pruned or never produced) — skip.
+      }
+    })
+  );
+
+  const available = Object.keys(files).length > 0;
+  return {
+    id,
+    available,
+    files: available ? files : undefined,
+    exitStatus: metadata?.exitStatus,
+    source,
+  };
 }
 
 /**

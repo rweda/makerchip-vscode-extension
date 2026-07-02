@@ -146,6 +146,30 @@ export function activate(ctx: vscode.ExtensionContext) {
     console.error('Failed to cleanup old cache entries:', error);
   });
 
+  // Restore Makerchip panels after a VS Code reload. VS Code recreates the
+  // webview and hands us its persisted state ({ panelKey, compileId, layoutState });
+  // we re-wire it and let the webview inject cached results (or recompile).
+  context.subscriptions.push(
+    vscode.window.registerWebviewPanelSerializer('makerchip', {
+      async deserializeWebviewPanel(panel: vscode.WebviewPanel, state: any) {
+        const panelKey = state?.panelKey || 'default';
+        log(`Restoring Makerchip panel '${panelKey}' after reload`);
+        // Keep auto-generated names ('Panel N') unique across reloads: advance the
+        // counter past any restored panel so a later compileNew won't collide.
+        const numbered = /^Panel (\d+)$/.exec(panelKey);
+        if (numbered) {
+          const n = parseInt(numbered[1], 10);
+          if (n >= panelCounter) { panelCounter = n + 1; }
+        }
+        const readyPromise = setupPanel(panel, panelKey);
+        panelReadyPromises.set(panelKey, readyPromise);
+        // Swallow rejection so an unhandled promise doesn't surface; callers that
+        // need readiness go through ensurePanelReady() which observes this promise.
+        readyPromise.catch(err => log(`Restored panel '${panelKey}' failed to become ready: ${err.message}`));
+      }
+    })
+  );
+
   // STATUS BAR BUTTON
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusBarItem.text = "$(circuit-board) Compile/Simulate";
@@ -352,15 +376,36 @@ export function activate(ctx: vscode.ExtensionContext) {
 
 /**
  * Open a new Makerchip webview panel and initialize it with the IDE.
- * Sets up message handlers for compilation results, errors, and IDE communication.
  * @param panelKey Unique identifier for this panel instance
  * @returns Promise that resolves when the IDE is ready
  */
 async function openMakerchipPanel(panelKey: string): Promise<void> {
+  const displayName = panelKey === 'default' ? 'Makerchip IDE' : `Makerchip: ${panelKey}`;
+  const panel = vscode.window.createWebviewPanel(
+    'makerchip', displayName,
+    vscode.ViewColumn.Beside,
+    {
+      enableScripts: true,
+      retainContextWhenHidden: true  // Prevent reload on move/hide
+    }
+  );
+  return setupPanel(panel, panelKey);
+}
+
+/**
+ * Wire up a Makerchip webview panel (HTML, readiness timeout, message handlers).
+ * Shared by {@link openMakerchipPanel} (fresh panels) and the webview panel
+ * serializer (panels restored after a VS Code reload).
+ * @param panel The webview panel to initialize (freshly created or restored).
+ * @param panelKey Unique identifier for this panel instance.
+ * @returns Promise that resolves when the IDE is ready.
+ */
+function setupPanel(panel: vscode.WebviewPanel, panelKey: string): Promise<void> {
   return new Promise(async (resolve, reject) => {
     // Guard so the promise settles exactly once, and a timeout guards against
     // a webview that never signals readiness.
     let settled = false;
+
     let readyTimeout: ReturnType<typeof setTimeout> | undefined;
 
     const clearReadyTimeout = () => {
@@ -394,15 +439,11 @@ async function openMakerchipPanel(panelKey: string): Promise<void> {
 
     // Create display name
     const displayName = panelKey === 'default' ? 'Makerchip IDE' : `Makerchip: ${panelKey}`;
-    
-    const panel = vscode.window.createWebviewPanel(
-      'makerchip', displayName,
-      vscode.ViewColumn.Beside,
-      { 
-        enableScripts: true,
-        retainContextWhenHidden: true  // Prevent reload on move/hide
-      }
-    );
+
+    // Ensure scripts are enabled. Required for panels restored by the serializer
+    // (VS Code does not preserve WebviewOptions across reloads); harmless for
+    // freshly-created panels.
+    panel.webview.options = { enableScripts: true };
 
     // Store panel in map
     panels.set(panelKey, panel);
@@ -437,6 +478,7 @@ async function openMakerchipPanel(panelKey: string): Promise<void> {
     html = html.replace(/{{scriptUri}}/g, scriptUri.toString());
     html = html.replace(/{{serverUrl}}/g, serverUrl);
     html = html.replace(/{{defaultDarkMode}}/g, isDarkTheme.toString());
+    html = html.replace(/{{panelKey}}/g, panelKey);
     
     panel.webview.html = html;
 
@@ -493,18 +535,8 @@ async function openMakerchipPanel(panelKey: string): Promise<void> {
         } else if (msg.requestId) {
           console.warn(`[ideResult] Received result for unknown request ID: ${msg.requestId}`);
         }
-        
-        // Also handle compile ID initialization for cache
-        if (msg.method === 'compile' && msg.result) {
-          log(`Compile started: ${msg.result}`);
-          try {
-            const sourceCode = pendingCompiles.get(panelKey);
-            await compileCache.initCompile(msg.result, sourceCode);
-            pendingCompiles.delete(panelKey); // Clean up
-          } catch (error) {
-            console.error('Failed to initialize compile cache:', error);
-          }
-        }
+        // Note: the cache entry for a compile is initialized from the server's
+        // 'compileStart' (newcompile) event, which also reports sim/dot.
       }
       
       if (msg.type === 'ideError') {
@@ -521,6 +553,20 @@ async function openMakerchipPanel(panelKey: string): Promise<void> {
         }
       }
       
+      if (msg.type === 'compileStart') {
+        // Server accepted a compile (newcompile). Initialize the cache entry with
+        // the source (captured when the compile was requested) and the expected
+        // output set (sim → waveform, dot → diagram).
+        log(`Compile started: ${msg.id} (sim=${msg.sim}, dot=${msg.dot})`);
+        try {
+          const sourceCode = pendingCompiles.get(panelKey);
+          await compileCache.initCompile(msg.id, sourceCode, { sim: msg.sim, dot: msg.dot });
+          pendingCompiles.delete(panelKey); // Clean up
+        } catch (error) {
+          console.error('Failed to initialize compile cache:', error);
+        }
+      }
+
       if (msg.type === 'compileFileChunk') {
         // Cache compilation result file chunks (stdall, make.out, or vlt_dump.vcd)
         try {
@@ -535,10 +581,11 @@ async function openMakerchipPanel(panelKey: string): Promise<void> {
       }
       
       if (msg.type === 'compileError') {
-        // Record compilation error
+        // Record compilation error against the specific file (or compilation level
+        // for a SandPiper-stage failure).
         log(`Compile error: ${msg.errorType}`);
         try {
-          await compileCache.recordError(msg.id, msg.errorType, msg.message, msg.details);
+          await compileCache.recordFileError(msg.id, msg.errorType);
         } catch (error) {
           console.error('Failed to record compile error:', error);
         }
@@ -559,6 +606,26 @@ async function openMakerchipPanel(panelKey: string): Promise<void> {
         log(`Compilation denied: ${msg.reason}`);
         const retryMsg = msg.retryAfterSeconds ? ` Retry after ${msg.retryAfterSeconds} seconds.` : '';
         vscode.window.showWarningMessage(`Compilation denied: ${msg.message}${retryMsg}`);
+      }
+
+      if (msg.type === 'restoreRequest') {
+        // Webview reloaded and is asking for cached results to restore the IDE.
+        log(`Restore requested for compile ${msg.compileId}`);
+        try {
+          const data = await compileCache.getRestoreData(msg.compileId);
+          log(`Restore data for ${msg.compileId}: available=${data.available} files=[${data.files ? Object.keys(data.files).join(',') : ''}] hasSource=${data.source != null} exitStatus=${JSON.stringify(data.exitStatus)}`);
+          panel.webview.postMessage({
+            type: 'restoreData',
+            compileId: msg.compileId,
+            available: data.available,
+            files: data.files,
+            exitStatus: data.exitStatus,
+            source: data.source
+          });
+        } catch (error) {
+          console.error('Failed to load restore data:', error);
+          panel.webview.postMessage({ type: 'restoreData', compileId: msg.compileId, available: false });
+        }
       }
     });
 
