@@ -30,15 +30,16 @@
  * ── Reload persistence & restore ────────────────────────────────────────────
  *
  * On a VS Code window reload the webview is destroyed and recreated fresh. We
- * persist { panelKey, compileId, layoutState } via vscode.setState() and, on
+ * persist { panelKey, compileId, layoutState, cycle } via vscode.setState() and, on
  * recreation, rebuild the previous IDE without recompiling:
  *
  *   a. Reload with a cached compile:
  *        webview posts 'restoreRequest'  ->  extension reads cached result files
  *        + metadata from disk, posts 'restoreData'  ->  webview applies the saved
- *        layout (ide.api.setLayoutState) so the restored panes exist, then injects
- *        the payloads into the IDE (ide...ideMethods.compilation*). Falls back to
- *        recompiling cached source if the cache was pruned.
+ *        layout (ide.api.setLayoutState) so the restored panes exist, injects the
+ *        payloads into the IDE (ide...ideMethods.compilation*), then restores the
+ *        saved current cycle (ide.api.setCycle). Falls back to recompiling cached
+ *        source if the cache was pruned.
  *   b. Reload with only a saved layout: apply the layout, nothing to inject.
  *   c. Inform extension that webview is ready (to gate requests from extension)
  *   d. Fresh load: nothing to restore.
@@ -455,6 +456,7 @@ import(`${serverUrl}/dist/makerchip-plugin.js`).then((module: any) => {
       hasCompileId: !!saved.compileId,
       compileId: saved.compileId,
       hasLayoutState: !!saved.layoutState,
+      cycle: saved.cycle,
       layoutSummary: summarizeLayout(saved.layoutState),
     });
 
@@ -482,14 +484,24 @@ import(`${serverUrl}/dist/makerchip-plugin.js`).then((module: any) => {
         console.warn('[webview][persist] Could not capture layout state:', e);
         return;
       }
-      const json = JSON.stringify({ compileId: currentCompileId, layoutState });
+      // Also capture the current cycle (time-step position only, NOT play
+      // state) so a reload can return the user to the same point. Best-effort:
+      // getCycle can reject or return non-number when no waveform is loaded.
+      let cycle: number | undefined;
+      try {
+        const c = await ide.api.getCycle();
+        if (typeof c === 'number') { cycle = c; }
+      } catch { /* no waveform / cycle unavailable */ }
+      const json = JSON.stringify({ compileId: currentCompileId, layoutState, cycle });
       if (json === lastPersistedJson) { return; }
       lastPersistedJson = json;
-      vscode.setState({ panelKey, compileId: currentCompileId, layoutState });
-      // Keep the local snapshot current so a later restore uses the freshest layout.
+      vscode.setState({ panelKey, compileId: currentCompileId, layoutState, cycle });
+      // Keep the local snapshot current so a later restore uses the freshest values.
       saved.layoutState = layoutState;
+      saved.cycle = cycle;
       console.log(`[webview][persist] Saved state (${reason}):`, {
         compileId: currentCompileId,
+        cycle,
         layoutSummary: summarizeLayout(layoutState),
       });
     };
@@ -597,6 +609,23 @@ import(`${serverUrl}/dist/makerchip-plugin.js`).then((module: any) => {
       }
     };
 
+    // Restore the persisted current cycle (time-step position only, not play
+    // state). Run this AFTER results are injected so the waveform data exists;
+    // setCycle clamps to the valid range, so a now-out-of-range saved value is
+    // harmless. Best-effort: logged but never fatal to the restore sequence.
+    const restoreCycle = async () => {
+      if (typeof saved.cycle !== 'number') {
+        console.log('[webview][restoreCycle] No saved cycle; skipping');
+        return;
+      }
+      try {
+        await ide.api.setCycle(saved.cycle);
+        console.log('[webview][restoreCycle] Restored cycle:', saved.cycle);
+      } catch (e: any) {
+        console.error('[webview][restoreCycle] setCycle FAILED:', e?.message || e);
+      }
+    };
+
 
     // Setup resize event forwarding to iframe
     // VS Code webview doesn't automatically propagate resize events to iframes,
@@ -647,10 +676,13 @@ import(`${serverUrl}/dist/makerchip-plugin.js`).then((module: any) => {
           exitStatus: rd.exitStatus,
         });
         // Apply the saved layout first so the restored panes exist to receive the
-        // injected compilation results; then inject the cached results.
+        // injected compilation results; then inject the cached results; finally
+        // restore the saved current cycle (now that the waveform data exists).
         await applyLayout();
         console.log('[webview][restore] Layout applied; injecting results next');
         await restoreCompilation(rd);
+        console.log('[webview][restore] Results injected; restoring cycle next');
+        await restoreCycle();
         console.log('[webview][restore] Restore sequence complete');
         // Now that the good layout is applied, start tracking real layout changes.
         startLayoutWatcher();
