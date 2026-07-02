@@ -1,0 +1,15 @@
+stages:
+- release
+
+release:
+  stage: release
+  image: mhart/alpine-node
+  script:
+  - npm install --unsafe-perm
+  - $(npm bin)/vsce package
+  - $(npm bin)/vsce publish -p $PAT
+  artifacts:
+    paths:
+    - "*.vsix"
+  tags:
+  - docker
