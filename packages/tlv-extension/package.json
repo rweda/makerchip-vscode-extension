@@ -2,7 +2,7 @@
 	"name": "tl-verilog",
 	"description": "TL-Verilog support for VS Code",
 	"version": "2.0.0",
-	"publisher": "aryann15",
+	"publisher": "redwood-eda",
 	"displayName": "TL-Verilog",
 	"icon": "images/icon.png",
 	"keywords": ["tl-verilog", "verilog", "hdl", "fpga"],
@@ -44,6 +44,11 @@
 					"type": "boolean",
 					"default": true,
 					"description": "Enable semantic syntax highlighting for TL-Verilog"
+				},
+				"tlverilog.experimentalFeatures": {
+					"type": "boolean",
+					"default": true,
+					"description": "Enable experimental TL-Verilog toolbar buttons (SandPiper SaaS compile, Diagram, Nav-TLV, and Waveform). These call the Makerchip SandPiper SaaS service and/or require local tools (Verilator, GTKWave). Intended for testing; may be disabled for shipped builds."
 				}
 			}
 		},
@@ -293,18 +298,27 @@
 		"onLanguage:tlverilog"
 	],
 	"main": "./out/src/extension",
+	"browser": "./dist/web/extension.js",
 	"scripts": {
-		"vscode:prepublish": "tsc -p ./",
-		"compile": "tsc -watch -p ./"
+		"copy-grammar": "node ./scripts/copy-grammar.mjs",
+		"compile": "npm run copy-grammar && tsc -p ./ && npm run compile-web",
+		"compile-web": "node ./esbuild.mjs",
+		"watch": "npm run copy-grammar && tsc -watch -p ./",
+		"watch-web": "node ./esbuild.mjs --watch",
+		"vscode:prepublish": "npm run copy-grammar && tsc -p ./ && node ./esbuild.mjs --production",
+		"package": "npm run compile && vsce package",
+		"run-in-browser": "vscode-test-web --browserType=chromium --extensionDevelopmentPath=. ."
 	},
 	"devDependencies": {
-		"@types/node": "*",
-		"typescript": "^5.9.3",
-		"vsce": "^1.28.0",
-		"vscode": "^1.0.0"
+		"@rweda/tlv-grammar": "*",
+		"@types/node": "^22",
+		"@types/vscode": "^1.80.0",
+		"@vscode/test-web": "^0.0.60",
+		"@vscode/vsce": "^3.6.0",
+		"esbuild": "^0.25.0",
+		"typescript": "^5.9.3"
 	},
 	"dependencies": {
-		"axios": "^1.7.2",
-		"verilator": "^0.1.0"
+		"axios": "^1.7.2"
 	}
 }

@@ -22,10 +22,10 @@
     "module with parameters": {
         "prefix": "paramod",
         "body": [
-            "module ${moduleName} #(",
-            "\t${1:parameters}",
+            "module ${1:moduleName} #(",
+            "\t${2:parameters}",
             ") (",
-            "\t${2:ports}",
+            "\t${3:ports}",
             ");",
             "\t$0",
             "endmodule"
@@ -36,8 +36,8 @@
     "module without parameters": {
         "prefix": "mod",
         "body": [
-            "module ${moduleName} (",
-            "\t${ports}",
+            "module ${1:moduleName} (",
+            "\t${2:ports}",
             ");",
             "\t$0",
             "endmodule"

@@ -1,0 +1,98 @@
+name: Publish
+
+# Stubbed publish workflow for the two VS Code extensions in this monorepo.
+#
+# STATUS: stub. Wired up but disabled by default so that pushing a tag does not
+# accidentally publish. To enable:
+#   1. Add a repository secret `VSCE_PAT` (Azure DevOps Marketplace token) and,
+#      for Open VSX, `OVSX_PAT`.
+#   2. Remove the `if: ${{ false }}` guards on the publish steps below.
+#   3. Push a tag matching the extension you want to release:
+#        - `tlv-vX.Y.Z`       -> publishes packages/tlv-extension
+#        - `makerchip-vX.Y.Z`  -> publishes packages/makerchip-extension
+#
+# Until enabled, this workflow only *packages* the extension into a .vsix and
+# uploads it as a build artifact (safe, no publishing).
+on:
+  push:
+    tags:
+      - "tlv-v*"
+      - "makerchip-v*"
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Which extension to package/publish"
+        required: true
+        type: choice
+        options:
+          - tlv
+          - makerchip
+
+jobs:
+  publish-tlv:
+    if: ${{ startsWith(github.ref, 'refs/tags/tlv-v') || github.event.inputs.target == 'tlv' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/tlv-extension
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies (workspace root)
+        run: npm ci
+        working-directory: .
+      - name: Package VSIX
+        run: npm run package
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tlv-extension-vsix
+          path: packages/tlv-extension/*.vsix
+      # --- Publishing (disabled until secrets are configured) ---
+      - name: Publish to VS Code Marketplace
+        if: ${{ false }}
+        run: npx --no-install vsce publish -p "$VSCE_PAT"
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      - name: Publish to Open VSX
+        if: ${{ false }}
+        run: npx --no-install ovsx publish -p "$OVSX_PAT"
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+
+  publish-makerchip:
+    if: ${{ startsWith(github.ref, 'refs/tags/makerchip-v') || github.event.inputs.target == 'makerchip' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/makerchip-extension
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies (workspace root)
+        run: npm ci
+        working-directory: .
+      - name: Package VSIX
+        run: npm run package
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: makerchip-extension-vsix
+          path: packages/makerchip-extension/*.vsix
+      # --- Publishing (disabled until secrets are configured) ---
+      - name: Publish to VS Code Marketplace
+        if: ${{ false }}
+        run: npx --no-install vsce publish -p "$VSCE_PAT"
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      - name: Publish to Open VSX
+        if: ${{ false }}
+        run: npx --no-install ovsx publish -p "$OVSX_PAT"
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
