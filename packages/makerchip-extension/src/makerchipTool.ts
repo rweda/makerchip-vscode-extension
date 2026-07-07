@@ -115,7 +115,7 @@ export class MakerchipTool implements vscode.LanguageModelTool<MakerchipToolInpu
       if (code) {
         const doc = await vscode.workspace.openTextDocument({
           content: code,
-          language: 'tlv'
+          language: 'tlverilog'
         });
         await vscode.window.showTextDocument(doc);
       }

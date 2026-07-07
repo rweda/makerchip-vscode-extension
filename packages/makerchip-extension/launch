@@ -1,0 +1,298 @@
+#!/bin/bash
+# Launch VS Code with local Makerchip extension.
+# May tunnel to a local sandhost for development.
+#
+# Usage:
+#   ./launch                              # Connect to default server (beta.makerchip.com)
+#   ./launch "" <workspace>               # Default server + workspace
+#   ./launch https://makerchip.com        # Connect to production
+#   ./launch https://makerchip.com/v123   # Connect to specific version (path-based)
+#   ./launch :8800                        # Create tunnel to localhost:8800
+#   ./launch :                            # Create tunnel to localhost:8080 (default)
+#   ./launch : <workspace>                # Tunnel + workspace
+#   ./launch https://url <workspace>      # URL + workspace
+#
+# For tunnel mode (:port), cloudflared is started in background.
+# The script remains running - press Ctrl+C to stop the tunnel and exit.
+
+set -e
+
+# Resolve the real script location so this works correctly when invoked via a
+# symlink (e.g. a top-level ./launch symlink pointing here).
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+ARG="${1:-}"
+WORKSPACE="${2:-}"
+TUNNEL_STATE_FILE="$SCRIPT_DIR/ACTIVE_TUNNEL"
+
+# Default server URL
+DEFAULT_SERVER="https://beta.makerchip.com"
+
+# Parse argument to determine mode
+if [ -z "$ARG" ]; then
+  # No argument: use default server
+  MODE="default"
+  SERVER_URL="$DEFAULT_SERVER"
+elif [[ "$ARG" =~ ^: ]]; then
+  # Starts with ':' → tunnel mode
+  MODE="tunnel"
+  PORT="${ARG#:}"
+  PORT="${PORT:-8080}"  # Default to 8080 if just ':'
+  
+  # Validate port is numeric
+  if ! [[ "$PORT" =~ ^[0-9]+$ ]]; then
+    echo "Error: Port must be numeric (got: $PORT)"
+    exit 1
+  fi
+else
+  # Anything else → explicit URL
+  MODE="url"
+  SERVER_URL="$ARG"
+fi
+
+# Function to start tunnel and return URL
+start_tunnel() {
+  local port=$1
+  
+  # Check if cloudflared is installed
+  if ! command -v cloudflared &> /dev/null; then
+    echo "Error: cloudflared is not installed" >&2
+    echo "" >&2
+    echo "Install with:" >&2
+    echo "  Ubuntu/Debian: sudo apt install cloudflared" >&2
+    echo "  macOS: brew install cloudflared" >&2
+    echo "  Or visit: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/" >&2
+    exit 1
+  fi
+  
+  echo "Starting Cloudflare tunnel to localhost:$port..." >&2
+  
+  # Start cloudflared in background, save logs to temp file
+  local log_file=$(mktemp)
+  cloudflared tunnel --url "http://localhost:$port" > "$log_file" 2>&1 &
+  local pid=$!
+  
+  # Wait for tunnel URL (max 15 seconds)
+  local waited=0
+  local tunnel_url=""
+  while [ $waited -lt 15 ]; do
+    if [ -f "$log_file" ]; then
+      tunnel_url=$(grep -oP 'https://[^/]+\.trycloudflare\.com' "$log_file" | head -1 || true)
+      if [ -n "$tunnel_url" ]; then
+        break
+      fi
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  
+  if [ -z "$tunnel_url" ]; then
+    echo "Error: Failed to establish tunnel" >&2
+    echo "Check logs: cat $log_file" >&2
+    kill $pid 2>/dev/null || true
+    exit 1
+  fi
+  
+  echo "✓ Tunnel established: $tunnel_url" >&2
+  
+  # Return both PID and URL (space-separated) to stdout
+  echo "$pid $tunnel_url $log_file"
+}
+
+# Build code command arguments.
+# makerchip declares a hard extensionDependencies on tl-verilog, so we also load
+# the language extension from source. This satisfies the dependency without a
+# published Marketplace build and lets both modes be co-developed (reload the
+# window to pick up edits to either). Requires tlv-extension to be built (it has
+# its own compile/watch; the makerchip watch task does not build it).
+CODE_ARGS=(--extensionDevelopmentPath="$SCRIPT_DIR" --extensionDevelopmentPath="$SCRIPT_DIR/../tlv-extension")
+if [ -n "$WORKSPACE" ]; then
+  # Guard: refuse a workspace/path that doesn't exist. Without this, `code`
+  # silently opens any bogus argument as an empty editor. That is how stray
+  # buffers named after shell tokens (e.g. a word-split "'ws' && '/tmp/...'"
+  # command) get created and then restored into every future window.
+  if [ ! -e "$WORKSPACE" ]; then
+    echo "Error: workspace/path does not exist: $WORKSPACE" >&2
+    echo "       (refusing to launch; 'code' would open it as a blank editor)" >&2
+    exit 1
+  fi
+  CODE_ARGS+=("$WORKSPACE")
+fi
+
+
+
+# Verify a compiled extension is present and not stale relative to its TS sources.
+# The Extension Development Host runs whatever is in each out/ dir; if a compile
+# failed (e.g. an old Node silently choking on newer TS syntax) or never ran, the
+# EDH launches STALE code.
+#
+# Usage: check_build <label> <src_dir> <compiled_entry> [<compiled_entry> ...]
+check_build() {
+  local label="$1"; shift
+  local src_dir="$1"; shift
+
+  # 1) Every expected compiled entry must exist (i.e. a compile actually ran).
+  local entry
+  for entry in "$@"; do
+    if [ ! -f "$entry" ]; then
+      echo "Error: $label is not compiled (missing: $entry)." >&2
+      echo "       The Extension Development Host would launch with no/old code." >&2
+      echo "       Build it first (from the package dir): npm run compile" >&2
+      echo "       or start the 'watch: all' task, then re-run ./launch." >&2
+      exit 1
+    fi
+  done
+
+  # 2) No source .ts may be newer than a compiled entry (i.e. build is current).
+  #    A failed/interrupted compile leaves out/ older than src/.
+  if [ -d "$src_dir" ]; then
+    for entry in "$@"; do
+      local newer
+      newer=$(find "$src_dir" -name '*.ts' -newer "$entry" -print -quit 2>/dev/null || true)
+      if [ -n "$newer" ]; then
+        echo "Warning: $label build looks STALE (source newer than compiled output):" >&2
+        echo "           $newer" >&2
+        echo "         is newer than" >&2
+        echo "           $entry" >&2
+        echo "" >&2
+        echo "  The Extension Development Host may run OLD code, producing confusing" >&2
+        echo "  runtime errors that don't match the source (e.g. version mismatches)." >&2
+        echo "  If a 'watch' task is running, it may just be mid-rebuild; otherwise run" >&2
+        echo "  'npm run compile' in the package dir and check for compile errors." >&2
+        echo "" >&2
+        if [ -t 0 ]; then
+          read -p "  Press ENTER to launch anyway, or Ctrl+C to cancel: "
+        else
+          echo "  (non-interactive: launching anyway)" >&2
+        fi
+        break
+      fi
+    done
+  fi
+}
+
+# makerchip-extension: main entry + the separately-compiled webview bundle
+# (webview.ts is excluded from the main tsconfig and built on its own, so a
+# webview-only compile failure would go unnoticed without checking it too).
+check_build "Makerchip extension" "$SCRIPT_DIR/src" \
+  "$SCRIPT_DIR/out/extension.js" "$SCRIPT_DIR/out/webview.js"
+
+# tl-verilog extension: loaded from source alongside makerchip. Its build is a
+# common blind spot because the makerchip watch task does NOT build it.
+check_build "TL-Verilog extension" "$SCRIPT_DIR/../tlv-extension/src" \
+  "$SCRIPT_DIR/../tlv-extension/out/src/extension.js"
+
+
+
+# Handle tunnel mode
+if [ "$MODE" = "tunnel" ]; then
+  # Check if existing tunnel can be reused
+  if [ -f "$TUNNEL_STATE_FILE" ]; then
+    source "$TUNNEL_STATE_FILE"
+    
+    # Check if tunnel process is still alive
+    if kill -0 "$TUNNEL_PID" 2>/dev/null; then
+      # Tunnel is running
+      if [ "$TUNNEL_PORT" = "$PORT" ]; then
+        # Same port - just reuse it
+        echo "Tunnel already running on port $PORT (PID: $TUNNEL_PID)"
+        echo "Tunnel URL: $TUNNEL_URL"
+        echo ""
+        echo "The Extension Development Host will reload with this tunnel."
+        echo "To stop the tunnel, Ctrl+C in the terminal that started it or"
+        echo "see ${TUNNEL_STATE_FILE}."
+        SERVER_URL="$TUNNEL_URL"
+        # Don't set up cleanup trap - not our tunnel to manage
+        # Launch code and exit
+        echo ""
+        echo "Launching VS Code Extension Development Host..."
+        code "${CODE_ARGS[@]}"
+        exit 0
+      else
+        # Different port - ask user
+        echo "Tunnel already running on port $TUNNEL_PORT (PID: $TUNNEL_PID)"
+        echo "You requested port $PORT"
+        echo ""
+        read -p "Press ENTER to replace tunnel, or Ctrl+C to cancel: "
+        
+        echo "Stopping existing tunnel..."
+        kill "$TUNNEL_PID" 2>/dev/null || true
+        rm -f "$TUNNEL_LOG_FILE" 2>/dev/null || true
+        rm -f "$TUNNEL_STATE_FILE"
+        sleep 1
+        # Fall through to create new tunnel
+      fi
+    else
+      # Tunnel process is dead - clean up stale state
+      echo "Cleaning up stale tunnel state..."
+      rm -f "$TUNNEL_STATE_FILE"
+    fi
+  fi
+  
+  # Start new tunnel (if we get here)
+  tunnel_info=$(start_tunnel "$PORT")
+  CLOUDFLARED_PID=$(echo "$tunnel_info" | cut -d' ' -f1)
+  SERVER_URL=$(echo "$tunnel_info" | cut -d' ' -f2)
+  TUNNEL_LOG=$(echo "$tunnel_info" | cut -d' ' -f3)
+  
+  # Save tunnel state
+  cat > "$TUNNEL_STATE_FILE" << TUNNEL_EOF
+# ACTIVE CLOUDFLARE TUNNEL
+# This file indicates an active tunnel created by the ./launch script.
+# 
+# To stop the tunnel:
+#   1. Press Ctrl+C in the terminal running ./launch, OR
+#   2. Manually run: kill $CLOUDFLARED_PID && rm -f $TUNNEL_LOG && rm -f "$TUNNEL_STATE_FILE"
+#      (or just "kill $CLOUDFLARED_PID" is probably sufficient)
+#
+# Tunnel details:
+TUNNEL_PORT=$PORT
+TUNNEL_PID=$CLOUDFLARED_PID
+TUNNEL_URL=$SERVER_URL
+TUNNEL_LOG_FILE=$TUNNEL_LOG
+TUNNEL_EOF
+  
+  echo "Cloudflared PID: $CLOUDFLARED_PID"
+  echo "Tunnel logs: $TUNNEL_LOG"
+fi
+
+echo "Server URL: $SERVER_URL"
+echo ""
+
+# Setup cleanup on exit/interrupt (for tunnel mode)
+if [ "$MODE" = "tunnel" ]; then
+  cleanup() {
+    echo ""
+    echo "Stopping tunnel (PID: $CLOUDFLARED_PID)..."
+    kill "$CLOUDFLARED_PID" 2>/dev/null || true
+    rm -f "$TUNNEL_LOG"
+    rm -f "$TUNNEL_STATE_FILE"
+    echo "Cleanup complete"
+    exit 0
+  }
+  trap cleanup INT TERM EXIT
+fi
+
+# Launch VS Code Extension Development Host
+echo "Launching VS Code Extension Development Host..."
+code "${CODE_ARGS[@]}"
+
+if [ "$MODE" = "tunnel" ]; then
+  echo ""
+  echo "✓ Extension Development Host launched"
+  echo "Tunnel active on PID: $CLOUDFLARED_PID"
+  echo "Tunnel URL: $SERVER_URL"
+  echo ""
+  echo "Press Ctrl+C to stop the tunnel and exit"
+  echo ""
+  
+  # Keep script running to maintain tunnel
+  while true; do
+    sleep 1
+    # Check if cloudflared is still running
+    if ! kill -0 "$CLOUDFLARED_PID" 2>/dev/null; then
+      echo ""
+      echo "Error: Tunnel process died unexpectedly"
+      exit 1
+    fi
+  done
+fi

@@ -10,12 +10,38 @@
 			"type": "extensionHost",
 			"request": "launch",
 			"args": [
-				"--extensionDevelopmentPath=${workspaceFolder}"
+				"--extensionDevelopmentPath=${workspaceFolder}/packages/makerchip-extension",
+				"--extensionDevelopmentPath=${workspaceFolder}/packages/tlv-extension"
 			],
 			"outFiles": [
-				"${workspaceFolder}/out/**/*.js"
+				"${workspaceFolder}/packages/makerchip-extension/out/**/*.js",
+				"${workspaceFolder}/packages/tlv-extension/out/**/*.js"
 			],
 			"preLaunchTask": "${defaultBuildTask}"
+		},
+		{
+			"name": "Run TLV Extension (Desktop)",
+			"type": "extensionHost",
+			"request": "launch",
+			"args": [
+				"--extensionDevelopmentPath=${workspaceFolder}/packages/tlv-extension"
+			],
+			"outFiles": [
+				"${workspaceFolder}/packages/tlv-extension/out/**/*.js"
+			]
+		},
+		{
+			"name": "Run TLV Extension (Web)",
+			"type": "extensionHost",
+			"debugWebWorkerHost": true,
+			"request": "launch",
+			"args": [
+				"--extensionDevelopmentPath=${workspaceFolder}/packages/tlv-extension",
+				"--extensionDevelopmentKind=web"
+			],
+			"outFiles": [
+				"${workspaceFolder}/packages/tlv-extension/dist/web/**/*.js"
+			]
 		}
 	]
 }

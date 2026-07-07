@@ -1,0 +1,823 @@
+{
+  "name": "makerchip",
+  "displayName": "Makerchip",
+  "description": "VS Code extension for Makerchip IDE integration",
+  "version": "0.0.1",
+  "publisher": "redwood-eda",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rweda/makerchip-vscode-extension"
+  },
+  "engines": {
+    "vscode": "^1.110.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onWebviewPanel:makerchip"
+  ],
+  "main": "./out/extension.js",
+  "extensionDependencies": [
+    "redwood-eda.tl-verilog"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "makerchip.compile",
+        "title": "Makerchip: Compile/Simulate",
+        "icon": "$(circuit-board)"
+      },
+      {
+        "command": "makerchip.compileNew",
+        "title": "Makerchip: Compile/Simulate in New Panel",
+        "icon": "$(add)"
+      },
+      {
+        "command": "makerchip.compileNamed",
+        "title": "Makerchip: Compile/Simulate in Panel...",
+        "icon": "$(window)"
+      },
+      {
+        "command": "makerchip.listPanels",
+        "title": "Makerchip: List Open Panels",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "makerchip.updateResources",
+        "title": "Makerchip: Update Reference Data",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "makerchip.highlight",
+        "title": "Makerchip: Highlight Entity",
+        "icon": "$(highlight)"
+      },
+      {
+        "command": "makerchip.clearHighlights",
+        "title": "Makerchip: Clear All Highlights",
+        "icon": "$(clear-all)"
+      }
+    ],
+    "configuration": {
+      "title": "Makerchip",
+      "properties": {
+        "makerchip.autoUpdateResources": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically update Makerchip reference data on activation"
+        },
+        "makerchip.addResourcesFolder": {
+          "type": "string",
+          "enum": [
+            "ask",
+            "always",
+            "never"
+          ],
+          "default": "ask",
+          "enumDescriptions": [
+            "Ask whether to add reference data folder to workspace",
+            "Always add reference data folder to workspace",
+            "Never add reference data folder to workspace"
+          ],
+          "description": "Add Makerchip reference data folder to workspace (for LLMs)"
+        },
+        "makerchip.serverUrl": {
+          "type": "string",
+          "default": "https://beta.makerchip.com",
+          "description": "Base URL of the Makerchip server (for testing with local or staging servers)",
+          "examples": [
+            "https://makerchip.com",
+            "https://v123.makerchip.com"
+          ]
+        }
+      }
+    },
+    "keybindings": [
+      {
+        "command": "makerchip.compile",
+        "key": "ctrl+shift+enter",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "makerchip.compileNew",
+        "key": "ctrl+alt+enter",
+        "when": "editorTextFocus"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "makerchip.compile",
+          "when": "editorLangId == tlverilog || resourceExtname == .tlv",
+          "group": "navigation"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "makerchip.compile",
+          "when": "editorLangId == tlverilog || resourceExtname == .tlv",
+          "group": "navigation"
+        }
+      ]
+    },
+    "languageModelTools": [
+      {
+        "name": "makerchip_compile",
+        "displayName": "Compile/Simulate",
+        "toolReferenceName": "makerchipCompile",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(circuit-board)",
+        "userDescription": "Compile and open TL-Verilog in Makerchip IDE.",
+        "modelDescription": "Opens IDE and compiles TL-Verilog code. **Returns immediately** - compilation is async. Returns compile ID and cache paths. Poll `~/.vscode-makerchip/compile-cache/<ID>/metadata.json` for status (check 'complete', 'passed', 'error' fields). Use this when user wants to VISUALIZE TL-Verilog, not just see code.",
+        "tags": [
+          "makerchip",
+          "tlv",
+          "verilog",
+          "compile",
+          "circuit",
+          "hardware",
+          "show",
+          "example",
+          "demo",
+          "demonstrate",
+          "visualize",
+          "view",
+          "diagram",
+          "waveform"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "filePath": {
+              "type": "string",
+              "description": "Optional path to a TL-Verilog file to open and compile. If not provided, uses the currently active editor."
+            },
+            "code": {
+              "type": "string",
+              "description": "Optional TL-Verilog code to compile. When provided, creates a new unsaved file with this code and opens it in Makerchip. Use this to show examples or demonstrate TL-Verilog features."
+            },
+            "panelName": {
+              "type": "string",
+              "description": "Optional panel name to target. Default: `default`. Use this to open multiple Makerchip panels for different designs or comparisons."
+            }
+          }
+        }
+      },
+      {
+        "name": "makerchip_ide_call",
+        "displayName": "Makerchip IDE Method Call",
+        "toolReferenceName": "makerchipIdeCall",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-method)",
+        "userDescription": "Call any Makerchip IDE method directly.",
+        "modelDescription": "Generic tool for calling any IDE Plugin API method directly. Many of these methods are explicitly exposed as tools. For full IDE Plugin details, see `.vscode-makerchip/resources/Makerchip-public/docs/plugin_api/index.html`. Note that methods like onReady, onCodeChange, onCompilationLog are callbacks and should not be called directly.",
+        "tags": [
+          "makerchip",
+          "ide",
+          "api",
+          "method",
+          "advanced"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "required": [
+            "method"
+          ],
+          "properties": {
+            "method": {
+              "type": "string",
+              "description": "The IDE method to invoke (e.g., 'compile', 'activatePane', 'setCode', 'getCode', 'setCodeFromURL', 'openPane')"
+            },
+            "args": {
+              "type": "array",
+              "description": "Arguments to pass to the method. Order matters.",
+              "items": {
+                "type": [
+                  "string",
+                  "number",
+                  "boolean",
+                  "object",
+                  "array",
+                  "null"
+                ]
+              }
+            },
+            "panelName": {
+              "type": "string",
+              "description": "Optional panel name to target. Default: `default`."
+            }
+          }
+        }
+      },
+      {
+        "name": "makerchip_get_viz_image",
+        "displayName": "Get VIZ Image",
+        "toolReferenceName": "makerchipGetVizImage",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(device-camera)",
+        "userDescription": "Capture the current VIZ visualization as an image.",
+        "modelDescription": "Returns the current Makerchip VIZ (Visual Debug) canvas visualization (from an open IDE panel with compiled/simulated code). Returns a base64-encoded data URL. Use this to iterate on VIZ development.",
+        "tags": [
+          "makerchip",
+          "viz",
+          "visualization",
+          "image",
+          "screenshot",
+          "capture",
+          "debug"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "format": {
+              "type": "string",
+              "enum": ["png", "jpeg", "webp"],
+              "description": "Image format. Default is 'png'.",
+              "default": "png"
+            },
+            "quality": {
+              "type": "number",
+              "description": "Image quality for jpeg/webp formats (0.0-1.0). Default is 1.0.",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 1.0
+            },
+            "panelName": {
+              "type": "string",
+              "description": "Optional panel name to target. Default: `default`."
+            },
+            "saveToFile": {
+              "type": ["boolean", "string"],
+              "description": "Optional: save image to file for user visibility. If true, saves to /tmp with auto-generated name. If string, uses as file path. Image data is always returned to the model."
+            }
+          }
+        }
+      },
+      {
+        "name": "makerchip_get_layout_state",
+        "displayName": "Get IDE Layout State",
+        "toolReferenceName": "makerchipGetLayoutState",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(layout)",
+        "userDescription": "Get the current IDE pane layout configuration.",
+        "modelDescription": "Retrieves the current Makerchip IDE layout state as a serializable object from an open IDE panel. The returned data structure refects the recursive binary tree of splits and the tabbed panes at leaf splits, identified by their mnemonics.\n\nUse this to: capture current layout for later restoration, understand current IDE configuration, or create modified layouts based on the current state. The returned object can be passed directly to makerchip_set_layout_state or modified before restoration.\n\nSEE: `.vscode-makerchip/.vscode/skills/makerchip-api-features.md` for details about working with layouts and panes",
+        "tags": [
+          "makerchip",
+          "ide",
+          "layout",
+          "state",
+          "panes",
+          "configuration"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "panelName": {
+              "type": "string",
+              "description": "Optional panel name to target. Default: `default`."
+            }
+          }
+        }
+      },
+      {
+        "name": "makerchip_set_layout_state",
+        "displayName": "Set IDE Layout State",
+        "toolReferenceName": "makerchipSetLayoutState",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(layout-panel)",
+        "userDescription": "Configure the IDE pane layout (create splits, arrange panes in tabs, set active pane).",
+        "modelDescription": "Sets the Makerchip IDE layout of an open IDE panel from a state object. You can restore a previously saved state OR craft a custom layout defining pane arrangement, splits, tabs, and active panes.\n\nThe state is either a TabbedView (single pane container with tabs) or FlexSplit (split layout with left/right or top/bottom sides). FlexSplit sides recursively contain TabbedView or nested FlexSplit states.\n\nAvailable pane mnemonics: Use makerchip_get_available_panes to get the complete list. Main panes: Log, Nav-TLV, Diagram, Viz, Waveform should typically be included. Other \"static panes\" and any third-party panes loaded using makerchip_open_third_party_pane are also available.\n\nEXAMPLES:\n\nSingle view with tabs: {\"panes\": [\"Diagram\", \"Waveform\", ...], \"activePane\": \"Diagram\"}\n\nHorizontal split (Log left, others right): {\"sides\": {\"left\": {\"panes\": [\"Log\"], \"activePane\": \"Log\"}, \"right\": {\"panes\": [\"Diagram\", \"Waveform\", ...], \"activePane\": \"Diagram\"}}, \"splitAt\": 0.3}\n\nNested 3-way (Log left, Diagram top-right, Waveform, etc. bottom-right): {\"sides\": {\"left\": {\"panes\": [\"Log\"], \"activePane\": \"Log\"}, \"right\": {\"sides\": {\"top\": {\"panes\": [\"Diagram\"], \"activePane\": \"Diagram\"}, \"bottom\": {\"panes\": [\"Waveform\", ...], \"activePane\": \"Waveform\"}}, \"splitAt\": 0.5}}, \"splitAt\": 0.3}\n\nSEE: `.vscode-makerchip/.vscode/skills/makerchip-api-features.md` for details about working with layouts and panes",
+        "tags": [
+          "makerchip",
+          "ide",
+          "layout",
+          "state",
+          "panes",
+          "restore",
+          "configuration",
+          "split",
+          "tabs"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "required": ["state"],
+          "properties": {
+            "state": {
+              "$ref": "#/$defs/layoutState",
+              "description": "Layout state defining pane arrangement (TabbedView or FlexSplit)"
+            },
+            "panelName": {
+              "type": "string",
+              "description": "Optional panel name to target. Default: `default`."
+            }
+          },
+          "$defs": {
+            "layoutState": {
+              "oneOf": [
+                { "$ref": "#/$defs/tabbedViewState" },
+                { "$ref": "#/$defs/flexSplitState" }
+              ]
+            },
+            "tabbedViewState": {
+              "type": "object",
+              "required": ["panes"],
+              "properties": {
+                "panes": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "Array of pane mnemonics in tab order"
+                },
+                "activePane": {
+                  "type": ["string", "null"],
+                  "description": "Mnemonic of active pane (or null)"
+                }
+              },
+              "additionalProperties": false
+            },
+            "flexSplitState": {
+              "type": "object",
+              "required": ["sides"],
+              "properties": {
+                "sides": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "required": ["left", "right"],
+                      "properties": {
+                        "left": { "$ref": "#/$defs/layoutState" },
+                        "right": { "$ref": "#/$defs/layoutState" }
+                      },
+                      "additionalProperties": false,
+                      "description": "Horizontal split with left and right sides"
+                    },
+                    {
+                      "type": "object",
+                      "required": ["top", "bottom"],
+                      "properties": {
+                        "top": { "$ref": "#/$defs/layoutState" },
+                        "bottom": { "$ref": "#/$defs/layoutState" }
+                      },
+                      "additionalProperties": false,
+                      "description": "Vertical split with top and bottom sides"
+                    }
+                  ]
+                },
+                "splitAt": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "description": "Split position (0.0-1.0), default 0.5"
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      {
+        "name": "makerchip_get_available_panes",
+        "displayName": "Get Available Panes",
+        "toolReferenceName": "makerchipGetAvailablePanes",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(list-tree)",
+        "userDescription": "List all available IDE panes with descriptions.",
+        "modelDescription": "Returns all panes with mnemonics (name[+uniquifier]), display names, descriptions, and availability. Main panes: Log, Nav-TLV, Diagram, Viz, Waveform. Static panes: Tutorials, Examples, Courses. Third-party panes if any. Only use panes with available=true in layout operations.",
+        "tags": [
+          "makerchip",
+          "ide",
+          "panes",
+          "list",
+          "discovery",
+          "layout"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "panelName": {
+              "type": "string",
+              "description": "Optional panel name to target. Default: `default`."
+            }
+          }
+        }
+      },
+      {
+        "name": "makerchip_open_pane",
+        "displayName": "Open/Activate Pane",
+        "toolReferenceName": "makerchipOpenPane",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(open-preview)",
+        "userDescription": "Open or activate a specific IDE pane by mnemonic.",
+        "modelDescription": "Opens and/or activates a pane by mnemonic in an open IDE panel. Works with static panes (Tutorials, Examples, opened on demand), main panes (Log, Diagram, etc.), and third-party panes. Use makerchip_get_available_panes for valid mnemonics. For complex layouts use makerchip_set_layout_state.",
+        "tags": [
+          "makerchip",
+          "ide",
+          "pane",
+          "open",
+          "activate",
+          "tutorial",
+          "documentation"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "required": ["mnemonic"],
+          "properties": {
+            "mnemonic": {
+              "type": "string",
+              "description": "The mnemonic (unique identifier) of the pane to open or activate. Use makerchip_get_available_panes to discover valid mnemonics."
+            },
+            "background": {
+              "type": "boolean",
+              "description": "If true, opens the pane in the background without activating it. Default is false (activate the pane).",
+              "default": false
+            },
+            "panelName": {
+              "type": "string",
+              "description": "Optional panel name to target. Default: `default`."
+            }
+          }
+        }
+      },
+      {
+        "name": "makerchip_open_third_party_pane",
+        "displayName": "Open Third-Party Pane",
+        "toolReferenceName": "makerchipOpenThirdPartyPane",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(new-file)",
+        "userDescription": "Open custom content (PDFs, web pages) in IDE panes.",
+        "modelDescription": "Opens third-party pane with PDF or iframe content. PDF: uses built-in viewer, supports any URL. Iframe: embeds web pages, subject to CSP/X-Frame-Options. Provide content via either `contentUrl` (a URL/data URI) OR `filePath` (an absolute path to a local file). Prefer `filePath` for local files: the extension reads the file and builds a data: URI internally, so large file contents never pass through the model context. Mnemonic is tab label plus optional `+`-delimited uniquifier string (or allow auto-uniquification). Returns actual mnemonic used (same or uniquified).\n\nEXAMPLES:\n\nLocal file (preferred for local content): {\"mnemonic\": \"Guide\", \"contentType\": \"iframe\", \"contentParams\": {\"filePath\": \"/home/user/docs/guide.html\"}}\n\nPDF URL: {\"mnemonic\": \"Guide\", \"contentType\": \"pdf\", \"contentParams\": {\"contentUrl\": \"https://example.com/guide.pdf\"}}\n\nIframe URL: {\"mnemonic\": \"Docs\", \"contentType\": \"iframe\", \"contentParams\": {\"contentUrl\": \"https://docs.example.com\"}, \"options\": {\"background\": true}}",
+        "tags": [
+          "makerchip",
+          "ide",
+          "pane",
+          "pdf",
+          "iframe",
+          "documentation",
+          "tutorial",
+          "reference",
+          "third-party",
+          "external"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "required": ["mnemonic", "contentType", "contentParams"],
+          "properties": {
+            "mnemonic": {
+              "type": "string",
+              "description": "Display name for the pane (tab label). Will be uniquified automatically if a pane with this name already exists."
+            },
+            "contentType": {
+              "type": "string",
+              "enum": ["pdf", "iframe"],
+              "description": "Type of content to display: 'pdf' for PDF viewer or 'iframe' for embedded web content."
+            },
+            "contentParams": {
+              "type": "object",
+              "properties": {
+                "contentUrl": {
+                  "type": "string",
+                  "description": "URL to the content. For PDFs: supports https://, http://, file://, vscode-webview://, data URIs. For iframes: must support iframe embedding. Provide this OR filePath."
+                },
+                "filePath": {
+                  "type": "string",
+                  "description": "Absolute path to a local file to load. The extension reads the file and builds a data: URI internally, so large file contents never pass through the model context. Preferred over contentUrl for local files. Takes precedence when both are provided."
+                }
+              },
+              "description": "Content parameters. Provide either contentUrl or filePath."
+            },
+            "options": {
+              "type": "object",
+              "properties": {
+                "background": {
+                  "type": "boolean",
+                  "description": "If true, opens the pane without activating it (leaves current pane active). Default is false.",
+                  "default": false
+                },
+                "nonTransferrable": {
+                  "type": "boolean",
+                  "description": "If true, pane construction data won't be stored for layout recovery. Use for temporary panes. Default is false.",
+                  "default": false
+                }
+              },
+              "description": "Optional settings for pane behavior."
+            },
+            "panelName": {
+              "type": "string",
+              "description": "Optional VS Code panel name to target. Default: `default`."
+            }
+          }
+        }
+      },
+      {
+        "name": "makerchip_get_cycle",
+        "displayName": "Get Active Cycle",
+        "toolReferenceName": "makerchipGetCycle",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(debug-step-over)",
+        "userDescription": "Get the active cycle/time step.",
+        "modelDescription": "Returns active cycle value. All \"live\" panes (Nav-TLV, Diagram, VIZ, Waveform) display data for this cycle. Cycle 0 is first cycle after reset.",
+        "tags": [
+          "makerchip",
+          "cycle",
+          "time",
+          "simulation",
+          "state",
+          "diagram",
+          "viz",
+          "waveform"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "panelName": {
+              "type": "string",
+              "description": "Optional panel name to target. Default: `default`."
+            }
+          }
+        }
+      },
+      {
+        "name": "makerchip_set_cycle",
+        "displayName": "Set Active Cycle",
+        "toolReferenceName": "makerchipSetCycle",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(debug-step-into)",
+        "userDescription": "Set the active cycle/time step.",
+        "modelDescription": "Sets active cycle, updating all \"live\" panes (Nav-TLV, Diagram, VIZ, Waveform). Provide either 'cycle' for absolute positioning or 'offset' for relative positioning (mutually exclusive). Final value clamped to [0, endCycle].\n\nEXAMPLES:\n- Jump to cycle 42: {\"cycle\": 42}\n- Reset to start: {\"cycle\": 0}\n- Advance 10 cycles: {\"offset\": 10}\n- Go back 5 cycles: {\"offset\": -5}",
+        "tags": [
+          "makerchip",
+          "cycle",
+          "time",
+          "simulation",
+          "navigate",
+          "jump",
+          "diagram",
+          "viz",
+          "waveform"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "cycle": {
+              "type": "integer",
+              "description": "Absolute cycle to jump to (0-based). Mutually exclusive with offset. Final value clamped to [0, endCycle]."
+            },
+            "offset": {
+              "type": "integer",
+              "description": "Relative offset from current cycle (can be negative). Mutually exclusive with cycle."
+            },
+            "panelName": {
+              "type": "string",
+              "description": "Optional panel name to target. Default: `default`."
+            }
+          },
+          "oneOf": [
+            {"required": ["cycle"]},
+            {"required": ["offset"]}
+          ]
+        }
+      },
+      {
+        "name": "makerchip_update_play_state",
+        "displayName": "Update Play State",
+        "toolReferenceName": "makerchipUpdatePlayState",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(play)",
+        "userDescription": "Start or stop waveform playback animation.",
+        "modelDescription": "Controls waveform playback animation (cycle advancement). Starts or stops playback, optionally setting cycle range and playback speed.\n\nWhen starting (isPlaying=true):\n- Advances active cycle automatically at specified interval (cycleTimeout, default 1000ms)\n- Optionally jumps to startCyc before starting\n- Stops at endCyc if provided, otherwise plays to end of waveform\n- Updates all live panes (Nav-TLV, Diagram, VIZ, Waveform) each cycle\n\nWhen stopping (isPlaying=false):\n- Stops cycle advancement at current position\n- Other parameters ignored\n\nEXAMPLES:\n- Start playback from beginning at 500ms/cycle: {\"isPlaying\": true, \"cycleTimeout\": 500, \"startCyc\": 0}\n- Play cycles 10-50 at default speed: {\"isPlaying\": true, \"startCyc\": 10, \"endCyc\": 50}\n- Stop playback: {\"isPlaying\": false}",
+        "tags": [
+          "makerchip",
+          "waveform",
+          "playback",
+          "animation",
+          "play",
+          "stop",
+          "cycle",
+          "simulation",
+          "visualize"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "required": ["isPlaying"],
+          "properties": {
+            "isPlaying": {
+              "type": "boolean",
+              "description": "Whether to start (true) or stop (false) waveform playback."
+            },
+            "cycleTimeout": {
+              "type": "integer",
+              "description": "Delay in milliseconds between cycles during playback. Default is 1000ms. Only used when isPlaying=true.",
+              "minimum": 1
+            },
+            "startCyc": {
+              "type": "integer",
+              "description": "Starting cycle for playback. If provided, jumps to this cycle before starting. Only used when isPlaying=true.",
+              "minimum": 0
+            },
+            "endCyc": {
+              "type": "integer",
+              "description": "Ending cycle for playback. If provided, playback stops at this cycle; otherwise plays to end of waveform. Only used when isPlaying=true.",
+              "minimum": 0
+            },
+            "panelName": {
+              "type": "string",
+              "description": "Optional panel name to target. Default: `default`."
+            }
+          }
+        }
+      },
+      {
+        "name": "makerchip_highlight",
+        "displayName": "Highlight Entity",
+        "toolReferenceName": "makerchipHighlight",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(highlight)",
+        "userDescription": "Highlight a signal, scope, or pipeline stage across all IDE views.",
+        "modelDescription": "Highlights all replicated instances of an entity across the IDE (Nav-TLV, Diagram, Waveform). If accumulate=false (default), replaces highlights. If true, adds to existing.\n\nPATH SYNTAX (varies by type):\n- Pipesignal: '/cpu|pipe$data' (full path)\n- Scope: '/cpu', '/core|in/flit', or '/unit|reg' (full path)\n- Stage: '|pipe@2' (not a full path; just pipeline and pipestage)\n\nNever include range/index expressions, like `[2]`.\nNEVER include M5 macros or `\\TLV` macro parameters, like `|inst\\m5_cnt` or `|_pipe`.\n\nEXAMPLES: {\"id\": \"/cpu|decode$valid\"}, {\"id\": \"|fetch@1\", \"accumulate\": true}",
+        "tags": [
+          "makerchip",
+          "highlight",
+          "signal",
+          "waveform",
+          "diagram",
+          "debug",
+          "visualize",
+          "navigate",
+          "scope",
+          "stage"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "required": ["id"],
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The TL-Verilog path identifier to highlight (e.g., '/cpu|my_pipe$data', '|my_pipe@2', '/cpu')"
+            },
+            "accumulate": {
+              "type": "boolean",
+              "description": "If true, adds to existing highlights (Ctrl+click behavior). If false (default), replaces all highlights.",
+              "default": false
+            },
+            "panelName": {
+              "type": "string",
+              "description": "Optional panel name to target. Default: `default`."
+            }
+          }
+        }
+      },
+      {
+        "name": "makerchip_clear_highlights",
+        "displayName": "Clear All Highlights",
+        "toolReferenceName": "makerchipClearHighlights",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(clear-all)",
+        "userDescription": "Clear all highlighted entities from IDE views.",
+        "modelDescription": "Removes all entity highlights from all views: Diagram, Waveform, Nav-TLV panes.",
+        "tags": [
+          "makerchip",
+          "highlight",
+          "clear",
+          "reset",
+          "cleanup"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "panelName": {
+              "type": "string",
+              "description": "Optional panel name to target. Default: `default`."
+            }
+          }
+        }
+      },
+      {
+        "name": "makerchip_set_dark_mode",
+        "displayName": "Set Dark Mode",
+        "toolReferenceName": "makerchipSetDarkMode",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(color-mode)",
+        "userDescription": "Enable or disable dark mode in the Makerchip IDE.",
+        "modelDescription": "Controls dark/light theme for all IDE views (editor, diagram, waveform). Pass true for dark mode, false for light mode. Updates localStorage and all panes immediately.",
+        "tags": [
+          "makerchip",
+          "dark",
+          "light",
+          "theme",
+          "appearance",
+          "mode"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable dark mode (true) or light mode (false)."
+            },
+            "panelName": {
+              "type": "string",
+              "description": "Optional panel name to target. Default: `default`."
+            }
+          },
+          "required": [
+            "enabled"
+          ]
+        }
+      },
+      {
+        "name": "makerchip_set_live_mode",
+        "displayName": "Set Live Mode",
+        "toolReferenceName": "makerchipSetLiveMode",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(pulse)",
+        "userDescription": "Enable or disable live mode for a specific pane (Diagram, Nav-TLV).",
+        "modelDescription": "Controls live/dead mode for panes that support it. Live panes auto-update as cycle changes during playback/stepping. Dead panes freeze at current cycle. Supported: Diagram, Nav-TLV. VIZ is always live. Returns true if successful, false if pane not found or doesn't support live mode.",
+        "tags": [
+          "makerchip",
+          "live",
+          "dead",
+          "mode",
+          "pane",
+          "diagram",
+          "nav-tlv",
+          "freeze",
+          "update"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "mnemonic": {
+              "type": "string",
+              "description": "The mnemonic of the pane to control (e.g., 'Diagram', 'Nav-TLV')."
+            },
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable live mode (true) or dead mode/freeze (false)."
+            },
+            "panelName": {
+              "type": "string",
+              "description": "Optional panel name to target. Default: `default`."
+            }
+          },
+          "required": [
+            "mnemonic",
+            "enabled"
+          ]
+        }
+      },
+      {
+        "name": "makerchip_list_panels",
+        "displayName": "List Open Panels",
+        "toolReferenceName": "makerchipListPanels",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(list-tree)",
+        "userDescription": "List all currently open Makerchip IDE panels.",
+        "modelDescription": "Returns open panel names. Use these in 'panelName' parameter to target specific IDE instances. New panels are created only via makerchip_compile with a code or filePath argument.",
+        "tags": [
+          "makerchip",
+          "panels",
+          "list",
+          "discovery"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    ],
+    "chatParticipants": [
+      {
+        "id": "makerchip",
+        "name": "makerchip",
+        "description": "Makerchip IDE integration for TL-Verilog development",
+        "isSticky": true
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./ && tsc -p src/tsconfig.webview.json && npm run copy-webview",
+    "copy-webview": "cp src/webview.html out/webview.html",
+    "watch": "npm run copy-webview && (npm run watch:main & npm run watch:webview & npm run watch:html & wait)",
+    "watch:main": "tsc -watch -p ./",
+    "watch:webview": "tsc -watch -p src/tsconfig.webview.json",
+    "watch:html": "nodemon --watch src/webview.html --exec 'npm run copy-webview'",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src",
+    "test": "vscode-test",
+    "package": "npm run compile && vsce package"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^22.19.17",
+    "@types/vscode": "^1.110.0",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.6.0",
+    "eslint": "^9.39.3",
+    "nodemon": "^3.0.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.56.1"
+  }
+}

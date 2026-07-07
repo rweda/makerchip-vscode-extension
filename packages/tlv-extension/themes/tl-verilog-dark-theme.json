@@ -1,0 +1,142 @@
+{
+    "$schema": "vscode://schemas/color-theme",
+    "name": "TL Verilog Dark",
+    "type": "dark",
+    "extends": "TL Verilog",
+    "colors": {
+        "editor.background": "#1E1E1E",
+        "editor.foreground": "#D4D4D4",
+        "editor.inactiveSelectionBackground": "#3A3D41",
+        "editorIndentGuide.background1": "#404040",
+        "editor.selectionHighlightBackground": "#ADD6FF26",
+        "editorSuggestWidget.background": "#252526",
+        "activityBarBadge.background": "#007ACC",
+        "sideBarTitle.foreground": "#BBBBBB"
+    },
+    "tokenColors": [
+        {
+            "scope": "entity.name.pipe.tlverilog",
+            "settings": {
+                "foreground": "#FFD700"
+            }
+        },
+        {
+            "scope": "entity.name.stage.tlverilog",
+            "settings": {
+                "foreground": "#7FFF00",
+                "fontStyle": "italic"
+            }
+        },
+        {
+            "scope": "entity.name.hierarchy.tlverilog",
+            "settings": {
+                "foreground": "#40E0D0"
+            }
+        },
+        {
+            "scope": "variable.other.tlverilog",
+            "settings": {
+                "foreground": "#FF69B4"
+            }
+        },
+        {
+            "scope": "entity.name.alignment.tlverilog",
+            "settings": {
+                "foreground": "#98FB98"
+            }
+        },
+        {
+            "scope": "support.macro.tlverilog",
+            "settings": {
+                "foreground": "#FFFFFF",
+                "fontStyle": "bold"
+            }
+        },
+        {
+            "scope": "variable.sv.tlverilog",
+            "settings": {
+                "foreground": "#FF6347"
+            }
+        },
+        {
+            "scope": "constant.numeric.tlverilog",
+            "settings": {
+                "foreground": "#87CEFA"
+            }
+        },
+        {
+            "scope": "comment",
+            "settings": {
+                "foreground": "#6A9955",
+                "fontStyle": "italic"
+            }
+        },
+        {
+            "scope": "keyword.region.tlverilog",
+            "settings": {
+                "foreground": "#4169E1",
+                "fontStyle": "bold"
+            }
+        },
+        {
+            "scope": "keyword.control.conditional.tlverilog",
+            "settings": {
+                "foreground": "#FF8C00"
+            }
+        },
+        {
+            "scope": "constant.other.tlverilog",
+            "settings": {
+                "foreground": "#B0C4DE"
+            }
+        },
+        {
+            "scope": [
+                "keyword.control.tlverilog",
+                "support.function.tlverilog",
+                "keyword.other.tlverilog"
+            ],
+            "settings": {
+                "foreground": "#569CD6"
+            }
+        },
+        {
+            "scope": "string",
+            "settings": {
+                "foreground": "#CE9178"
+            }
+        },
+        {
+            "scope": "constant.language",
+            "settings": {
+                "foreground": "#569CD6"
+            }
+        },
+        {
+            "scope": [
+                "entity.name.function",
+                "support.function"
+            ],
+            "settings": {
+                "foreground": "#DCDCAA"
+            }
+        },
+        {
+            "scope": [
+                "entity.name.type",
+                "entity.name.class",
+                "support.class",
+                "support.type"
+            ],
+            "settings": {
+                "foreground": "#4EC9B0"
+            }
+        },
+        {
+            "scope": "variable.language",
+            "settings": {
+                "foreground": "#569CD6"
+            }
+        }
+    ]
+}
