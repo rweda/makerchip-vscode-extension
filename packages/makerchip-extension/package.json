@@ -256,6 +256,69 @@
         }
       },
       {
+        "name": "makerchip_extract_pdf_figure",
+        "displayName": "Extract PDF Figure (Live Doc)",
+        "toolReferenceName": "makerchipExtractPdfFigure",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(file-pdf)",
+        "userDescription": "Extract a figure's vector geometry and text labels from a PDF page (for Live Doc VIZ authoring).",
+        "modelDescription": "Extracts a figure's vector geometry (SVG-path primitives) and text labels from a PDF page, for authoring and debugging Makerchip Live Doc `\\viz_js` code. Runs the SAME `this.global.pdf.extractFigure` that Live Doc code uses at runtime, INSIDE an open Makerchip IDE panel, so the returned coordinates, labels, cluster selection, figure bbox and coordinate transforms match EXACTLY what a VIZ overlay will see (no drift). Requires an open Makerchip panel; does NOT require a compiled design. Use this to inspect a PDF before writing Live Doc overlays: find label positions to anchor to, choose a `select` mode / cluster index, and read the coordinate `transforms`. Returns the ExtractResult JSON `{primitives, labels, space, figure, bbox, page, transforms, meta}`; SVG path `d` strings are omitted by default (set includePaths=true to include them). No copy of the figure is produced — geometry is re-derived from the referenced PDF. See the Live Doc API skill/docs for the full authoring API (`extractFigure`, `toFabric`, `buildFigure`).",
+        "tags": [
+          "makerchip",
+          "viz",
+          "live-doc",
+          "pdf",
+          "figure",
+          "extract",
+          "inspect"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "source": {
+              "type": "string",
+              "description": "PDF source: a URL to the PDF, reachable from the Makerchip IDE (resolved through its CORS proxy, like \\viz_js code)."
+            },
+            "page": {
+              "type": "number",
+              "description": "1-based page number. Default: 1."
+            },
+            "select": {
+              "type": "object",
+              "description": "Figure-selection descriptor. Modes: {mode:\"largest\"} (default, densest cluster); {mode:\"cluster\", index} (nth-densest, 0-based); {mode:\"clusterAt\", at:[x,y], space} (cluster at/nearest a point); {mode:\"region\", rect:[x0,y0,x1,y1], space} (explicit crop); {mode:\"all\"} (whole page). `space` for at/rect is \"pdf\" (default), \"device\", or \"norm\"."
+            },
+            "gap": {
+              "type": "number",
+              "description": "Cluster-join distance in device px. Default: 12."
+            },
+            "space": {
+              "type": "string",
+              "enum": ["figure", "device", "pdf"],
+              "description": "Output coordinate space. Default: \"figure\" (figure top-left at origin)."
+            },
+            "text": {
+              "type": "string",
+              "enum": ["labels", "all", "none"],
+              "description": "Which text to return: \"labels\" (default, inside the figure), \"all\", or \"none\"."
+            },
+            "clip": {
+              "type": ["boolean", "number"],
+              "description": "Clip primitives to the figure bounds: true (pad 4px), a number (explicit pad px), or omit for no clip."
+            },
+            "includePaths": {
+              "type": "boolean",
+              "description": "Include the SVG path `d` string on each primitive. Default false (omitted to keep the result compact). Set true only if you need the exact vector paths.",
+              "default": false
+            },
+            "panelName": {
+              "type": "string",
+              "description": "Optional panel name to target. Default: `default`."
+            }
+          },
+          "required": ["source"]
+        }
+      },
+      {
         "name": "makerchip_get_layout_state",
         "displayName": "Get IDE Layout State",
         "toolReferenceName": "makerchipGetLayoutState",

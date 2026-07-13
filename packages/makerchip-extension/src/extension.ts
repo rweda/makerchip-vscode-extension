@@ -38,7 +38,10 @@ const READY_TIMEOUT_MS = 30_000;
 const panels = new Map<string, vscode.WebviewPanel>();
 const panelReadyPromises = new Map<string, Promise<void>>();
 const pendingCompiles = new Map<string, string>(); // panelKey -> source code while awaiting an ID
-const pendingIdeResults = new Map<string, {resolve: (result: any) => void, reject: (error: Error) => void}>(); // requestId -> promise callbacks
+// In-flight callIdeMethodWithResult calls, keyed by requestId. Each entry holds the
+// resolve/reject of the promise handed back to the caller; the matching 'ideResult'/
+// 'ideError' message (or a timeout) settles and removes it. See callIdeMethodWithResult.
+const pendingIdeResults = new Map<string, {resolve: (result: any) => void, reject: (error: Error) => void}>();
 let panelCounter = 1;
 let requestCounter = 0;
 let statusBarItem: vscode.StatusBarItem;
@@ -83,8 +86,9 @@ async function ensurePanelReady(name?: string, createIfNeeded: boolean = false):
  * @param args Arguments to pass to the method
  * @param panelName Optional panel name to target. Defaults to 'default'.
  * @param createIfNeeded If true, creates panel if it doesn't exist. Default false.
+ * @param requestId Optional request ID; when provided, the IDE will echo it back in its reply.
  */
-export async function callIDE(method: string, args?: any[], panelName?: string, createIfNeeded: boolean = false): Promise<void> {
+export async function callIDE(method: string, args?: any[], panelName?: string, createIfNeeded: boolean = false, requestId?: string): Promise<void> {
   const name = panelName || 'default';
   await ensurePanelReady(name, createIfNeeded);
   const panel = panels.get(name);
@@ -97,11 +101,9 @@ export async function callIDE(method: string, args?: any[], panelName?: string, 
     pendingCompiles.set(name, args[0]);
   }
   
-  panel.webview.postMessage({ 
-    type: 'ide', 
-    method, 
-    args: args || []
-  });
+  const message: Record<string, any> = { type: 'ide', method, args: args || [] };
+  if (requestId !== undefined) { message.requestId = requestId; }
+  panel.webview.postMessage(message);
 }
 
 /**
@@ -282,26 +284,25 @@ export function activate(ctx: vscode.ExtensionContext) {
   );
 
   // INVOKE IDE METHOD AND RETURN RESULT (used by tools that need return values)
+  //
+  // The webview bridge is fire-and-forget (postMessage), so obtaining a return value
+  // requires correlating a reply with its request. We do that with a unique requestId:
+  //   1. Register a promise in `pendingIdeResults` keyed by requestId, BEFORE posting,
+  //      so a fast reply can never arrive before its handler entry exists.
+  //   2. Post the method call via callIDE with that requestId (the webview echoes it back).
+  //   3. The webview runs the IDE method and posts an 'ideResult' / 'ideError' carrying the
+  //      same requestId; the onDidReceiveMessage handler below looks the entry up and
+  //      resolves / rejects this promise.
+  //   4. A timeout rejects and removes the entry if no reply arrives, so a lost or hung
+  //      reply neither leaks a map entry nor hangs the caller forever.
   context.subscriptions.push(
     vscode.commands.registerCommand('makerchip.callIdeMethodWithResult', async (method: string, args: any[] = [], panelName?: string, createIfNeeded: boolean = false): Promise<any> => {
-      const name = panelName || 'default';
-      //log(`[callIdeMethodWithResult] Calling '${method}' on panel '${name}' with args:`, args);
-      
-      await ensurePanelReady(name, createIfNeeded);
-      const panel = panels.get(name);
-      if (!panel) {
-        console.error(`[callIdeMethodWithResult] Panel '${name}' not found`);
-        throw new Error(`Panel '${name}' not found`);
-      }
-      
-      // Generate unique request ID
       const requestId = `req_${++requestCounter}`;
-      
-      // Create promise that will be resolved when we get the result
       const resultPromise = new Promise<any>((resolve, reject) => {
+        // Step 1: register the callbacks before the call is posted (step 2 below) so the
+        // reply handler (step 3) is guaranteed to find this entry.
         pendingIdeResults.set(requestId, { resolve, reject });
-        
-        // Set timeout to reject after 10 seconds
+        // Step 4: safety net — if no reply arrives, reject and unregister.
         setTimeout(() => {
           if (pendingIdeResults.has(requestId)) {
             pendingIdeResults.delete(requestId);
@@ -310,15 +311,12 @@ export function activate(ctx: vscode.ExtensionContext) {
           }
         }, 10000);
       });
-      
-      // Send message with request ID
-      panel.webview.postMessage({ 
-        type: 'ide', 
-        method, 
-        args: args || [],
-        requestId
-      });
-      
+
+      // Step 2: post the call. callIDE is the single posting site (it also tracks compile
+      // source); the requestId travels with the message for the webview to echo back.
+      await callIDE(method, args, panelName, createIfNeeded, requestId);
+
+      // Settled later by the 'ideResult'/'ideError' handler (step 3) or the timeout (step 4).
       return resultPromise;
     })
   );
@@ -524,15 +522,14 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string): Promise<void>
       }
       
       if (msg.type === 'ideResult') {
-        //log(`[ideResult] Received:`, { method: msg.method, requestId: msg.requestId, hasResult: !!msg.result });
-        
-        // Check if this is a response to a pending request
+        // Step 3 of callIdeMethodWithResult (success): match this reply to the promise registered by
+        // callIdeMethodWithResult via its requestId, then resolve and unregister it.
         if (msg.requestId && pendingIdeResults.has(msg.requestId)) {
-          //log(`[ideResult] Resolving pending request: ${msg.requestId}`);
           const { resolve: resolveResult } = pendingIdeResults.get(msg.requestId)!;
           pendingIdeResults.delete(msg.requestId);
           resolveResult(msg.result);
         } else if (msg.requestId) {
+          // No matching entry: the request already timed out (step 4) or was never registered.
           console.warn(`[ideResult] Received result for unknown request ID: ${msg.requestId}`);
         }
         // Note: the cache entry for a compile is initialized from the server's
@@ -541,14 +538,13 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string): Promise<void>
       
       if (msg.type === 'ideError') {
         console.error(`[ideError] ${msg.method}: ${msg.error}`);
-        
-        // Check if this is a response to a pending request
+        // Step 3 of callIdeMethodWithResult (failure): mirror the ideResult path — match by requestId and reject.
         if (msg.requestId && pendingIdeResults.has(msg.requestId)) {
-          //log(`[ideError] Rejecting pending request: ${msg.requestId}`);
           const { reject } = pendingIdeResults.get(msg.requestId)!;
           pendingIdeResults.delete(msg.requestId);
           reject(new Error(msg.error));
         } else if (msg.requestId) {
+          // No matching entry: the request already timed out (step 4) or was never registered.
           console.warn(`[ideError] Received error for unknown request ID: ${msg.requestId}`);
         }
       }

@@ -279,6 +279,8 @@ import(`${serverUrl}/dist/makerchip-plugin.js`).then((module: any) => {
 
     // Resolved at the end of kickoffRestore(). IdePlugin holds the splash screen until
     // onReady() returns this promise; it also gates extension-issued 'ide' commands.
+    // These should be gated anyway by `callIDE()`'s use of `ensurePanelReady()`, so
+    // this is belt-and-suspenders.
     private _resolveRestoreGate!: () => void;
     readonly restoreGate = new Promise<void>(r => { this._resolveRestoreGate = r; });
 

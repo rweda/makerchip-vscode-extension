@@ -347,6 +347,142 @@ export class GetVizImageTool implements vscode.LanguageModelTool<GetVizImageInpu
   }
 }
 
+interface ExtractPdfFigureInput {
+  /** PDF source: a URL string (resolved through the IDE's CORS proxy, like \viz_js code). */
+  source: string;
+  /** 1-based page number (default: 1). */
+  page?: number;
+  /**
+   * Figure-selection descriptor. One of:
+   *   {mode:"largest"}                              densest cluster (default)
+   *   {mode:"cluster", index}                       nth-densest cluster (0-based)
+   *   {mode:"clusterAt", at:[x,y], space}           cluster at/nearest a point
+   *   {mode:"region", rect:[x0,y0,x1,y1], space}    explicit crop rectangle
+   *   {mode:"all"}                                  whole page
+   * `space` (for at/rect) is "pdf" (default), "device", or "norm".
+   */
+  select?: any;
+  /** Cluster-join distance in device px (default: 12). */
+  gap?: number;
+  /** Output coordinate space: "figure" (default), "device", or "pdf". */
+  space?: 'figure' | 'device' | 'pdf';
+  /** Which text to return: "labels" (default, inside the figure), "all", or "none". */
+  text?: 'labels' | 'all' | 'none';
+  /** Clip primitives to the figure bounds: true (pad 4px), a number (explicit pad), or omit for no clip. */
+  clip?: boolean | number;
+  /** Include the SVG path `d` string on each primitive. Default false (omitted to keep the result compact). */
+  includePaths?: boolean;
+  /** Optional panel name to target. If not provided, uses the default panel. */
+  panelName?: string;
+}
+
+/**
+ * Language Model tool that extracts a figure's vector geometry + text labels from a PDF page.
+ *
+ * Runs the same PdfExtractor.extractFigure used by \viz_js Live Doc code, inside the IDE, so the
+ * returned coordinates/labels/transforms match exactly what a VIZ overlay will see. Use it to
+ * inspect a PDF before writing Live Doc VIZ code (find label positions to anchor overlays, choose
+ * a select mode / cluster index, read the figure bbox and coordinate transforms).
+ */
+export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdfFigureInput> {
+
+  async prepareInvocation(
+    options: vscode.LanguageModelToolInvocationPrepareOptions<ExtractPdfFigureInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.PreparedToolInvocation> {
+    return {
+      invocationMessage: `Extracting PDF figure geometry from ${options.input.source}...`
+    };
+  }
+
+  async invoke(
+    options: vscode.LanguageModelToolInvocationOptions<ExtractPdfFigureInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.LanguageModelToolResult> {
+    log('[ExtractPdfFigureTool] ========== TOOL INVOKED ==========');
+    try {
+      const { source, page, select, gap, space, text, clip, includePaths = false, panelName } = options.input;
+
+      if (!source) {
+        return new vscode.LanguageModelToolResult([
+          new vscode.LanguageModelTextPart('No PDF `source` provided. Pass a URL to a PDF (reachable from the Makerchip IDE).')
+        ]);
+      }
+
+      // Assemble extractFigure opts, omitting undefined fields (so extractFigure defaults apply).
+      const opts: Record<string, any> = {};
+      if (page !== undefined) { opts.page = page; }
+      if (select !== undefined) { opts.select = select; }
+      if (gap !== undefined) { opts.gap = gap; }
+      if (space !== undefined) { opts.space = space; }
+      if (text !== undefined) { opts.text = text; }
+      if (clip !== undefined) { opts.clip = clip; }
+
+      log('[ExtractPdfFigureTool] Calling extractPdfFigure with source/opts:', source, opts);
+      const result = await vscode.commands.executeCommand(
+        'makerchip.callIdeMethodWithResult',
+        'extractPdfFigure',
+        [source, opts],
+        panelName
+      ) as any;
+
+      if (!result) {
+        return new vscode.LanguageModelToolResult([
+          new vscode.LanguageModelTextPart(
+            'PDF extraction returned no result. Ensure a Makerchip panel is open (extraction runs inside the IDE) and the `source` URL is reachable.'
+          )
+        ]);
+      }
+
+      // Trim large SVG path `d` strings unless explicitly requested, to keep the result compact.
+      let payload = result;
+      if (!includePaths && Array.isArray(result.primitives)) {
+        payload = {
+          ...result,
+          primitives: result.primitives.map((p: any) => {
+            const rest = { ...p };
+            delete rest.d;
+            return rest;
+          })
+        };
+      }
+
+      const meta = result.meta || {};
+      const json = JSON.stringify(payload, null, 2);
+      const summary =
+        `Extracted PDF figure: ${result.primitives?.length ?? 0} primitives, ` +
+        `${result.labels?.length ?? 0} labels, ${meta.clusterCount ?? '?'} clusters, space="${result.space}".` +
+        (includePaths ? '' : ' (SVG path `d` strings omitted — set includePaths=true to include them.)') +
+        `\n\n\`\`\`json\n${json}\n\`\`\``;
+
+      log('[ExtractPdfFigureTool] Result received:', summary.length, 'chars');
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(summary)
+      ]);
+
+    } catch (error: any) {
+      log('[ExtractPdfFigureTool] ERROR:', error?.message);
+      if (error?.message?.includes('extractPdfFigure')) {
+        return new vscode.LanguageModelToolResult([
+          new vscode.LanguageModelTextPart(
+            'The extractPdfFigure IDE method is not available. This requires a Makerchip server with Live Doc support. Open a Makerchip panel connected to such a server and try again.'
+          )
+        ]);
+      }
+      if (error?.message?.includes('Panel') && error?.message?.includes('not found')) {
+        return new vscode.LanguageModelToolResult([
+          new vscode.LanguageModelTextPart(
+            'No Makerchip panel is open. PDF extraction runs inside the IDE. Open one first: Ctrl+Shift+P → "Makerchip: Open Panel".'
+          )
+        ]);
+      }
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(`Failed to extract PDF figure: ${error?.message || 'Unknown error'}`)
+      ]);
+    }
+  }
+}
+
 interface CaptureVideoInput {
   /** Starting cycle (inclusive) */
   startCyc: number;
@@ -1613,6 +1749,11 @@ export function registerMakerchipTool(context: vscode.ExtensionContext): void {
   const vizImageTool = vscode.lm.registerTool('makerchip_get_viz_image', new GetVizImageTool());
   log('VIZ image tool registered:', !!vizImageTool);
   context.subscriptions.push(vizImageTool);
+  
+  // Register the PDF figure extraction tool (Live Doc inspection)
+  const extractPdfTool = vscode.lm.registerTool('makerchip_extract_pdf_figure', new ExtractPdfFigureTool());
+  log('Extract PDF figure tool registered:', !!extractPdfTool);
+  context.subscriptions.push(extractPdfTool);
   
   // Register the VIZ video capture tool
   const captureVideoTool = vscode.lm.registerTool('makerchip_capture_video', new CaptureVideoTool());

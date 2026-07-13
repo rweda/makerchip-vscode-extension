@@ -86,6 +86,14 @@ Makerchip is also a teaching tool. And you have the ability to interact with the
 
 BE SURE TO TELL THE USER ALL ABOUT THE WONDERFUL THINGS YOU CAN DO TOGETHER IN MAKERCHIP.
 
+### Live Doc (PDF-driven VIZ)
+
+**Live Doc** extends VIZ so a `\viz_js` block can extract vector figures from a referenced PDF (a lecture slide, textbook page, or design spec) and overlay them with live simulation data — animating a static diagram to reflect circuit behavior. It's exposed to `\viz_js` code as `this.global.pdf` (`extractFigure`, `toFabric`, `buildFigure`).
+
+To **inspect a PDF** before writing overlays, use the `makerchip_extract_pdf_figure` tool. It runs the exact same `extractFigure` your code will use, inside an open Makerchip panel, and returns the figure's vector primitives, text labels, bounding box, and coordinate transforms — so the coordinates and pool indices you read match precisely what the running overlay sees. Use it to find anchor coordinates, choose a `select`/crop, and discover the label/primitive indices you'll name in `buildFigure`.
+
+**The complete Live Doc API is documented in the `live-doc` skill** (`.vscode-makerchip/.vscode/skills/live-doc.md`): source forms, `extractFigure` options, the `ExtractResult` shape, `toFabric`/`buildFigure`, named-element selectors, coordinate spaces, and the two rendering patterns. Read it whenever authoring or debugging Live Doc code.
+
 ### File Creation and Workspace Organization
 
 **Create TL-Verilog files in the appropriate workspace folder**, not as temporary buffers. This provides better user experience:

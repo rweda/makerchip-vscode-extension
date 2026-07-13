@@ -451,7 +451,7 @@ async function installSkill(context: vscode.ExtensionContext, log: (message: str
  */
 async function generateApiFeaturesSkill(targetDir: string, log: (message: string) => void): Promise<void> {
   // Path to built docs in Makerchip-public repository
-  const apiDocsPath = path.join(RESOURCES_DIR, 'Makerchip-public', 'docs', 'plugin_api', 'API_features.md');
+  const apiDocsPath = path.join(RESOURCES_DIR, 'Makerchip-public', 'docs', 'plugin_api', 'Plugin_API.md');
   
   try {
     // Read source content
