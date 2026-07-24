@@ -343,8 +343,9 @@ export async function completeFile(id: string, fileName: string): Promise<void> 
     // Mark this file as complete
     metadata.fileComplete[fileName as ResultFileName] = true;
 
-    // Determine pass/fail from SandPiper logs
-    if (fileName === 'stdall') {
+    // Determine pass/fail from the Verilator simulation log (make.out), where the
+    // `Simulation PASSED!!!`/`FAILED!!!` marker is written (not in the SandPiper log).
+    if (fileName === 'make.out') {
       const passed = await detectPassFail(id, fileName);
       metadata.passed = passed;
       await updateHistoryStatus(id, passed);
@@ -357,8 +358,8 @@ export async function completeFile(id: string, fileName: string): Promise<void> 
 }
 
 /**
- * Detect pass/fail status from compilation log
- * Checks the last ~500 chars of the specified log file for PASSED/FAILED markers
+ * Detect pass/fail status from the simulation log.
+ * Checks the last ~500 chars of the specified log file for PASSED/FAILED markers.
  */
 async function detectPassFail(id: string, fileName: string): Promise<boolean | undefined> {
   try {

@@ -101,8 +101,18 @@ export class IdeFunctionCallTool implements vscode.LanguageModelTool<IdeFunction
 }
 
 /**
- * Build a compact, LLM-friendly status summary for a compilation from its cached
- * metadata (and, on failure, a tail of the compiler/simulator logs). Lets tools
+ * Combined character budget for the log head surfaced on failure. Sized at
+ * roughly 3x a typical clean compile log (~3.5 KB) so the combined SandPiper +
+ * Verilator head almost always reaches the first real error (the root cause)
+ * even when the SandPiper log is HTML-wrapped. The head (not tail) is preferred
+ * because later errors usually ripple from the first.
+ */
+const LOG_HEAD_CHARS = 10000;
+
+/**
+ * Report a compilation's status from its cached metadata. The metadata JSON is
+ * emitted verbatim (every field, zero interpretation to maintain), and on failure
+ * the head of the combined compiler/simulator log is appended as text. Lets tools
  * return compile status directly instead of agents reading `metadata.json` and
  * logs via the shell.
  */
@@ -113,52 +123,51 @@ async function formatCompileStatus(compileId: string, timedOut: boolean): Promis
     return `**Compile ID:** ${compileId}\nNo metadata found yet at ${cacheDir}.`;
   }
 
-  const sandpiper = metadata.exitStatus?.sandpiper;
-  const verilator = metadata.exitStatus?.verilator;
-  const fileErrors = metadata.fileError ? Object.entries(metadata.fileError) : [];
-
   const lines: string[] = [];
   lines.push(`**Compile ID:** ${compileId}`);
-  lines.push(
-    `**Complete:** ${metadata.complete ? 'yes' : `no (still running${timedOut ? '; wait timed out' : ''})`}`
-  );
-  if (metadata.passed !== undefined) {
-    lines.push(`**Simulation:** ${metadata.passed ? 'PASSED' : 'FAILED'}`);
+  if (timedOut && !metadata.complete) {
+    lines.push(`_Wait timed out; compilation is still running._`);
   }
-  if (sandpiper !== undefined) {
-    lines.push(`**SandPiper exit:** ${sandpiper}${sandpiper === 0 ? ' (ok)' : ' (error)'}`);
-  }
-  if (verilator !== undefined) {
-    lines.push(`**Verilator exit:** ${verilator}${verilator === 0 ? ' (ok)' : ' (error)'}`);
-  }
-  if (metadata.error) {
-    const reason = metadata.error.reason ?? metadata.error.message;
-    lines.push(
-      `**Error:** ${metadata.error.type}${metadata.error.timeout ? ' (timeout)' : ''}${reason ? ` – ${reason}` : ''}`
-    );
-  }
-  if (fileErrors.length > 0) {
-    lines.push(`**File errors:** ${fileErrors.map(([f, e]) => `${f} (${e.type})`).join(', ')}`);
-  }
+  lines.push(`\n**Metadata:**\n\`\`\`json\n${JSON.stringify(metadata, null, 2)}\n\`\`\``);
 
-  // Surface the relevant log tail on any failure so it doesn't have to be fetched
-  // separately (agents historically skipped checking the log).
+  // On failure, surface the head of the combined compiler/simulator log so it
+  // doesn't have to be fetched separately (agents historically skipped the log).
+  const sandpiper = metadata.exitStatus?.sandpiper;
+  const verilator = metadata.exitStatus?.verilator;
   const failed =
     metadata.passed === false ||
     (sandpiper !== undefined && sandpiper !== 0) ||
     (verilator !== undefined && verilator !== 0) ||
     !!metadata.error ||
-    fileErrors.length > 0;
+    (metadata.fileError && Object.keys(metadata.fileError).length > 0);
   if (failed) {
-    const sandpiperLog = await compileCache.readResultFileHead(compileId, 'stdall');
-    if (sandpiperLog && sandpiperLog.trim()) {
-      lines.push(`\n**SandPiper log (from start):**\n\`\`\`\n${sandpiperLog.trim()}\n\`\`\``);
-    }
-    if (verilator !== undefined && verilator !== 0) {
-      const verilatorLog = await compileCache.readResultFileHead(compileId, 'make.out');
-      if (verilatorLog && verilatorLog.trim()) {
-        lines.push(`\n**Verilator log (from start):**\n\`\`\`\n${verilatorLog.trim()}\n\`\`\``);
+    const segments: string[] = [];
+    // Skip the SandPiper log only when SandPiper succeeded (exit 0): its
+    // INFORM/STATS output is just noise then, and the meaningful failure is
+    // downstream in Verilator. When SandPiper failed, its log holds the root
+    // cause, so lead with it.
+    if (sandpiper === undefined || sandpiper !== 0) {
+      const sandpiperLog = await compileCache.readResultFileHead(compileId, 'stdall', LOG_HEAD_CHARS);
+      if (sandpiperLog && sandpiperLog.trim()) {
+        segments.push(`=== SandPiper (TL-Verilog compiler) ===\n${sandpiperLog.trim()}`);
       }
+    }
+    // Include the Verilator log when Verilator itself errored or the simulation
+    // failed (its build-command noise isn't worth showing otherwise).
+    if ((verilator !== undefined && verilator !== 0) || metadata.passed === false) {
+      const verilatorLog = await compileCache.readResultFileHead(compileId, 'make.out', LOG_HEAD_CHARS);
+      if (verilatorLog && verilatorLog.trim()) {
+        segments.push(`=== Verilator (C++ simulator) ===\n${verilatorLog.trim()}`);
+      }
+    }
+    if (segments.length > 0) {
+      // Apply a single combined cap across both segments (approximate — the
+      // per-segment reads are already bounded, so this only trims the join).
+      let combined = segments.join('\n\n');
+      if (combined.length > LOG_HEAD_CHARS) {
+        combined = `${combined.slice(0, LOG_HEAD_CHARS)}\n…(truncated)`;
+      }
+      lines.push(`\n**Compile log (from start):**\n\`\`\`\n${combined}\n\`\`\``);
     }
   }
 
