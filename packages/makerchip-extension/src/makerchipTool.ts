@@ -486,7 +486,7 @@ export class GetVizImageTool implements vscode.LanguageModelTool<GetVizImageInpu
           // Use provided path
           savedPath = saveToFile;
         } else {
-          // Auto-generate path in /tmp
+          // Auto-generate path in /tmp (timestamped for uniqueness)
           const timestamp = Date.now();
           const filename = `makerchip-viz-${timestamp}.${format}`;
           savedPath = path.join(os.tmpdir(), filename);
@@ -504,9 +504,9 @@ export class GetVizImageTool implements vscode.LanguageModelTool<GetVizImageInpu
         // Use proposed API to return image directly
         log('[GetVizImageTool] Using proposed API (LanguageModelDataPart) to return image directly');
         try {
-          const message = savedPath 
-            ? `Successfully captured VIZ visualization${panelInfo} as ${format.toUpperCase()} image (${Math.round(imageBytes.length / 1024)}KB).\nSaved to: ${savedPath}`
-            : `Successfully captured VIZ visualization${panelInfo} as ${format.toUpperCase()} image (${Math.round(imageBytes.length / 1024)}KB).`;
+          const message =
+             `Successfully captured VIZ visualization${panelInfo} as ${format.toUpperCase()} image (${Math.round(imageBytes.length / 1024)}KB).`
+               + (savedPath ? `\nSaved to: ${savedPath}` : '');
           
           return new LanguageModelToolResult2([
             new vscode.LanguageModelTextPart(message),
@@ -833,7 +833,7 @@ export class CaptureVideoTool implements vscode.LanguageModelTool<CaptureVideoIn
           // Use provided path
           savedPath = saveToFile;
         } else {
-          // Auto-generate path (timestamped so repeated captures don't overwrite)
+          // Auto-generate path (timestamped for uniqueness)
           const timestamp = Date.now();
           const filename = `makerchip-viz-${startCyc}-${endCyc}-${timestamp}.${ext}`;
           savedPath = path.join(os.tmpdir(), filename);
