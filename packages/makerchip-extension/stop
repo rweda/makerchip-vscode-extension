@@ -1,0 +1,48 @@
+#!/bin/bash
+# Stop a Makerchip tunnel created by ./launch :port.
+#
+# Convenience proxy for the per-port teardown script ACTIVE_TUNNELS/stop_<port>.sh
+# (which ./launch writes for every tunnel). Stops cloudflared and removes the
+# tunnel's state.
+#
+# Usage:
+#   ./stop 8800     # stop the tunnel on port 8800
+#   ./stop :8800    # same (leading ':' accepted for symmetry with ./launch)
+
+set -e
+
+# Resolve the real script location so this works via a symlink (e.g. a top-level
+# ./stop symlink pointing here).
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+TUNNEL_STATE_DIR="$SCRIPT_DIR/ACTIVE_TUNNELS"
+
+ARG="${1:-}"
+PORT="${ARG#:}"  # accept both "8800" and ":8800"
+
+if [ -z "$PORT" ]; then
+  echo "Usage: $(basename "$0") <port>" >&2
+  echo "" >&2
+  echo "Active tunnels:" >&2
+  shopt -s nullglob
+  found=false
+  for f in "$TUNNEL_STATE_DIR"/stop_*.sh; do
+    p="$(basename "$f")"; p="${p#stop_}"; p="${p%.sh}"
+    echo "  $p" >&2
+    found=true
+  done
+  $found || echo "  (none)" >&2
+  exit 1
+fi
+
+if ! [[ "$PORT" =~ ^[0-9]+$ ]]; then
+  echo "Error: port must be numeric (got: $PORT)" >&2
+  exit 1
+fi
+
+STOP_SCRIPT="$TUNNEL_STATE_DIR/stop_$PORT.sh"
+if [ ! -f "$STOP_SCRIPT" ]; then
+  echo "Error: no active tunnel found for port $PORT ($STOP_SCRIPT missing)." >&2
+  exit 1
+fi
+
+exec "$STOP_SCRIPT"

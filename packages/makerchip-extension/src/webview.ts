@@ -94,6 +94,16 @@ interface IdeResultMessage {
   requestId?: string;  // Include request ID if present
 }
 
+// Envelope used to ferry a Blob result across the webview→extension postMessage
+// boundary. VS Code serializes webview messages as plain data, so a Blob would
+// arrive on the extension side stripped of its prototype (no .arrayBuffer()).
+// We convert Blobs to this base64 envelope here and reconstruct a Buffer there.
+interface SerializedBlob {
+  __makerchipBlob: true;
+  base64: string;
+  mimeType: string;
+}
+
 interface IdeErrorMessage {
   type: 'ideError';
   method: string;
@@ -200,8 +210,11 @@ interface RestoreDataMessage {
   available: boolean;
   files?: Partial<Record<CompileFileName, string>>;
   exitStatus?: { sandpiper?: number; verilator?: number };
-  /** Original source for recompile fallback when results were pruned. */
-  source?: string;
+  /**
+   * Original source for recompile fallback when results were pruned. A String for
+   * single-file compiles, or a `{files, top}` payload for multi-file compiles.
+   */
+  source?: string | { files: Record<string, string>; top: string };
 }
 
 type ToExtensionMessage = IdeResultMessage | IdeErrorMessage | ReadyMessage | CompileFileChunkMessage | CompileStartMessage | CompileErrorMessage | CompileExitStatusMessage | CompileDeniedMessage | NotificationMessage | InitErrorMessage | RestoreRequestMessage;
@@ -217,6 +230,25 @@ function isVersionCompatible(actual: string, expected: string): boolean {
   const actualMajor = parseInt(actual.split('.')[0], 10);
   const expectedMajor = parseInt(expected.replace('^', '').split('.')[0], 10);
   return actualMajor === expectedMajor;
+}
+
+// Serialize an IDE method result so it survives the webview→extension postMessage
+// boundary. Blobs (e.g. captureVideo output) lose their prototype during
+// serialization, so convert them to a base64 SerializedBlob envelope that the
+// extension reconstructs into a Buffer. All other values pass through unchanged.
+async function serializeIdeResult(result: any): Promise<any> {
+  if (result instanceof Blob) {
+    const bytes = new Uint8Array(await result.arrayBuffer());
+    // Build the binary string in chunks to avoid blowing the call stack on
+    // large videos when spreading into String.fromCharCode.
+    let binary = '';
+    const chunkSize = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunkSize)));
+    }
+    return { __makerchipBlob: true, base64: btoa(binary), mimeType: result.type } as SerializedBlob;
+  }
+  return result;
 }
 
 // Convenience functions for sending notifications to extension
@@ -631,7 +663,8 @@ import(`${serverUrl}/dist/makerchip-plugin.js`).then((module: any) => {
           if (method === 'compile' && typeof result === 'string') { ide.currentCompileId = result; }
           ide.schedulePersist();
           if (result !== undefined || requestId !== undefined) {
-            vscode.postMessage({ type: 'ideResult', method, result, requestId } as IdeResultMessage);
+            const serialized = await serializeIdeResult(result);
+            vscode.postMessage({ type: 'ideResult', method, result: serialized, requestId } as IdeResultMessage);
           }
         } catch (error: any) {
           console.error('[webview] Error calling IDE method:', method, error);

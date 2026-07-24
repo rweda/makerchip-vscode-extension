@@ -127,7 +127,7 @@ The `~/.vscode-makerchip/tmp/` directory is specifically for temporary files and
 
 1. First, you may need to check which Makerchip IDE panels are open using the `makerchip_list_panels`.
 2. Code TL-Verilog (or old-school Verilog, if specifically requested) with a testbench, VIZ, and assertions [integrated formal verification to come].
-3. Use the `makerchip_compile` tool to, if necessary, open a new Makerchip IDE panel (webview), and initiate compilation/simulation.
+3. Use the `makerchip_compile` tool to, if necessary, open a new Makerchip IDE panel (webview), and initiate compilation/simulation. Name it to avoid conflicts with other ongoing work.
 4. Compilation and simulation run asynchronously. Monitor compilation status and logs.
 5. Read logs first to identify compilation and simulation issues. Examine trace data, VIZ visualizations, etc. as needed to debug simulations.
 6. Explain concepts and issues to the user using VIZ and by controlling the IDE layout, playback, signal highlighting,etc.

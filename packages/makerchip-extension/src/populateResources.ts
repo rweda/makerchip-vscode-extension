@@ -86,6 +86,9 @@ export async function populateResources(context: vscode.ExtensionContext, output
   // Create version metadata
   await createVersionMetadata();
 
+  // Mark reference data read-only to prevent accidental edits (repos are now clean)
+  await makeResourcesReadOnly(log);
+
   // Install skill
   await installSkill(context, log);
 
@@ -254,6 +257,61 @@ async function gitOperation(repoPath: string, repoUrl: string, isUpdate: boolean
       resolve(false);
     });
   });
+}
+
+/**
+ * Mark all reference-data files under RESOURCES_DIR read-only to prevent accidental
+ * edits. Run once as an isolated pass after all repositories are cloned/updated.
+ *
+ * Only the write bits are cleared; the executable bit is preserved, so git's view
+ * of each tree is unchanged (git tracks the exec bit, not the read/write bits) and
+ * `git status` stays clean. Directories are left writable and the `.git` directory
+ * is skipped, so git can still fast-forward on the next update: it updates tracked
+ * files by unlinking + recreating them, which needs directory (not file) write
+ * permission. `.version.json` is skipped because it is rewritten on every run.
+ */
+async function makeResourcesReadOnly(log: (message: string) => void): Promise<void> {
+  log('🔒 Marking reference data read-only...');
+
+  const walk = async (dir: string): Promise<void> => {
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.name === '.git') {
+        continue;
+      }
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(fullPath);
+      } else if (entry.isFile()) {
+        try {
+          const { mode } = await fs.stat(fullPath);
+          await fs.chmod(fullPath, mode & ~0o222);
+        } catch {
+          // Ignore individual file failures (e.g. transient/removed files)
+        }
+      }
+    }
+  };
+
+  try {
+    // Skip the top-level .version.json (rewritten every run); lock repo trees only.
+    const entries = await fs.readdir(RESOURCES_DIR, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isDirectory() && entry.name !== '.git') {
+        await walk(path.join(RESOURCES_DIR, entry.name));
+      }
+    }
+    log('  ✓ Reference data is read-only');
+  } catch (error) {
+    log(`  Warning: Failed to set read-only permissions: ${error}`);
+  }
+
+  log('');
 }
 
 /**

@@ -7,12 +7,32 @@ import * as compileCache from './compileCache';
 import { MAKERCHIP_DIR } from './populateResources';
 
 interface MakerchipToolInput {
-  /** Optional file path to open and compile. If not provided, uses the active editor. */
+  /**
+   * Optional file path to open and compile. Read from disk if provided (not the editor buffer,
+   * so be sure to save the editor buffer to disk first). If not provided, uses the active editor buffer.
+   */
   filePath?: string;
   /** Optional TL-Verilog code to compile. If provided, creates a new unsaved file with this code. */
   code?: string;
+  /**
+   * Optional paths to additional TL-Verilog source files to compile alongside the top file
+   * (e.g. files pulled in via `m4_include_lib`). Each is read from disk (so be sure to save first)
+   * and made available to the compiler under its basename, so `m4_include_lib(['./lib.tlv'])`
+   * in the top file resolves. The basenames must be unique and none may be `top.tlv` (reserved
+   * for the top file).
+   */
+  additionalFiles?: string[];
   /** Optional panel name to target. If not provided, uses the default panel. */
   panelName?: string;
+  /**
+   * Seconds to wait (in-process) for the compilation to complete before returning.
+   * When > 0 (default 30), the tool blocks up to this long and returns a status
+   * summary (exit codes, pass/fail, and a log excerpt on failure) so agents don't
+   * need to poll `metadata.json` via the shell. If the compile is still running when
+   * the timeout elapses, use `makerchip_wait_compile` with the returned compile ID to
+   * keep waiting. Set to 0 to return immediately with just the compile ID.
+   */
+  waitSeconds?: number;
 }
 
 interface IdeFunctionCallInput {
@@ -81,6 +101,77 @@ export class IdeFunctionCallTool implements vscode.LanguageModelTool<IdeFunction
 }
 
 /**
+ * Build a compact, LLM-friendly status summary for a compilation from its cached
+ * metadata (and, on failure, a tail of the compiler/simulator logs). Lets tools
+ * return compile status directly instead of agents reading `metadata.json` and
+ * logs via the shell.
+ */
+async function formatCompileStatus(compileId: string, timedOut: boolean): Promise<string> {
+  const metadata = await compileCache.loadMetadata(compileId);
+  const cacheDir = compileCache.getCompileDir(compileId);
+  if (!metadata) {
+    return `**Compile ID:** ${compileId}\nNo metadata found yet at ${cacheDir}.`;
+  }
+
+  const sandpiper = metadata.exitStatus?.sandpiper;
+  const verilator = metadata.exitStatus?.verilator;
+  const fileErrors = metadata.fileError ? Object.entries(metadata.fileError) : [];
+
+  const lines: string[] = [];
+  lines.push(`**Compile ID:** ${compileId}`);
+  lines.push(
+    `**Complete:** ${metadata.complete ? 'yes' : `no (still running${timedOut ? '; wait timed out' : ''})`}`
+  );
+  if (metadata.passed !== undefined) {
+    lines.push(`**Simulation:** ${metadata.passed ? 'PASSED' : 'FAILED'}`);
+  }
+  if (sandpiper !== undefined) {
+    lines.push(`**SandPiper exit:** ${sandpiper}${sandpiper === 0 ? ' (ok)' : ' (error)'}`);
+  }
+  if (verilator !== undefined) {
+    lines.push(`**Verilator exit:** ${verilator}${verilator === 0 ? ' (ok)' : ' (error)'}`);
+  }
+  if (metadata.error) {
+    const reason = metadata.error.reason ?? metadata.error.message;
+    lines.push(
+      `**Error:** ${metadata.error.type}${metadata.error.timeout ? ' (timeout)' : ''}${reason ? ` – ${reason}` : ''}`
+    );
+  }
+  if (fileErrors.length > 0) {
+    lines.push(`**File errors:** ${fileErrors.map(([f, e]) => `${f} (${e.type})`).join(', ')}`);
+  }
+
+  // Surface the relevant log tail on any failure so it doesn't have to be fetched
+  // separately (agents historically skipped checking the log).
+  const failed =
+    metadata.passed === false ||
+    (sandpiper !== undefined && sandpiper !== 0) ||
+    (verilator !== undefined && verilator !== 0) ||
+    !!metadata.error ||
+    fileErrors.length > 0;
+  if (failed) {
+    const sandpiperLog = await compileCache.readResultFileHead(compileId, 'stdall');
+    if (sandpiperLog && sandpiperLog.trim()) {
+      lines.push(`\n**SandPiper log (from start):**\n\`\`\`\n${sandpiperLog.trim()}\n\`\`\``);
+    }
+    if (verilator !== undefined && verilator !== 0) {
+      const verilatorLog = await compileCache.readResultFileHead(compileId, 'make.out');
+      if (verilatorLog && verilatorLog.trim()) {
+        lines.push(`\n**Verilator log (from start):**\n\`\`\`\n${verilatorLog.trim()}\n\`\`\``);
+      }
+    }
+  }
+
+  lines.push(`\n**Cache dir:** ${cacheDir}`);
+  if (!metadata.complete) {
+    lines.push(
+      `\nCompilation is still running. Call \`makerchip_wait_compile\` with this compile ID to keep waiting.`
+    );
+  }
+  return lines.join('\n');
+}
+
+/**
  * Language Model tool that allows Copilot to launch Makerchip IDE
  * and compile TL-Verilog code.
  */
@@ -103,13 +194,17 @@ export class MakerchipTool implements vscode.LanguageModelTool<MakerchipToolInpu
 
   async invoke(
     options: vscode.LanguageModelToolInvocationOptions<MakerchipToolInput>,
-    _token: vscode.CancellationToken
+    token: vscode.CancellationToken
   ): Promise<vscode.LanguageModelToolResult> {
     try {
-      const { filePath, code, panelName } = options.input;
+      const { filePath, code, panelName, additionalFiles } = options.input;
       
-      // Determine if we should create a new panel (only if code/filePath provided)
-      const createIfNeeded = !!(code || filePath);
+      // Determine if we should create a new panel (only if code/filePath/files provided)
+      const createIfNeeded = !!(code || filePath || (additionalFiles && additionalFiles.length > 0));
+      
+      let sourceCode: string;
+      let fileName: string;
+      let staleBufferWarning = '';
       
       // If code is provided, create a new unsaved document with it
       if (code) {
@@ -118,28 +213,83 @@ export class MakerchipTool implements vscode.LanguageModelTool<MakerchipToolInpu
           language: 'tlverilog'
         });
         await vscode.window.showTextDocument(doc);
+        sourceCode = code;
+        fileName = 'example code';
       }
-      // If a specific file was requested, open it first
+      // If a specific file was requested, read it from disk. Reading directly from
+      // disk (rather than the editor buffer) avoids compiling a stale in-memory
+      // document when the file has been changed on disk but VS Code hasn't yet
+      // reloaded the cached TextDocument.
       else if (filePath) {
         const uri = vscode.Uri.file(filePath);
-        const doc = await vscode.workspace.openTextDocument(uri);
-        await vscode.window.showTextDocument(doc);
+        const bytes = await vscode.workspace.fs.readFile(uri);
+        sourceCode = Buffer.from(bytes).toString('utf-8');
+        fileName = path.basename(filePath);
+        
+        // Keep the editor display consistent with what we compile. If the file is
+        // already open with a stale but UNMODIFIED buffer, revert it to sync with
+        // disk. Never revert a dirty document (that would discard unsaved edits) —
+        // instead warn that the compiled disk content differs from the buffer.
+        const openDoc = vscode.workspace.textDocuments.find(
+          d => d.uri.toString() === uri.toString()
+        );
+        if (openDoc && openDoc.isDirty && openDoc.getText() !== sourceCode) {
+          staleBufferWarning =
+            `\n\n⚠️ Compiled the on-disk content of ${fileName}, but the open editor ` +
+            `has unsaved changes that were NOT compiled. Save the file to compile your edits.`;
+          await vscode.window.showTextDocument(openDoc);
+        } else if (openDoc && !openDoc.isDirty && openDoc.getText() !== sourceCode) {
+          await vscode.window.showTextDocument(openDoc);
+          try {
+            await vscode.commands.executeCommand('workbench.action.files.revert');
+          } catch {
+            // Best-effort display sync; compilation already uses fresh disk content.
+          }
+        } else {
+          const doc = await vscode.workspace.openTextDocument(uri);
+          await vscode.window.showTextDocument(doc);
+        }
+      }
+      // Otherwise compile the active editor's current content.
+      else {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+          return new vscode.LanguageModelToolResult([
+            new vscode.LanguageModelTextPart('No active file to compile. Please open a TL-Verilog (.tlv) file first.')
+          ]);
+        }
+        sourceCode = editor.document.getText();
+        fileName = path.basename(editor.document.fileName);
       }
       
-      // Check if there's an active editor
-      const editor = vscode.window.activeTextEditor;
-      if (!editor) {
-        return new vscode.LanguageModelToolResult([
-          new vscode.LanguageModelTextPart('No active file to compile. Please open a TL-Verilog (.tlv) file first.')
-        ]);
+      // Assemble the compile argument. With additionalFiles, build a multi-file
+      // {files, top} payload keyed by basename; the top file is keyed 'top.tlv'
+      // for inline code, otherwise by its own basename. Otherwise pass the single
+      // source string unchanged.
+      let compileArg: string | { files: Record<string, string>; top: string } = sourceCode;
+      let multiFileInfo = '';
+      if (additionalFiles && additionalFiles.length > 0) {
+        const topKey = code ? 'top.tlv' : fileName;
+        const files: Record<string, string> = { [topKey]: sourceCode };
+        for (const p of additionalFiles) {
+          const base = path.basename(p);
+          if (base === 'top.tlv') {
+            throw new Error(`Additional file name 'top.tlv' is reserved for the top file.`);
+          }
+          if (base === topKey || files[base] != null) {
+            throw new Error(`Duplicate compile file name '${base}'. File basenames must be unique.`);
+          }
+          const bytes = await vscode.workspace.fs.readFile(vscode.Uri.file(p));
+          files[base] = Buffer.from(bytes).toString('utf-8');
+        }
+        compileArg = { files, top: topKey };
+        multiFileInfo = ` (+${additionalFiles.length} additional file(s))`;
       }
       
-      // Get the code and invoke IDE with result to get compile ID
-      const sourceCode = editor.document.getText();
       const compileId = await vscode.commands.executeCommand<string>(
         'makerchip.callIdeMethodWithResult',
         'compile',
-        [sourceCode],
+        [compileArg],
         panelName,
         createIfNeeded
       );
@@ -151,20 +301,38 @@ export class MakerchipTool implements vscode.LanguageModelTool<MakerchipToolInpu
       }
       
       // Build non-blocking response message with compile ID and log path
-      const fileName = code ? 'example code' : path.basename(editor.document.fileName);
       const panelInfo = panelName ? ` in panel '${panelName}'` : '';
       const cacheDir = path.join(MAKERCHIP_DIR, 'compile-cache', compileId);
       const metadataPath = path.join(cacheDir, 'metadata.json');
       const stdallPath = path.join(cacheDir, 'stdall');
-      
-      let resultMessage = `Compilation started for ${fileName}${panelInfo}\n\n`;
-      resultMessage += `**Compile ID:** ${compileId}\n`;
-      resultMessage += `**Cache Directory:** ${cacheDir}\n`;
-      resultMessage += `\nCompilation is running asynchronously. To check status:\n`;
-      resultMessage += `1. Open metadata: ${metadataPath}\n`;
-      resultMessage += `2. Check for errors in stdall: ${stdallPath}\n`;
-      resultMessage += `3. Look for \`"complete": true\` and \`"passed": true/false\` in metadata\n`;
-      resultMessage += `\nThe Makerchip IDE panel shows live compilation results and visualizations.`;
+
+      const waitSeconds = options.input.waitSeconds ?? 30;
+
+      let resultMessage: string;
+      if (waitSeconds > 0) {
+        // Wait in-process for the compile to settle (no shell polling) and return
+        // a status summary directly.
+        const { timedOut } = await compileCache.waitForComplete(
+          compileId,
+          waitSeconds * 1000,
+          400,
+          token
+        );
+        resultMessage = `Compilation of ${fileName}${multiFileInfo}${panelInfo}\n\n`;
+        resultMessage += await formatCompileStatus(compileId, timedOut);
+      } else {
+        // Immediate return (waitSeconds: 0): report the compile ID and cache paths.
+        resultMessage = `Compilation started for ${fileName}${multiFileInfo}${panelInfo}\n\n`;
+        resultMessage += `**Compile ID:** ${compileId}\n`;
+        resultMessage += `**Cache Directory:** ${cacheDir}\n`;
+        resultMessage += `\nCompilation is running asynchronously. To check status:\n`;
+        resultMessage += `1. Call \`makerchip_wait_compile\` with this compile ID (preferred), or\n`;
+        resultMessage += `2. Open metadata: ${metadataPath}\n`;
+        resultMessage += `3. Check for errors in stdall: ${stdallPath}\n`;
+        resultMessage += `\nLook for \`"complete": true\` and \`"passed": true/false\` in metadata.`;
+      }
+      resultMessage += `\n\nThe Makerchip IDE panel shows live compilation results and visualizations.`;
+      resultMessage += staleBufferWarning;
       
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(resultMessage)
@@ -175,6 +343,62 @@ export class MakerchipTool implements vscode.LanguageModelTool<MakerchipToolInpu
         new vscode.LanguageModelTextPart(
           `Failed to launch Makerchip: ${error.message}`
         )
+      ]);
+    }
+  }
+}
+
+interface WaitCompileInput {
+  /** The compile ID returned by makerchip_compile. */
+  compileId: string;
+  /**
+   * Seconds to wait for the compilation to complete before returning (default 30).
+   * If it is still running when the timeout elapses, call this tool again with the
+   * same compile ID to keep waiting.
+   */
+  waitSeconds?: number;
+}
+
+/**
+ * Language Model tool to wait for (resume waiting on) a compilation and return its
+ * status. Pairs with `makerchip_compile` so agents can await completion without
+ * polling `metadata.json` through the shell.
+ */
+export class WaitCompileTool implements vscode.LanguageModelTool<WaitCompileInput> {
+
+  async prepareInvocation(
+    options: vscode.LanguageModelToolInvocationPrepareOptions<WaitCompileInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.PreparedToolInvocation> {
+    const { compileId } = options.input;
+    return {
+      invocationMessage: `Waiting for compilation ${compileId} to complete...`
+    };
+  }
+
+  async invoke(
+    options: vscode.LanguageModelToolInvocationOptions<WaitCompileInput>,
+    token: vscode.CancellationToken
+  ): Promise<vscode.LanguageModelToolResult> {
+    try {
+      const { compileId, waitSeconds = 30 } = options.input;
+      if (!compileId) {
+        return new vscode.LanguageModelToolResult([
+          new vscode.LanguageModelTextPart('No compileId provided. Pass the compile ID returned by makerchip_compile.')
+        ]);
+      }
+      const { timedOut } = await compileCache.waitForComplete(
+        compileId,
+        Math.max(0, waitSeconds) * 1000,
+        400,
+        token
+      );
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(await formatCompileStatus(compileId, timedOut))
+      ]);
+    } catch (error: any) {
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(`Failed to wait for compilation: ${error.message}`)
       ]);
     }
   }
@@ -571,11 +795,11 @@ export class CaptureVideoTool implements vscode.LanguageModelTool<CaptureVideoIn
         'captureVideo', 
         [startCyc, endCyc, videoOptions], 
         panelName
-      ) as Blob | null;
+      ) as { __makerchipBlob?: true; base64?: string; mimeType?: string } | null;
       
-      log('[CaptureVideoTool] Result received:', result ? `Blob (${result.size} bytes, type: ${result.type})` : 'null');
+      log('[CaptureVideoTool] Result received:', result ? `SerializedBlob (${result.base64?.length ?? 0} base64 chars, type: ${result.mimeType})` : 'null');
       
-      if (!result) {
+      if (!result || !result.__makerchipBlob || typeof result.base64 !== 'string') {
         log('[CaptureVideoTool] No result - VIZ canvas not available');
         return new vscode.LanguageModelToolResult([
           new vscode.LanguageModelTextPart(
@@ -588,13 +812,12 @@ export class CaptureVideoTool implements vscode.LanguageModelTool<CaptureVideoIn
       const actualFormat = format === 'auto' ? (framesPerCycle === 1 ? 'gif' : 'webm') : format;
       const ext = actualFormat === 'gif' ? 'gif' : 'webm';
       
-      // Convert Blob to buffer
-      const arrayBuffer = await result.arrayBuffer();
-      const videoBuffer = Buffer.from(arrayBuffer);
+      // Decode the base64 envelope produced by the webview into a buffer.
+      const videoBuffer = Buffer.from(result.base64, 'base64');
       const videoBytes = new Uint8Array(videoBuffer);
       
       // Determine MIME type from blob or format
-      const mimeType = result.type || `video/${ext}`;
+      const mimeType = result.mimeType || `video/${ext}`;
       
       // Panel info for logging
       const panelInfo = panelName ? ` from panel '${panelName}'` : '';
@@ -610,9 +833,9 @@ export class CaptureVideoTool implements vscode.LanguageModelTool<CaptureVideoIn
           // Use provided path
           savedPath = saveToFile;
         } else {
-          // Auto-generate path
+          // Auto-generate path (timestamped so repeated captures don't overwrite)
           const timestamp = Date.now();
-          const filename = `makerchip-viz-${startCyc}-${endCyc}.${ext}`;
+          const filename = `makerchip-viz-${startCyc}-${endCyc}-${timestamp}.${ext}`;
           savedPath = path.join(os.tmpdir(), filename);
         }
         fs.writeFileSync(savedPath, videoBuffer);
@@ -626,9 +849,9 @@ export class CaptureVideoTool implements vscode.LanguageModelTool<CaptureVideoIn
       if (LanguageModelToolResult2 && LanguageModelDataPart && LanguageModelDataPart.video) {
         log('[CaptureVideoTool] Using proposed API (LanguageModelDataPart) to return video directly');
         try {
-          const message = savedPath 
-            ? `Successfully captured VIZ simulation${panelInfo} as ${actualFormat.toUpperCase()} video (${cycles} cycles, ${Math.round(videoBytes.length / 1024)}KB).\nSaved to: ${savedPath}`
-            : `Successfully captured VIZ simulation${panelInfo} as ${actualFormat.toUpperCase()} video (${cycles} cycles, ${Math.round(videoBytes.length / 1024)}KB).`;
+          const message =
+             `Successfully captured VIZ simulation${panelInfo} as ${actualFormat.toUpperCase()} video (${cycles} cycles, ${Math.round(videoBytes.length / 1024)}KB).`
+               + savedPath ? `\nSaved to: ${savedPath}` : '';
           
           return new LanguageModelToolResult2([
             new vscode.LanguageModelTextPart(message),
@@ -642,7 +865,7 @@ export class CaptureVideoTool implements vscode.LanguageModelTool<CaptureVideoIn
       // Fallback: Save to file if not already saved
       if (!savedPath) {
         const timestamp = Date.now();
-        const filename = `makerchip-viz-${startCyc}-${endCyc}.${ext}`;
+        const filename = `makerchip-viz-${startCyc}-${endCyc}-${timestamp}.${ext}`;
         savedPath = path.join(os.tmpdir(), filename);
         fs.writeFileSync(savedPath, videoBuffer);
       }
@@ -1739,6 +1962,11 @@ export function registerMakerchipTool(context: vscode.ExtensionContext): void {
   const runTool = vscode.lm.registerTool('makerchip_compile', new MakerchipTool());
   log('Compile tool registered:', !!runTool);
   context.subscriptions.push(runTool);
+  
+  // Register the wait-for-compile tool
+  const waitCompileTool = vscode.lm.registerTool('makerchip_wait_compile', new WaitCompileTool());
+  log('Wait compile tool registered:', !!waitCompileTool);
+  context.subscriptions.push(waitCompileTool);
   
   // Register the generic IDE method invocation tool
   const ideTool = vscode.lm.registerTool('makerchip_ide_call', new IdeFunctionCallTool());

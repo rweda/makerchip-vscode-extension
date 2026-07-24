@@ -24,6 +24,7 @@ import { registerMakerchipTool } from './makerchipTool';
 import { registerMakerchipParticipant } from './makerchipParticipant';
 import { log } from './logger';
 import * as compileCache from './compileCache';
+import type { CompileSource } from './compileCache';
 
 // Default Makerchip server URL
 const DEFAULT_SERVER_URL = 'https://beta.makerchip.com';
@@ -37,7 +38,7 @@ const READY_TIMEOUT_MS = 30_000;
 // Track multiple panels by name
 const panels = new Map<string, vscode.WebviewPanel>();
 const panelReadyPromises = new Map<string, Promise<void>>();
-const pendingCompiles = new Map<string, string>(); // panelKey -> source code while awaiting an ID
+const pendingCompiles = new Map<string, CompileSource>(); // panelKey -> source (string or {files, top}) while awaiting an ID
 // In-flight callIdeMethodWithResult calls, keyed by requestId. Each entry holds the
 // resolve/reject of the promise handed back to the caller; the matching 'ideResult'/
 // 'ideError' message (or a timeout) settles and removes it. See callIdeMethodWithResult.
@@ -96,9 +97,14 @@ export async function callIDE(method: string, args?: any[], panelName?: string, 
     throw new Error(`Panel '${name}' not found`);
   }
   
-  // Track compile source code for cache initialization
-  if (method === 'compile' && args && args.length > 0 && typeof args[0] === 'string') {
-    pendingCompiles.set(name, args[0]);
+  // Track compile source for cache initialization. The compile argument is
+  // either a plain source string (single file) or a {files, top} payload
+  // (multi-file); capture whichever form was passed.
+  if (method === 'compile' && args && args.length > 0) {
+    const arg = args[0];
+    if (typeof arg === 'string' || (arg && typeof arg === 'object' && arg.files)) {
+      pendingCompiles.set(name, arg as CompileSource);
+    }
   }
   
   const message: Record<string, any> = { type: 'ide', method, args: args || [] };
@@ -658,28 +664,60 @@ function getNonce() {
 }
 
 /**
+ * Read a TUNNEL_URL from a ./launch tunnel state file.
+ * @param file Absolute path to a tunnel state file.
+ * @returns The tunnel URL, or undefined if absent/invalid.
+ */
+function readTunnelUrl(file: string): string | undefined {
+  try {
+    const content = fs.readFileSync(file, 'utf8');
+    const url = content.match(/TUNNEL_URL=(.+)/)?.[1]?.trim();
+    if (url && url.startsWith('http')) return url;
+  } catch (err) {
+    log(`Warning: Failed to read tunnel state file ${file}: ${err}`);
+  }
+  return undefined;
+}
+
+/**
  * Get the Makerchip server URL from:
- * 1. Tunnel state file (ACTIVE_TUNNEL in extension directory, created by ./launch script)
- * 2. VS Code configuration (makerchip.serverUrl)
- * 3. Default: DEFAULT_SERVER_URL
+ * 1. MAKERCHIP_TUNNEL_URL env var (set by ./launch, per-window; disambiguates
+ *    when multiple tunnels are active).
+ * 2. Active tunnel registry (ACTIVE_TUNNELS/<port>, created by ./launch) - only
+ *    when exactly one tunnel is active (otherwise ambiguous, so skipped).
+ * 3. VS Code configuration (makerchip.serverUrl)
+ * 4. Default: DEFAULT_SERVER_URL
  */
 async function getServerUrl(): Promise<string> {
-  // Check tunnel state file (created by ./launch script)
-  const tunnelStatePath = path.join(__dirname, '..', 'ACTIVE_TUNNEL');
-  if (fs.existsSync(tunnelStatePath)) {
+  // 1. Explicit per-window tunnel URL from ./launch (tunnel mode).
+  const envUrl = process.env.MAKERCHIP_TUNNEL_URL;
+  if (envUrl && envUrl.startsWith('http')) {
+    log(`Using server URL from MAKERCHIP_TUNNEL_URL: ${envUrl}`);
+    return envUrl;
+  }
+
+  // 2. Active tunnel registry (ACTIVE_TUNNELS/<port>). Only unambiguous when a
+  //    single tunnel is active; with several, MAKERCHIP_TUNNEL_URL is required.
+  const tunnelDir = path.join(__dirname, '..', 'ACTIVE_TUNNELS');
+  if (fs.existsSync(tunnelDir)) {
     try {
-      const stateContent = fs.readFileSync(tunnelStatePath, 'utf8');
-      const tunnelUrl = stateContent.match(/TUNNEL_URL=(.+)/)?.[1];
-      if (tunnelUrl && tunnelUrl.startsWith('http')) {
-        log(`Using server URL from tunnel state: ${tunnelUrl}`);
-        return tunnelUrl;
+      const urls = fs.readdirSync(tunnelDir)
+        .map(name => readTunnelUrl(path.join(tunnelDir, name)))
+        .filter((u): u is string => !!u);
+      if (urls.length === 1) {
+        log(`Using server URL from active tunnel: ${urls[0]}`);
+        return urls[0];
+      } else if (urls.length > 1) {
+        log(`Warning: ${urls.length} active tunnels found in ACTIVE_TUNNELS; ` +
+          `set MAKERCHIP_TUNNEL_URL (launch via ./launch :port) to disambiguate. ` +
+          `Falling back to configuration.`);
       }
     } catch (err) {
-      log(`Warning: Failed to read tunnel state file: ${err}`);
+      log(`Warning: Failed to read tunnel registry: ${err}`);
     }
   }
-  
-  // Check VS Code configuration
+
+  // 3. Check VS Code configuration
   const config = vscode.workspace.getConfiguration('makerchip');
   const configUrl = config.get<string>('serverUrl');
   if (configUrl) {
@@ -687,7 +725,7 @@ async function getServerUrl(): Promise<string> {
     return configUrl;
   }
   
-  // Use default
+  // 4. Use default
   log(`Using default server URL: ${DEFAULT_SERVER_URL}`);
   return DEFAULT_SERVER_URL;
 }

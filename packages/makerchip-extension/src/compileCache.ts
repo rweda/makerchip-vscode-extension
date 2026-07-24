@@ -9,6 +9,8 @@
  * 
  * Each compilation directory contains:
  *   - top.tlv: Full source code (retained longest)
+ *   - src/: Sibling source files for multi-file compiles, by basename (keeps their
+ *           caller-chosen names from colliding with result files or metadata.json)
  *   - metadata.json: Compile status, timestamps, flags
  *   - stdall: SandPiper (TL-Verilog compiler) logs
  *   - make.out: Verilator (C++ simulator) logs
@@ -101,7 +103,20 @@ interface CompileMetadata {
   };
   hasResults: boolean;      // Whether result files still exist (false indicates pruning)
   hasSource: boolean;       // Whether full source file still exists
+  sourceSiblings?: string[]; // For multi-file compiles: basenames of sibling source files stored under src/
 }
+
+/**
+ * A multi-file compile payload: `files` maps relative path -> contents, and `top`
+ * names the entry file within `files`. Mirrors the server-side wire protocol.
+ */
+export interface MultiFileSource {
+  files: Record<string, string>;
+  top: string;
+}
+
+/** Source of a compile: a single string (top only) or a multi-file payload. */
+export type CompileSource = string | MultiFileSource;
 
 /**
  * Recompute `metadata.complete`: true once every EXPECTED result file is settled
@@ -197,9 +212,23 @@ const METADATA_BASE_KEEP = 150;   // Keep source/metadata up to 150 entries
  *                 which result files are expected. When a flag is explicitly false,
  *                 the corresponding file is pre-marked skipped.
  */
-export async function initCompile(id: string, sourceCode?: string, params?: { sim?: boolean; dot?: boolean }): Promise<void> {
+export async function initCompile(id: string, sourceCode?: CompileSource, params?: { sim?: boolean; dot?: boolean }): Promise<void> {
   const compileDir = path.join(CACHE_DIR, id);
   await fs.mkdir(compileDir, { recursive: true });
+
+  // Split the source into the top file contents (always stored as top.tlv at the
+  // cache-dir root) and any sibling files (stored under src/ by basename).
+  let topContent: string | undefined;
+  const siblings: Record<string, string> = {};
+  if (typeof sourceCode === 'string') {
+    topContent = sourceCode;
+  } else if (sourceCode) {
+    topContent = sourceCode.files[sourceCode.top];
+    for (const [name, content] of Object.entries(sourceCode.files)) {
+      if (name !== sourceCode.top) { siblings[path.basename(name)] = content; }
+    }
+  }
+  const siblingNames = Object.keys(siblings);
 
   const metadata: CompileMetadata = {
     id,
@@ -210,16 +239,25 @@ export async function initCompile(id: string, sourceCode?: string, params?: { si
     fileSkipped: {},
     complete: false,
     hasResults: true,   // Initially true, set to false when pruned
-    hasSource: !!sourceCode,
+    hasSource: topContent != null,
   };
+  if (siblingNames.length > 0) { metadata.sourceSiblings = siblingNames; }
   if (params?.sim === false) { metadata.fileSkipped!['vlt_dump.vcd'] = true; }
   if (params?.dot === false) { metadata.fileSkipped!['graph.svg'] = true; }
   recomputeComplete(metadata);
 
-  // Save full source code separately
-  if (sourceCode) {
-    const sourceFile = path.join(compileDir, 'top.tlv');
-    await fs.writeFile(sourceFile, sourceCode, 'utf-8');
+  // Save full source code: the top file as top.tlv at the cache-dir root (matching
+  // the single-file layout), plus any sibling source files under src/ so their
+  // caller-chosen basenames can't collide with result files or metadata.json.
+  if (topContent != null) {
+    await fs.writeFile(path.join(compileDir, 'top.tlv'), topContent, 'utf-8');
+  }
+  if (siblingNames.length > 0) {
+    const srcDir = path.join(compileDir, 'src');
+    await fs.mkdir(srcDir, { recursive: true });
+    for (const name of siblingNames) {
+      await fs.writeFile(path.join(srcDir, name), siblings[name], 'utf-8');
+    }
   }
 
   await saveMetadata(id, metadata);
@@ -380,6 +418,59 @@ export async function loadMetadata(id: string): Promise<CompileMetadata | null> 
   }
 }
 
+/** Minimal cancellation shape (avoids importing `vscode` into this module). */
+export interface Cancellable {
+  isCancellationRequested: boolean;
+}
+
+/**
+ * Wait for a compilation to settle by polling its metadata in-process (no shell).
+ *
+ * Resolves as soon as `metadata.complete` is true, when the timeout elapses, or
+ * when cancellation is requested. Because the extension host writes the metadata
+ * itself, this lets tools await a compile without agents shelling out to read
+ * `metadata.json`.
+ *
+ * @returns The latest metadata (may be null/incomplete) and whether the wait ended
+ *   without the compile completing (`timedOut`, also set on cancellation).
+ */
+export async function waitForComplete(
+  id: string,
+  timeoutMs: number,
+  pollMs = 400,
+  token?: Cancellable
+): Promise<{ metadata: CompileMetadata | null; timedOut: boolean }> {
+  const deadline = Date.now() + Math.max(0, timeoutMs);
+  for (;;) {
+    const metadata = await loadMetadata(id);
+    if (metadata?.complete) { return { metadata, timedOut: false }; }
+    if (token?.isCancellationRequested) { return { metadata, timedOut: true }; }
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) { return { metadata, timedOut: true }; }
+    await new Promise(resolve => setTimeout(resolve, Math.min(pollMs, remaining)));
+  }
+}
+
+/**
+ * Read up to `maxChars` from the START of a cached result file (e.g. `stdall`,
+ * `make.out`) so tools can surface compiler/simulator logs without a shell read.
+ * The beginning is preferred because the FIRST error is the root cause — later
+ * errors often ripple from it. When truncated, a `\n…(truncated)` marker is
+ * appended. Returns null if the file is missing.
+ */
+export async function readResultFileHead(
+  id: string,
+  fileName: ResultFileName,
+  maxChars = 2000
+): Promise<string | null> {
+  try {
+    const content = await fs.readFile(path.join(CACHE_DIR, id, fileName), 'utf-8');
+    return content.length > maxChars ? content.slice(0, maxChars) + '\n…(truncated)' : content;
+  } catch {
+    return null;
+  }
+}
+
 /** Result files that can be injected into a fresh IDE to restore a compilation. */
 export type RestoreFileName = ResultFileName;
 
@@ -391,26 +482,45 @@ export interface RestoreData {
   files?: Partial<Record<RestoreFileName, string>>;
   /** Exit codes captured during the original compilation. */
   exitStatus?: { sandpiper?: number; verilator?: number };
-  /** Original source (top.tlv) for recompile fallback when results were pruned. */
-  source?: string;
+  /**
+   * Original source for recompile fallback when results were pruned. A plain
+   * string for single-file compiles, or a multi-file payload when sibling source
+   * files were cached under src/.
+   */
+  source?: CompileSource;
 }
 
 /**
  * Read everything needed to restore a compilation into a freshly reloaded IDE.
  *
- * Returns `available: true` with cached result files when the results still exist
- * (inject directly). When results were pruned but the source survives, returns
- * `available: false` with `source` set so the caller can recompile. When nothing
- * remains, returns `available: false` with no source.
+ * Returns:
+ * - `available: true` with cached result files when the results still exist (inject directly)
+ * - `available: false` with source files when results were pruned but the source survives,
+ *   so the caller can recompile
+ * - `available: false` with `source: undefined` when nothing remains
  */
 export async function getRestoreData(id: string): Promise<RestoreData> {
   const metadata = await loadMetadata(id);
   const dir = path.join(CACHE_DIR, id);
 
-  // Source is retained longest; read it for the recompile fallback.
-  let source: string | undefined;
+  // Source is retained longest (all source files); read it/them for the recompile
+  // fallback. For multi-file compiles, reconstruct the {files, top} payload. If
+  // any source files are missing, leave source undefined.
+  let source: CompileSource | undefined;
   try {
-    source = await fs.readFile(path.join(dir, 'top.tlv'), 'utf-8');
+    const topContent = await fs.readFile(path.join(dir, 'top.tlv'), 'utf-8');
+    const siblingNames = metadata?.sourceSiblings ?? [];
+    if (siblingNames.length > 0) {
+      const sourceFiles: Record<string, string> = { 'top.tlv': topContent };
+      await Promise.all(
+        siblingNames.map(async (name) => {
+          sourceFiles[name] = await fs.readFile(path.join(dir, 'src', name), 'utf-8');
+        })
+      );
+      source = { files: sourceFiles, top: 'top.tlv' };
+    } else {
+      source = topContent;
+    }
   } catch {
     source = undefined;
   }

@@ -130,7 +130,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(circuit-board)",
         "userDescription": "Compile and open TL-Verilog in Makerchip IDE.",
-        "modelDescription": "Opens IDE and compiles TL-Verilog code. **Returns immediately** - compilation is async. Returns compile ID and cache paths. Poll `~/.vscode-makerchip/compile-cache/<ID>/metadata.json` for status (check 'complete', 'passed', 'error' fields). Use this when user wants to VISUALIZE TL-Verilog, not just see code.",
+        "modelDescription": "Opens/focuses IDE and compiles TL-Verilog code. Waits up to `waitSeconds` (default 30s) for the compilation and simulation and returns a status summary on completion or timeout. Status includes SandPiper/Verilator exit codes, pass/fail, and a log excerpt on failure — no need to read `metadata.json` via the shell. To continue waiting, call `makerchip_wait_compile` with the returned compile ID. Set `waitSeconds` to 0 to return immediately with just the compile ID.",
         "tags": [
           "makerchip",
           "tlv",
@@ -152,17 +152,56 @@
           "properties": {
             "filePath": {
               "type": "string",
-              "description": "Optional path to a TL-Verilog file to open and compile. If not provided, uses the currently active editor."
+              "description": "Optional path to a TL-Verilog file to open and compile. The file is read from disk (not the editor buffer). If the open buffer has unsaved edits, a warning is returned. If not provided, uses the currently active editor."
             },
             "code": {
               "type": "string",
               "description": "Optional TL-Verilog code to compile. When provided, creates a new unsaved file with this code and opens it in Makerchip. Use this to show examples or demonstrate TL-Verilog features."
             },
+            "additionalFiles": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Optional paths to additional TL-Verilog source files to compile alongside the top file (e.g. files pulled in via m4_include). Each is read from disk and made available to the compiler under its basename, so `m4_include(['lib.tlv'])` in the top file resolves. Basenames must be unique and none may be `top.tlv` (reserved for the top file)."
+            },
             "panelName": {
               "type": "string",
               "description": "Optional panel name to target. Default: `default`. Use this to open multiple Makerchip panels for different designs or comparisons."
+            },
+            "waitSeconds": {
+              "type": "number",
+              "description": "Seconds to wait for the compile to complete before returning (default 30). The tool blocks up to this long and returns a status summary. If still running when the timeout elapses, call `makerchip_wait_compile` with the returned compile ID. Set to 0 to return immediately with just the compile ID."
             }
           }
+        }
+      },
+      {
+        "name": "makerchip_wait_compile",
+        "displayName": "Wait for Compile",
+        "toolReferenceName": "makerchipWaitCompile",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(watch)",
+        "userDescription": "Wait for a Makerchip compilation to finish.",
+        "modelDescription": "Waits for a compilation (started by makerchip_compile) to complete, then returns its status summary (SandPiper/Verilator exit codes, pass/fail, and a log excerpt on failure). Use this to resume waiting when makerchip_compile reported the compile was still running. Blocks up to `waitSeconds` (default 30); if it is still running, call again with the same compile ID.",
+        "tags": [
+          "makerchip",
+          "tlv",
+          "compile",
+          "wait",
+          "status"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "compileId": {
+              "type": "string",
+              "description": "The compile ID returned by makerchip_compile."
+            },
+            "waitSeconds": {
+              "type": "number",
+              "description": "Seconds to wait for completion before returning (default 30). If still running, call again with the same compile ID."
+            }
+          },
+          "required": ["compileId"]
         }
       },
       {
@@ -316,6 +355,78 @@
             }
           },
           "required": ["source"]
+        }
+      },
+      {
+        "name": "makerchip_capture_video",
+        "displayName": "Capture VIZ Video",
+        "toolReferenceName": "makerchipCaptureVideo",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(device-camera-video)",
+        "userDescription": "Capture the VIZ simulation across a cycle range as a GIF or WebM video.",
+        "modelDescription": "Captures the Makerchip VIZ (Visual Debug) canvas across a range of simulation cycles and encodes it as a video (GIF or WebM) from an open IDE panel with compiled/simulated code. Use this to produce an animation of a design's behavior over time. With framesPerCycle=1 (default) and format 'auto', a GIF is produced (one frame per cycle) which is appropriate for designs without intra-cycle animation. Use framesPerCycle>1 (WebM) to also capture intra-cycle animation. The result is saved to a file and returned to the model when possible.",
+        "tags": [
+          "makerchip",
+          "viz",
+          "visualization",
+          "video",
+          "gif",
+          "webm",
+          "animation",
+          "capture",
+          "debug"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "startCyc": {
+              "type": "number",
+              "description": "Starting cycle (inclusive)."
+            },
+            "endCyc": {
+              "type": "number",
+              "description": "Ending cycle (inclusive)."
+            },
+            "format": {
+              "type": "string",
+              "enum": ["auto", "gif", "webm"],
+              "description": "Video format. 'auto' (default) produces GIF when framesPerCycle=1, otherwise WebM.",
+              "default": "auto"
+            },
+            "framesPerCycle": {
+              "type": "number",
+              "description": "Number of frames to capture per cycle. Default: 1 (no intra-cycle animation).",
+              "default": 1
+            },
+            "cycleTimeMs": {
+              "type": "number",
+              "description": "Milliseconds per cycle in playback. Default: 1000.",
+              "default": 1000
+            },
+            "quality": {
+              "type": "number",
+              "description": "GIF encoding quality 1-30, lower is better. Default: 10.",
+              "default": 10
+            },
+            "Mbps": {
+              "type": "number",
+              "description": "WebM bitrate in Mbps. Default: 2.5 (recommended 10 for high quality).",
+              "default": 2.5
+            },
+            "restoreCycle": {
+              "type": ["boolean", "number"],
+              "description": "Restore cycle after capture: true for original, false to stay at endCyc, or a number for a specific cycle. Default: true."
+            },
+            "panelName": {
+              "type": "string",
+              "description": "Optional panel name to target. Default: `default`."
+            },
+            "saveToFile": {
+              "type": ["boolean", "string"],
+              "description": "Save to file. If true, auto-generates a filename. If string, uses it as the file path. If false/undefined, only saves when the video is large."
+            }
+          },
+          "required": ["startCyc", "endCyc"]
         }
       },
       {

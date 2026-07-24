@@ -505,10 +505,16 @@ Source PDF: https://cs2461-2020.github.io/lectures/latches.pdf page 9, region `[
 
 ## Working with the user
 
-When a user asks you to create a Live Doc, it is important to be clear on a few points:
+When a user asks you to create a Live Doc, it is important to be clear on a few points. If not already evident, ask questions like:
 
-1. Be sure to clarify with the user, if necessary, whether the user has the right to copy the PDF content. Ask, for example, "Do you have the right to copy this PDF content; if not, I will provide overlay and set visual properties without copying elements into the VIZ code, but legal review may be needed." Avoid a simple prompt like "Do you have the right to copy this PDF content?" as this could encourage a false affirmative response from a user that doesn't want to be blocked.
+1. "What are the licensing terms of the original content? Are you the author, or do you have permission to use it? (If you don't, I will provide overlay and set visual properties without copying elements into the VIZ code, but legal review may be needed.)" The parenthetical is important for two reasons: 1. it reassures the user that progress can be made without copying content to avoid a false affirmative from a user who fears being blocked; 2. it provides a legal disclaimer. In rare cases, there may even be patent consideration that warrant clarification.
 
-2. Is it truly important to keep the diagram as is? This can be important for companion material to maintain a clear connection to the original. But, if the PDF is merely an inspirational starting point, it may be better to create a new diagram that is optimal for animation.
+2. "Do you want me to leverage diagram as is or make improvements?" Without legal rights, direct leverage only by reference is a necessity. Alternatively, the diagram can be altered entirely to avoid mimicking any of its design. Direct leverage can be important for companion material to maintain a clear connection to the original. If the original is merely an inspirational starting point, it may be better to create a new diagram that is optimal for animation.
 
-3. Also be sure it is clear whether there is an existing model providing wave data, or whether you must create stimulus.
+3. "How likely it is that subsequent versions of the original diagram will become available?" If uprevving may be necessary, and the original is leveraged by reference, consider the use of filtering features to minimize the likelihood of breaking changes. If copying is an option, mimicking elements as fabric.js code might minimize future maintenance in the face of change.
+
+4. "Is there an existing HDL model providing VCD trace data, or should I create HDL code to drive stimulus? Should the stimulus model use TL-Verilog or something else? Should it be structured to run self-contained in Makerchip or to simulate and generate a VCD externally?"
+
+## Attribution
+
+If attribution is required by the license, or even if it isn't, it is good practice to provide a clear attribution to the original content in the visualization as well as in the VIZ code. For example, overlay `fabric.Text("Extracted from: <URL>", ...)` or a license-compliant attribution positioned in the lower right of the diagram.

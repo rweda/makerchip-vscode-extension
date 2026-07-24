@@ -12,8 +12,15 @@
 #   ./launch : <workspace>                # Tunnel + workspace
 #   ./launch https://url <workspace>      # URL + workspace
 #
-# For tunnel mode (:port), cloudflared is started in background.
-# The script remains running - press Ctrl+C to stop the tunnel and exit.
+# Multiple tunnels on different ports can run simultaneously; each ./launch
+# invocation owns a state file at ACTIVE_TUNNELS/<port>. Each launched window is
+# bound to its own tunnel via the MAKERCHIP_TUNNEL_URL environment variable.
+#
+# For tunnel mode (:port), cloudflared is started in the background (under nohup)
+# and this script exits immediately, returning your shell. The tunnel keeps
+# running until you tear it down with "./stop <port>" (a convenience proxy for
+# ACTIVE_TUNNELS/stop_<port>.sh, the teardown script written for every tunnel),
+# or "kill <pid>".
 
 set -e
 
@@ -22,7 +29,10 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 ARG="${1:-}"
 WORKSPACE="${2:-}"
-TUNNEL_STATE_FILE="$SCRIPT_DIR/ACTIVE_TUNNEL"
+# Directory holding one state file per active tunnel: ACTIVE_TUNNELS/<port>.
+# Multiple tunnels (different ports) can be active simultaneously; each ./launch
+# invocation owns and cleans up only its own port's file.
+TUNNEL_STATE_DIR="$SCRIPT_DIR/ACTIVE_TUNNELS"
 
 # Default server URL
 DEFAULT_SERVER="https://beta.makerchip.com"
@@ -43,6 +53,13 @@ elif [[ "$ARG" =~ ^: ]]; then
     echo "Error: Port must be numeric (got: $PORT)"
     exit 1
   fi
+
+  # Per-port tunnel state file. Different ports coexist as separate files, so
+  # several tunnels can run at once without disturbing each other.
+  TUNNEL_STATE_FILE="$TUNNEL_STATE_DIR/$PORT"
+  # Teardown script for this port (written when the tunnel is created). Running
+  # it stops the tunnel and removes its state - the basis of background use.
+  STOP_SCRIPT="$TUNNEL_STATE_DIR/stop_$PORT.sh"
 else
   # Anything else → explicit URL
   MODE="url"
@@ -66,9 +83,11 @@ start_tunnel() {
   
   echo "Starting Cloudflare tunnel to localhost:$port..." >&2
   
-  # Start cloudflared in background, save logs to temp file
+  # Start cloudflared in the background, saving logs to a temp file. nohup keeps
+  # the tunnel alive if the launching terminal closes (needed for background
+  # use); $! stays correct because nohup execs cloudflared in place.
   local log_file=$(mktemp)
-  cloudflared tunnel --url "http://localhost:$port" > "$log_file" 2>&1 &
+  nohup cloudflared tunnel --url "http://localhost:$port" > "$log_file" 2>&1 &
   local pid=$!
   
   # Wait for tunnel URL (max 15 seconds)
@@ -185,50 +204,35 @@ check_build "TL-Verilog extension" "$SCRIPT_DIR/../tlv-extension/src" \
 
 # Handle tunnel mode
 if [ "$MODE" = "tunnel" ]; then
-  # Check if existing tunnel can be reused
+  # Reuse an existing, still-alive tunnel for THIS port if one is present.
+  # Because state is per-port, tunnels on other ports are left untouched.
   if [ -f "$TUNNEL_STATE_FILE" ]; then
     source "$TUNNEL_STATE_FILE"
-    
-    # Check if tunnel process is still alive
+
     if kill -0 "$TUNNEL_PID" 2>/dev/null; then
-      # Tunnel is running
-      if [ "$TUNNEL_PORT" = "$PORT" ]; then
-        # Same port - just reuse it
-        echo "Tunnel already running on port $PORT (PID: $TUNNEL_PID)"
-        echo "Tunnel URL: $TUNNEL_URL"
-        echo ""
-        echo "The Extension Development Host will reload with this tunnel."
-        echo "To stop the tunnel, Ctrl+C in the terminal that started it or"
-        echo "see ${TUNNEL_STATE_FILE}."
-        SERVER_URL="$TUNNEL_URL"
-        # Don't set up cleanup trap - not our tunnel to manage
-        # Launch code and exit
-        echo ""
-        echo "Launching VS Code Extension Development Host..."
-        code "${CODE_ARGS[@]}"
-        exit 0
-      else
-        # Different port - ask user
-        echo "Tunnel already running on port $TUNNEL_PORT (PID: $TUNNEL_PID)"
-        echo "You requested port $PORT"
-        echo ""
-        read -p "Press ENTER to replace tunnel, or Ctrl+C to cancel: "
-        
-        echo "Stopping existing tunnel..."
-        kill "$TUNNEL_PID" 2>/dev/null || true
-        rm -f "$TUNNEL_LOG_FILE" 2>/dev/null || true
-        rm -f "$TUNNEL_STATE_FILE"
-        sleep 1
-        # Fall through to create new tunnel
-      fi
+      # Tunnel for this port is running - reuse it.
+      echo "Tunnel already running on port $PORT (PID: $TUNNEL_PID)"
+      echo "Tunnel URL: $TUNNEL_URL"
+      echo ""
+      echo "The Extension Development Host will reload with this tunnel."
+      echo "To stop the tunnel, run ./stop $PORT (or see ${TUNNEL_STATE_FILE})."
+      SERVER_URL="$TUNNEL_URL"
+      # Launch code bound to this tunnel (via MAKERCHIP_TUNNEL_URL) and exit.
+      echo ""
+      echo "Launching VS Code Extension Development Host..."
+      MAKERCHIP_TUNNEL_URL="$SERVER_URL" code "${CODE_ARGS[@]}"
+      exit 0
     else
-      # Tunnel process is dead - clean up stale state
-      echo "Cleaning up stale tunnel state..."
+      # Tunnel process is dead - clean up stale state and recreate below.
+      echo "Cleaning up stale tunnel state for port $PORT..."
+      rm -f "$TUNNEL_LOG_FILE" 2>/dev/null || true
       rm -f "$TUNNEL_STATE_FILE"
+      rm -f "$STOP_SCRIPT"
     fi
   fi
-  
-  # Start new tunnel (if we get here)
+
+  # Start a new tunnel for this port (if we get here).
+  mkdir -p "$TUNNEL_STATE_DIR"
   tunnel_info=$(start_tunnel "$PORT")
   CLOUDFLARED_PID=$(echo "$tunnel_info" | cut -d' ' -f1)
   SERVER_URL=$(echo "$tunnel_info" | cut -d' ' -f2)
@@ -236,11 +240,12 @@ if [ "$MODE" = "tunnel" ]; then
   
   # Save tunnel state
   cat > "$TUNNEL_STATE_FILE" << TUNNEL_EOF
-# ACTIVE CLOUDFLARE TUNNEL
+# ACTIVE CLOUDFLARE TUNNEL (one file per port, under ACTIVE_TUNNELS/)
 # This file indicates an active tunnel created by the ./launch script.
+# Several such files can exist at once, one per tunnelled port.
 # 
-# To stop the tunnel:
-#   1. Press Ctrl+C in the terminal running ./launch, OR
+# To stop this tunnel:
+#   1. Run the teardown script: $STOP_SCRIPT, OR
 #   2. Manually run: kill $CLOUDFLARED_PID && rm -f $TUNNEL_LOG && rm -f "$TUNNEL_STATE_FILE"
 #      (or just "kill $CLOUDFLARED_PID" is probably sufficient)
 #
@@ -250,49 +255,47 @@ TUNNEL_PID=$CLOUDFLARED_PID
 TUNNEL_URL=$SERVER_URL
 TUNNEL_LOG_FILE=$TUNNEL_LOG
 TUNNEL_EOF
-  
+
+  # Write a self-contained teardown script. This is what makes the background
+  # model convenient: from any terminal, stop the tunnel and remove all of its
+  # state (including this script itself) by running one file.
+  cat > "$STOP_SCRIPT" << STOP_EOF
+#!/bin/bash
+# Teardown for the Makerchip Cloudflare tunnel on port $PORT (created by ./launch).
+kill $CLOUDFLARED_PID 2>/dev/null || true
+rm -f "$TUNNEL_LOG"
+rm -f "$TUNNEL_STATE_FILE"
+rm -f "$STOP_SCRIPT"
+echo "Stopped tunnel on port $PORT (PID $CLOUDFLARED_PID)."
+STOP_EOF
+  chmod +x "$STOP_SCRIPT"
+
   echo "Cloudflared PID: $CLOUDFLARED_PID"
   echo "Tunnel logs: $TUNNEL_LOG"
+  echo "Stop script: $STOP_SCRIPT"
 fi
 
 echo "Server URL: $SERVER_URL"
 echo ""
 
-# Setup cleanup on exit/interrupt (for tunnel mode)
-if [ "$MODE" = "tunnel" ]; then
-  cleanup() {
-    echo ""
-    echo "Stopping tunnel (PID: $CLOUDFLARED_PID)..."
-    kill "$CLOUDFLARED_PID" 2>/dev/null || true
-    rm -f "$TUNNEL_LOG"
-    rm -f "$TUNNEL_STATE_FILE"
-    echo "Cleanup complete"
-    exit 0
-  }
-  trap cleanup INT TERM EXIT
-fi
-
 # Launch VS Code Extension Development Host
 echo "Launching VS Code Extension Development Host..."
-code "${CODE_ARGS[@]}"
+if [ "$MODE" = "tunnel" ]; then
+  # Bind this window to THIS tunnel so it works even when other tunnels are
+  # active. The extension reads MAKERCHIP_TUNNEL_URL first (see getServerUrl()).
+  MAKERCHIP_TUNNEL_URL="$SERVER_URL" code "${CODE_ARGS[@]}"
+else
+  code "${CODE_ARGS[@]}"
+fi
 
 if [ "$MODE" = "tunnel" ]; then
+  # The tunnel (cloudflared, under nohup) keeps running in the background; this
+  # script exits and returns your shell. Tear the tunnel down when you're done.
   echo ""
   echo "✓ Extension Development Host launched"
   echo "Tunnel active on PID: $CLOUDFLARED_PID"
   echo "Tunnel URL: $SERVER_URL"
   echo ""
-  echo "Press Ctrl+C to stop the tunnel and exit"
-  echo ""
-  
-  # Keep script running to maintain tunnel
-  while true; do
-    sleep 1
-    # Check if cloudflared is still running
-    if ! kill -0 "$CLOUDFLARED_PID" 2>/dev/null; then
-      echo ""
-      echo "Error: Tunnel process died unexpectedly"
-      exit 1
-    fi
-  done
+  echo "Tunnel left running in the background. To stop it, run:"
+  echo "  ./stop $PORT"
 fi

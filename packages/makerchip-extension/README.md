@@ -82,14 +82,28 @@ The `./launch` script provides a convenient way to test the extension:
 
 4. Make changes to extension → reload VS Code window (Developer: Reload Window)
 
-5. **Press Ctrl+C** in the terminal running `./launch` to stop the tunnel and clean up
+5. When done, stop the tunnel with its teardown script (see below).
 
-The tunnel URL is stored in `ACTIVE_TUNNEL` file and reused across window reloads.
+`./launch :port` starts the tunnel (cloudflared, under `nohup`) in the background
+and **exits immediately**, returning your shell; the tunnel keeps running until
+you tear it down. Each tunnel's URL is stored in a per-port file
+`ACTIVE_TUNNELS/<port>` and reused across window reloads. Multiple tunnels
+(different ports) can run at once; each launched window is bound to its own
+tunnel via the `MAKERCHIP_TUNNEL_URL` environment variable that `./launch`
+passes to `code`.
+
+Every tunnel gets a teardown script at `ACTIVE_TUNNELS/stop_<port>.sh`. The
+convenient way to run it is `./stop <port>` (a proxy for that script); it stops
+the tunnel and removes all of its state (or just `kill <pid>`):
+
+```bash
+./stop 8800
+```
 
 ### Server Configuration
 
 By default, the extension connects to `beta.makerchip.com`. You can override this:
-- **Tunnel mode**: (development only) `./launch :port` creates a tunnel and stores the URL in `ACTIVE_TUNNEL` (won't exist in production)
+- **Tunnel mode**: (development only) `./launch :port` creates a tunnel, records it under `ACTIVE_TUNNELS/<port>`, and binds the window to it via `MAKERCHIP_TUNNEL_URL` (neither exists in production). When exactly one tunnel is active, the extension also picks it up automatically from `ACTIVE_TUNNELS/`.
 - **VS Code Setting**: `makerchip.serverUrl` in your settings
 
 ## Copilot Enablement Architecture
