@@ -1299,6 +1299,74 @@ export class OpenPaneTool implements vscode.LanguageModelTool<OpenPaneInput> {
   }
 }
 
+interface FitPaneInput {
+  /** The mnemonic of the pane to fit (e.g. "Viz", "Diagram", "Waveform"). */
+  mnemonic: string;
+  /** Optional panel name to target. If not provided, uses the default panel. */
+  panelName?: string;
+}
+
+/**
+ * Language Model tool to fit a pane's content to its viewport ("fit content").
+ *
+ * Sends a fit request to the pane identified by `mnemonic`; it is up to the pane whether it
+ * acts on it (VIZ/Diagram fit their scalable content, Waveform zooms to the full time range,
+ * other panes ignore it). See the IDE-side `fitPane`/`Pane#fit`. Reports whether the pane acted
+ * (success defaults to `false` when the pane doesn't exist or doesn't handle fitting).
+ */
+export class FitPaneTool implements vscode.LanguageModelTool<FitPaneInput> {
+
+  async prepareInvocation(
+    options: vscode.LanguageModelToolInvocationPrepareOptions<FitPaneInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.PreparedToolInvocation> {
+    const { mnemonic, panelName } = options.input;
+    const panelInfo = panelName ? ` in panel '${panelName}'` : '';
+    return {
+      invocationMessage: `Fitting pane '${mnemonic}' to content${panelInfo}...`
+    };
+  }
+
+  async invoke(
+    options: vscode.LanguageModelToolInvocationOptions<FitPaneInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.LanguageModelToolResult> {
+    try {
+      const { mnemonic, panelName } = options.input;
+
+      if (!mnemonic) {
+        return new vscode.LanguageModelToolResult([
+          new vscode.LanguageModelTextPart('No pane mnemonic provided')
+        ]);
+      }
+
+      // Ask the IDE to fit the pane. The pane decides whether to act; the IDE returns a
+      // boolean success flag (false if the pane doesn't exist or doesn't handle fitting).
+      const acted = await vscode.commands.executeCommand(
+        'makerchip.callIdeMethodWithResult',
+        'fitPane',
+        [mnemonic],
+        panelName
+      ) as boolean;
+
+      const panelInfo = panelName ? ` in panel '${panelName}'` : '';
+      const message = acted
+        ? `Fit pane '${mnemonic}' to content${panelInfo}`
+        : `Pane '${mnemonic}' did not fit to content${panelInfo} (pane not found or does not support fitting)`;
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(message)
+      ]);
+
+    } catch (error: any) {
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(
+          `Failed to fit pane: ${error.message}`
+        )
+      ]);
+    }
+  }
+}
+
 /**
  * Infer a MIME type from a file's extension for use in `data:` URIs.
  * Falls back to application/octet-stream for unknown types.
@@ -2016,6 +2084,11 @@ export function registerMakerchipTool(context: vscode.ExtensionContext): void {
   const openPaneTool = vscode.lm.registerTool('makerchip_open_pane', new OpenPaneTool());
   log('Open pane tool registered:', !!openPaneTool);
   context.subscriptions.push(openPaneTool);
+  
+  // Register the fit pane tool
+  const fitPaneTool = vscode.lm.registerTool('makerchip_fit_pane', new FitPaneTool());
+  log('Fit pane tool registered:', !!fitPaneTool);
+  context.subscriptions.push(fitPaneTool);
   
   // Register the open third-party pane tool
   const openThirdPartyPaneTool = vscode.lm.registerTool('makerchip_open_third_party_pane', new OpenThirdPartyPaneTool());

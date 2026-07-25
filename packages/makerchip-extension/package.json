@@ -614,6 +614,39 @@
         }
       },
       {
+        "name": "makerchip_fit_pane",
+        "displayName": "Fit Pane to Content",
+        "toolReferenceName": "makerchipFitPane",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(screen-full)",
+        "userDescription": "Fit a pane's content to its viewport (zoom to fit).",
+        "modelDescription": "Sends a 'fit content' request to the pane with the given mnemonic. It is up to the pane whether it acts: VIZ and Diagram fit their scalable content to the viewport (equivalent to the Reset Zoom control), Waveform zooms to the full time range (Zoom Full), and other panes ignore the request. Returns whether the pane acted; success defaults to false when the pane is not found or does not support fitting. Use makerchip_get_available_panes for valid mnemonics.",
+        "tags": [
+          "makerchip",
+          "ide",
+          "pane",
+          "fit",
+          "zoom",
+          "viz",
+          "diagram",
+          "waveform"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "required": ["mnemonic"],
+          "properties": {
+            "mnemonic": {
+              "type": "string",
+              "description": "The mnemonic (unique identifier) of the pane to fit (e.g. 'Viz', 'Diagram', 'Waveform'). Use makerchip_get_available_panes to discover valid mnemonics."
+            },
+            "panelName": {
+              "type": "string",
+              "description": "Optional panel name to target. Default: `default`."
+            }
+          }
+        }
+      },
+      {
         "name": "makerchip_open_third_party_pane",
         "displayName": "Open Third-Party Pane",
         "toolReferenceName": "makerchipOpenThirdPartyPane",
