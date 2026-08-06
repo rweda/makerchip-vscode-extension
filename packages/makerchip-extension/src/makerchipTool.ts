@@ -33,10 +33,17 @@ interface MakerchipToolInput {
    * keep waiting. Set to 0 to return immediately with just the compile ID.
    */
   waitSeconds?: number;
+  /**
+   * When false (default), the wait returns as soon as the core results (compile +
+   * simulation) are settled, WITHOUT waiting for the diagram (SVG), whose render
+   * can lag or time out well after the compile finishes. Set true to also wait for
+   * the diagram (e.g. before capturing it or ensuring IDE shows it).
+   */
+  waitForDiagram?: boolean;
 }
 
 interface IdeFunctionCallInput {
-  /** The IDE method to invoke (e.g., 'compile', 'activatePane', 'setCode', etc.) */
+  /** The IDE method to invoke (e.g., 'compile', 'activatePane', 'setCode', 'getKeyframe', etc.) */
   method: string;
   /** Arguments to pass to the IDE method */
   args?: any[];
@@ -79,14 +86,83 @@ export class IdeFunctionCallTool implements vscode.LanguageModelTool<IdeFunction
   ): Promise<vscode.LanguageModelToolResult> {
     try {
       const { method, args = [], panelName } = options.input;
-      
-      // Invoke the IDE method via command
-      await vscode.commands.executeCommand('makerchip.invokeIdeMethod', method, args, panelName);
-      
+
+      // captureVideo has its own tool (makerchip_capture_video) that sizes the render timeout to the
+      // request and saves the result correctly. Routing it through this generic path invites a 30s
+      // timeout on long renders (which keep running, uncancelled) and, if a `filename` is passed, a
+      // browser download / Save dialog. Redirect instead of running it here.
+      if (method === 'captureVideo') {
+        return new vscode.LanguageModelToolResult([
+          new vscode.LanguageModelTextPart(
+            "'captureVideo' is not supported via makerchip_ide_call. Use the dedicated " +
+            'makerchip_capture_video tool, which mirrors the same API and handles render timeouts ' +
+            'and file saving correctly.'
+          )
+        ]);
+      }
+
+      // getVizImage returns a large base64 data-URL string, which this generic path would dump into
+      // the model context as text. Its dedicated tool (makerchip_get_viz_image) returns the image
+      // inline instead (and can also return the keyframe, save to a file, or capture blind).
+      if (method === 'getVizImage') {
+        return new vscode.LanguageModelToolResult([
+          new vscode.LanguageModelTextPart(
+            "'getVizImage' is not supported via makerchip_ide_call. Use the dedicated " +
+            'makerchip_get_viz_image tool, which returns the image inline (instead of dumping a ' +
+            'base64 data URL into the conversation) and can also return the keyframe or save to a file.'
+          )
+        ]);
+      }
+
+      // Invoke the IDE method and capture its return value. Using the result-returning command
+      // (rather than fire-and-forget invokeIdeMethod) lets methods like getKeyframe/getCode surface
+      // their data to the model. The webview always replies when a requestId is present, so void
+      // methods resolve to `undefined` without timing out.
+      //
+      // The 30s cap only stops us WAITING for the reply; it does NOT cancel the in-progress IDE
+      // operation.
+      const result = await vscode.commands.executeCommand(
+        'makerchip.callIdeMethodWithResult',
+        method,
+        args,
+        panelName,
+        false,
+        30000
+      );
+
       const panelInfo = panelName ? ` on panel '${panelName}'` : '';
+
+      // A Blob result arrives as a base64 envelope; persist it to a file instead of dumping
+      // base64 into the model context (though there's no case that hits this).
+      if (result && typeof result === 'object' && (result as any).__makerchipBlob && typeof (result as any).base64 === 'string') {
+        const blob = result as { base64: string; mimeType?: string };
+        const buffer = Buffer.from(blob.base64, 'base64');
+        const ext = (blob.mimeType && blob.mimeType.split('/')[1]) || 'bin';
+        const savedPath = path.join(os.tmpdir(), `makerchip-${method}-${Date.now()}.${ext}`);
+        fs.writeFileSync(savedPath, buffer);
+        return new vscode.LanguageModelToolResult([
+          new vscode.LanguageModelTextPart(
+            `Invoked IDE method '${method}'${panelInfo}. Returned binary data ` +
+            `(${Math.round(buffer.length / 1024)}KB, ${blob.mimeType ?? 'application/octet-stream'}), saved to: ${savedPath}`
+          )
+        ]);
+      }
+
+      // Plain (JSON-serializable) result or void.
+      let resultText: string;
+      if (result === undefined) {
+        resultText = '(no return value)';
+      } else {
+        try {
+          resultText = JSON.stringify(result);
+        } catch {
+          resultText = String(result);
+        }
+      }
+
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
-          `Successfully invoked IDE method '${method}'${panelInfo} with arguments: ${JSON.stringify(args)}`
+          `Invoked IDE method '${method}'${panelInfo} with arguments ${JSON.stringify(args)}.\nResult: ${resultText}`
         )
       ]);
       
@@ -115,17 +191,34 @@ const LOG_HEAD_CHARS = 10000;
  * the head of the combined compiler/simulator log is appended as text. Lets tools
  * return compile status directly instead of agents reading `metadata.json` and
  * logs via the shell.
+ *
+ * `waitedForDiagram` reflects what the caller waited on so the "still running"
+ * messaging aligns: by default completion means the core results (compile +
+ * simulation) are settled and the diagram (SVG) may still be rendering; when the
+ * caller opted to wait for the diagram, completion means everything is settled.
  */
-async function formatCompileStatus(compileId: string, timedOut: boolean): Promise<string> {
+async function formatCompileStatus(compileId: string, timedOut: boolean, waitedForDiagram = false): Promise<string> {
   const metadata = await compileCache.loadMetadata(compileId);
   const cacheDir = compileCache.getCompileDir(compileId);
   if (!metadata) {
     return `**Compile ID:** ${compileId}\nNo metadata found yet at ${cacheDir}.`;
   }
 
+  // Core results (compile + simulation) settled, excluding the diagram; falls
+  // back to `complete` for metadata written before `resultsComplete` existed.
+  const resultsDone = metadata.resultsComplete ?? metadata.complete;
+  const diagramSettled = !!(
+    metadata.fileComplete?.['graph.svg'] ||
+    metadata.fileError?.['graph.svg'] ||
+    metadata.fileSkipped?.['graph.svg']
+  );
+  const diagramError = metadata.fileError?.['graph.svg'];
+  // The primary "done" signal depends on what the caller waited for.
+  const primaryDone = waitedForDiagram ? metadata.complete : resultsDone;
+
   const lines: string[] = [];
   lines.push(`**Compile ID:** ${compileId}`);
-  if (timedOut && !metadata.complete) {
+  if (timedOut && !primaryDone) {
     lines.push(`_Wait timed out; compilation is still running._`);
   }
   lines.push(`\n**Metadata:**\n\`\`\`json\n${JSON.stringify(metadata, null, 2)}\n\`\`\``);
@@ -134,12 +227,15 @@ async function formatCompileStatus(compileId: string, timedOut: boolean): Promis
   // doesn't have to be fetched separately (agents historically skipped the log).
   const sandpiper = metadata.exitStatus?.sandpiper;
   const verilator = metadata.exitStatus?.verilator;
+  // A diagram (graph.svg) timeout/error is NOT a compile/sim failure — exclude it.
+  const nonDiagramFileError =
+    !!metadata.fileError && Object.keys(metadata.fileError).some(f => f !== 'graph.svg');
   const failed =
     metadata.passed === false ||
     (sandpiper !== undefined && sandpiper !== 0) ||
     (verilator !== undefined && verilator !== 0) ||
     !!metadata.error ||
-    (metadata.fileError && Object.keys(metadata.fileError).length > 0);
+    nonDiagramFileError;
   if (failed) {
     const segments: string[] = [];
     // Skip the SandPiper log only when SandPiper succeeded (exit 0): its
@@ -172,9 +268,20 @@ async function formatCompileStatus(compileId: string, timedOut: boolean): Promis
   }
 
   lines.push(`\n**Cache dir:** ${cacheDir}`);
-  if (!metadata.complete) {
+  if (!primaryDone) {
     lines.push(
       `\nCompilation is still running. Call \`makerchip_wait_compile\` with this compile ID to keep waiting.`
+    );
+  } else if (!waitedForDiagram && !diagramSettled) {
+    // Core results are in; only the diagram is still pending.
+    lines.push(
+      `\nResults are complete (compile and simulation finished). The diagram (SVG) is still rendering — ` +
+      `pass \`waitForDiagram: true\` to \`makerchip_wait_compile\` if you need it.`
+    );
+  } else if (diagramError) {
+    lines.push(
+      `\nNote: the diagram (SVG) did not complete (${diagramError.type}). This does not affect the ` +
+      `compile/simulation result.`
     );
   }
   return lines.join('\n');
@@ -316,19 +423,22 @@ export class MakerchipTool implements vscode.LanguageModelTool<MakerchipToolInpu
       const stdallPath = path.join(cacheDir, 'stdall');
 
       const waitSeconds = options.input.waitSeconds ?? 30;
+      const waitForDiagram = options.input.waitForDiagram ?? false;
 
       let resultMessage: string;
       if (waitSeconds > 0) {
         // Wait in-process for the compile to settle (no shell polling) and return
-        // a status summary directly.
+        // a status summary directly. By default this returns once the core results
+        // are in, without blocking on the diagram (SVG) render.
         const { timedOut } = await compileCache.waitForComplete(
           compileId,
           waitSeconds * 1000,
           400,
-          token
+          token,
+          waitForDiagram
         );
         resultMessage = `Compilation of ${fileName}${multiFileInfo}${panelInfo}\n\n`;
-        resultMessage += await formatCompileStatus(compileId, timedOut);
+        resultMessage += await formatCompileStatus(compileId, timedOut, waitForDiagram);
       } else {
         // Immediate return (waitSeconds: 0): report the compile ID and cache paths.
         resultMessage = `Compilation started for ${fileName}${multiFileInfo}${panelInfo}\n\n`;
@@ -366,6 +476,12 @@ interface WaitCompileInput {
    * same compile ID to keep waiting.
    */
   waitSeconds?: number;
+  /**
+   * When false (default), returns once the core results (compile + simulation) are
+   * settled, WITHOUT waiting for the diagram (SVG). Set true to also wait for the
+   * diagram (e.g. before capturing it).
+   */
+  waitForDiagram?: boolean;
 }
 
 /**
@@ -390,7 +506,7 @@ export class WaitCompileTool implements vscode.LanguageModelTool<WaitCompileInpu
     token: vscode.CancellationToken
   ): Promise<vscode.LanguageModelToolResult> {
     try {
-      const { compileId, waitSeconds = 30 } = options.input;
+      const { compileId, waitSeconds = 30, waitForDiagram = false } = options.input;
       if (!compileId) {
         return new vscode.LanguageModelToolResult([
           new vscode.LanguageModelTextPart('No compileId provided. Pass the compile ID returned by makerchip_compile.')
@@ -400,10 +516,11 @@ export class WaitCompileTool implements vscode.LanguageModelTool<WaitCompileInpu
         compileId,
         Math.max(0, waitSeconds) * 1000,
         400,
-        token
+        token,
+        waitForDiagram
       );
       return new vscode.LanguageModelToolResult([
-        new vscode.LanguageModelTextPart(await formatCompileStatus(compileId, timedOut))
+        new vscode.LanguageModelTextPart(await formatCompileStatus(compileId, timedOut, waitForDiagram))
       ]);
     } catch (error: any) {
       return new vscode.LanguageModelToolResult([
@@ -422,6 +539,10 @@ interface GetVizImageInput {
   panelName?: string;
   /** Save to file for user visibility. If true, saves to /tmp. If string, uses as file path. */
   saveToFile?: boolean | string;
+  /** When true, do not return the image to the model (skip the inline image part) — capture it to a file only, for the user. Spends no vision tokens; a file is always written even if `saveToFile` is unset. */
+  blind?: boolean;
+  /** What to return: 'image' (image only), 'keyframe' (the current view's absolute keyframe only — no render), or 'both' (default). */
+  response?: 'image' | 'keyframe' | 'both';
 }
 
 /**
@@ -445,9 +566,35 @@ export class GetVizImageTool implements vscode.LanguageModelTool<GetVizImageInpu
   ): Promise<vscode.LanguageModelToolResult> {
     log('[GetVizImageTool] ========== TOOL INVOKED ==========');
     try {
-      const { format = 'png', quality = 1.0, panelName, saveToFile } = options.input;
-      log('[GetVizImageTool] Invoked with:', { format, quality, panelName, saveToFile });
-      
+      const { format = 'png', quality = 1.0, panelName, saveToFile, blind, response = 'both' } = options.input;
+      log('[GetVizImageTool] Invoked with:', { format, quality, panelName, saveToFile, blind, response });
+
+      const wantImage = response !== 'keyframe';
+      const wantKeyframe = response !== 'image';
+      const panelInfo = panelName ? ` from panel '${panelName}'` : '';
+
+      // Fetch the current view's absolute keyframe when requested. This is cheap (no render) and is
+      // returned as text alongside any image, saving a separate getKeyframe round-trip.
+      let keyframeText = '';
+      if (wantKeyframe) {
+        const kf = await vscode.commands.executeCommand(
+          'makerchip.callIdeMethodWithResult', 'getKeyframe', [], panelName
+        );
+        keyframeText = kf && typeof kf === 'object'
+          ? `Current view as an absolute keyframe (drop into makerchip_capture_video \`keyframes\` with \`absolute: true\`):\n${JSON.stringify(kf)}`
+          : 'Keyframe unavailable (no VIZ view).';
+      }
+      // Fold the keyframe into an image result's text (when both are requested).
+      const withKeyframe = (msg: string) => keyframeText ? `${msg}\n\n${keyframeText}` : msg;
+
+      // Keyframe-only: no image capture/render at all.
+      if (!wantImage) {
+        log('[GetVizImageTool] Returning keyframe only (no image capture)');
+        return new vscode.LanguageModelToolResult([
+          new vscode.LanguageModelTextPart(keyframeText)
+        ]);
+      }
+
       // Call the IDE method to get the image
       const imageOptions = { format, quality };
       log('[GetVizImageTool] Calling getVizImage with options:', imageOptions);
@@ -485,62 +632,57 @@ export class GetVizImageTool implements vscode.LanguageModelTool<GetVizImageInpu
       
       // Determine MIME type
       const mimeType = `image/${format}`;
-      // Panel info for logging
-      const panelInfo = panelName ? ` from panel '${panelName}'` : '';
-      
-      // Optionally save to file for user visibility
+
+      // Decide whether to hand the image to the model inline. `blind` opts out entirely (the
+      // capture is for the user, not the agent), so we never spend vision tokens on it. Inlining
+      // also requires the proposed image API; without it we fall back to a file (never base64 text).
+      const LanguageModelToolResult2 = (vscode as any).LanguageModelToolResult2;
+      const LanguageModelDataPart = (vscode as any).LanguageModelDataPart;
+      const canInline = !blind && LanguageModelToolResult2 && LanguageModelDataPart && LanguageModelDataPart.image;
+
+      // Save to a file when explicitly requested, or whenever the model won't receive the image
+      // inline (blind, or the inline API is unavailable) so the capture isn't lost.
       let savedPath: string | undefined;
-      if (saveToFile) {
-        if (typeof saveToFile === 'string') {
-          // Use provided path
-          savedPath = saveToFile;
-        } else {
-          // Auto-generate path in /tmp (timestamped for uniqueness)
-          const timestamp = Date.now();
-          const filename = `makerchip-viz-${timestamp}.${format}`;
-          savedPath = path.join(os.tmpdir(), filename);
-        }
+      if (saveToFile || !canInline) {
+        savedPath = typeof saveToFile === 'string'
+          ? saveToFile
+          : path.join(os.tmpdir(), `makerchip-viz-${Date.now()}.${format}`);
         fs.writeFileSync(savedPath, imageBuffer);
         log('[GetVizImageTool] Saved image to file:', savedPath);
       }
-      
-      // Try to use the proposed API for direct image return
-      // LanguageModelToolResult2 and LanguageModelDataPart are proposed APIs
-      const LanguageModelToolResult2 = (vscode as any).LanguageModelToolResult2;
-      const LanguageModelDataPart = (vscode as any).LanguageModelDataPart;
-      
-      if (LanguageModelToolResult2 && LanguageModelDataPart && LanguageModelDataPart.image) {
-        // Use proposed API to return image directly
-        log('[GetVizImageTool] Using proposed API (LanguageModelDataPart) to return image directly');
+
+      if (canInline) {
+        log('[GetVizImageTool] Returning image inline (spending vision tokens)');
         try {
-          const message =
+          const message = withKeyframe(
              `Successfully captured VIZ visualization${panelInfo} as ${format.toUpperCase()} image (${Math.round(imageBytes.length / 1024)}KB).`
-               + (savedPath ? `\nSaved to: ${savedPath}` : '');
-          
+               + (savedPath ? `\nSaved to: ${savedPath}` : ''));
+
           return new LanguageModelToolResult2([
             new vscode.LanguageModelTextPart(message),
             LanguageModelDataPart.image(imageBytes, mimeType)
           ]);
         } catch (error) {
-          log('[GetVizImageTool] Failed to use proposed API, falling back to file:', error);
+          log('[GetVizImageTool] Inline image API threw, falling back to file:', error);
+          // Ensure a file exists for the fallback text result below.
+          if (!savedPath) {
+            savedPath = path.join(os.tmpdir(), `makerchip-viz-${Date.now()}.${format}`);
+            fs.writeFileSync(savedPath, imageBuffer);
+          }
         }
       }
-      
-      // Fallback: Save to file for older VS Code versions (if not already saved)
-      if (!savedPath) {
-        const timestamp = Date.now();
-        const filename = `makerchip-viz-${timestamp}.${format}`;
-        savedPath = path.join(os.tmpdir(), filename);
-        fs.writeFileSync(savedPath, imageBuffer);
-      }
-      log('[GetVizImageTool] Proposed API not available, using file fallback:', savedPath);
-      
+
+      // Not inlined (blind, unavailable API, or the inline call threw): return the file path only.
+      log('[GetVizImageTool] Returning file path (no inline image):', savedPath);
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
-          `Successfully captured VIZ visualization${panelInfo} as ${format.toUpperCase()} image.\n` +
-          `Image saved to: ${savedPath}\n` +
-          `Size: ${Math.round(imageBuffer.length / 1024)}KB\n\n` +
-          `The image file is available for viewing.`
+          withKeyframe(
+            `Successfully captured VIZ visualization${panelInfo} as ${format.toUpperCase()} image.\n` +
+            `Image saved to: ${savedPath}\n` +
+            `Size: ${Math.round(imageBuffer.length / 1024)}KB\n\n` +
+            (blind
+              ? 'Captured in blind mode — the image was not returned to the model.'
+              : 'The image file is available for viewing.'))
         )
       ]);
       
@@ -721,26 +863,65 @@ interface CaptureVideoInput {
   startCyc: number;
   /** Ending cycle (inclusive) */
   endCyc: number;
-  /** Video format: 'auto', 'gif', or 'webm' (default: 'auto' - GIF for framesPerCycle=1, WebM otherwise) */
-  format?: 'auto' | 'gif' | 'webm';
-  /** Number of frames to capture per cycle (default: 1) */
-  framesPerCycle?: number;
-  /** Milliseconds per cycle in playback (default: 1000) */
-  cycleTimeMs?: number;
-  /** GIF encoding quality 1-30, lower is better (default: 10) */
-  quality?: number;
-  /** WebM bitrate in Mbps (default: 2.5, recommended: 10 for high quality) */
+  /**
+   * Output format: 'auto' (default) lets the IDE choose (GIF for one frame/cycle, MP4 otherwise);
+   * set explicitly to force a codec. Independent of saving, so it selects the codec even when the
+   * video is returned without writing a file. Mirrors the IDE `captureVideo` `format` option.
+   */
+  format?: 'auto' | 'gif' | 'mp4' | 'webm' | 'apng';
+  /**
+   * Output frame rate in frames per second. When omitted, one frame is rendered per cycle (the
+   * settled final state — no intra-cycle animation). Mirrors the IDE `captureVideo` `fps` option;
+   * the IDE derives frames-per-cycle = ceil(fps / cyclesPerSecond).
+   */
+  fps?: number;
+  /**
+   * Playback speed in simulation cycles per second (default: 1). Higher is faster — e.g. 20 plays
+   * each cycle for 50ms. Mirrors the IDE `captureVideo` `cyclesPerSecond` option.
+   */
+  cyclesPerSecond?: number;
+  /** Video bitrate in Mbps for MP4 output; ignored for GIF (default: 2.5, recommended: 10 for high quality) */
   Mbps?: number;
-  /** Restore cycle after capture: true for original, false to stay at endCyc, or number for specific cycle (default: true) */
-  restoreCycle?: boolean | number;
+  /** Recording width in pixels. Defaults to the live VIZ pane canvas width. Set this (with height) to record at a fixed resolution/aspect independent of the pane size. */
+  width?: number;
+  /** Recording height in pixels. Defaults to the live VIZ pane canvas height. Set this (with width) to record at a fixed resolution/aspect independent of the pane size. */
+  height?: number;
+  /** CSS canvas background color (e.g. 'white' or '#1e1e1e'). Defaults to the VIZ default. */
+  backgroundColor?: string;
+  /**
+   * Override the automatically computed RPC timeout, in seconds (capped at 3600 = 1 hour). Use this
+   * only when a capture legitimately runs slower than the estimate allows; supplying it bypasses the
+   * automatic refusal for large jobs. WARNING: capture is NOT real-time, and the video encode path
+   * runs ffmpeg compiled to WebAssembly, which buffers every rendered frame in memory before/while
+   * encoding. A long timeout combined with many frames and/or a high resolution can accumulate
+   * gigabytes in the webview's heap and crash it (out-of-memory). Prefer reducing the cycle range,
+   * fps, or resolution over raising the timeout.
+   */
+  timeout?: number;
   /** Optional panel name to target. If not provided, uses the default panel. */
   panelName?: string;
-  /** Save to file. If true, auto-generates filename. If string, uses as file path. If false/undefined, only saves if video is large. */
-  saveToFile?: boolean | string;
+  /** Optional output file path. If omitted, a timestamped file is written to the OS temp dir. The video is always saved to a file (never inlined into the conversation). */
+  filename?: string;
+  /**
+   * Camera keyframes for pan/zoom motion over the cycle range. Each keyframe is
+   * {cycle?, scale?, focus?: {x, y}, width?, height?}. With a single keyframe the camera is
+   * static; multiple keyframes animate the camera (Catmull-Rom interpolated). In relative mode
+   * (default) keyframes may be omitted for no camera motion (records the current view); in absolute
+   * mode the current view is not used, so keyframes are REQUIRED (at least one entry) and `default`
+   * only fills in omitted per-keyframe properties. See VizPane.captureVideo for the
+   * relative-vs-absolute model: relative (default) scale is a multiplier on the current VIZ scale
+   * and focus is a fraction of the visible area; absolute (see `absolute`) uses absolute VIZ
+   * scale/coordinates.
+   */
+  keyframes?: Array<{ cycle?: number; scale?: number; focus?: { x: number; y: number }; width?: number; height?: number }>;
+  /** When true, keyframe `scale`/`focus` are absolute VIZ scale/coordinates rather than relative to the current view. */
+  absolute?: boolean;
+  /** Default keyframe values (scale/focus/width/height) applied to any keyframe that omits them. */
+  default?: { scale?: number; focus?: { x: number; y: number }; width?: number; height?: number };
 }
 
 /**
- * Language Model tool to capture VIZ simulation as video (GIF or WebM)
+ * Language Model tool to capture VIZ simulation as video (GIF or MP4)
  */
 export class CaptureVideoTool implements vscode.LanguageModelTool<CaptureVideoInput> {
   
@@ -750,8 +931,9 @@ export class CaptureVideoTool implements vscode.LanguageModelTool<CaptureVideoIn
   ): Promise<vscode.PreparedToolInvocation> {
     const { startCyc, endCyc, format = 'auto' } = options.input;
     const cycles = endCyc - startCyc + 1;
+    const formatInfo = format === 'auto' ? '' : ` ${format.toUpperCase()}`;
     return {
-      invocationMessage: `Capturing VIZ simulation (cycles ${startCyc}-${endCyc}, ${cycles} frames) as ${format.toUpperCase()} video...`
+      invocationMessage: `Capturing VIZ simulation (cycles ${startCyc}-${endCyc}, ${cycles} frames) as${formatInfo} video...`
     };
   }
 
@@ -765,17 +947,27 @@ export class CaptureVideoTool implements vscode.LanguageModelTool<CaptureVideoIn
         startCyc, 
         endCyc, 
         format = 'auto',
-        framesPerCycle = 1,
-        cycleTimeMs = 1000,
-        quality = 10,
+        fps,
+        cyclesPerSecond = 1,
         Mbps = 2.5,
-        restoreCycle = true,
+        width,
+        height,
+        backgroundColor,
+        timeout,
         panelName,
-        saveToFile
+        filename,
+        keyframes,
+        absolute,
+        default: keyframeDefault
       } = options.input;
+
+      // Mirror the IDE's derivation (framesPerCycle = ceil(fps / cyclesPerSecond), else 1) so our
+      // local frame-count / format-selection / timeout math matches what the IDE actually renders.
+      const framesPerCycle = fps != null ? Math.ceil(fps / cyclesPerSecond) : 1;
       
       log('[CaptureVideoTool] Invoked with:', { 
-        startCyc, endCyc, format, framesPerCycle, cycleTimeMs, quality, Mbps, restoreCycle, panelName, saveToFile 
+        startCyc, endCyc, format, fps, cyclesPerSecond, framesPerCycle, Mbps, width, height, backgroundColor, timeout, panelName, filename,
+        keyframes: Array.isArray(keyframes) ? `${keyframes.length} keyframe(s)` : keyframes, absolute, default: keyframeDefault
       });
       
       // Validate cycle range
@@ -785,25 +977,101 @@ export class CaptureVideoTool implements vscode.LanguageModelTool<CaptureVideoIn
         ]);
       }
       
-      // Build options for IDE method (exclude panelName and saveToFile)
+      // Build options for IDE method (exclude panelName and filename).
       const videoOptions: any = {
-        format,
-        framesPerCycle,
-        cycleTimeMs,
-        quality,
+        cyclesPerSecond,
         Mbps,
-        restoreCycle,
         filename: null  // Don't download in IDE, we'll handle it here
       };
+      // 'auto' means let the IDE pick (GIF for one frame/cycle, H.264 MP4 otherwise).
+      if (format !== 'auto') videoOptions.format = format;
+      if (fps != null) videoOptions.fps = fps;
+      // Optional fixed recording resolution / aspect, independent of the live VIZ pane size.
+      // VizPane.captureVideo renders in its own offscreen (headless) VizRecorder canvas at
+      // these dimensions; when omitted it defaults to the live pane canvas size.
+      if (typeof width === 'number') videoOptions.width = width;
+      if (typeof height === 'number') videoOptions.height = height;
+      if (typeof backgroundColor === 'string') videoOptions.backgroundColor = backgroundColor;
+      // Camera motion: forward keyframes / absolute / default to the IDE method. Without this the
+      // camera options are dropped and captureVideo renders a static, auto-fit view.
+      if (Array.isArray(keyframes)) videoOptions.keyframes = keyframes;
+      if (typeof absolute === 'boolean') videoOptions.absolute = absolute;
+      if (keyframeDefault && typeof keyframeDefault === 'object') videoOptions.default = keyframeDefault;
       
       log('[CaptureVideoTool] Calling captureVideo with options:', videoOptions);
+      
+      // captureVideo can exceed the default 10s IDE-method RPC timeout.
+      // Estimate the render/encode: a per-frame budget that scales with the frame's resolution (megapixels), plus a
+      // setup/encoding floor. The RPC timeout is that estimate times a generous safety margin plus a
+      // fixed floor (so a slower-than-expected render isn't killed prematurely), clamped to a hard
+      // ceiling. The caller can override this check with an explicit `timeout`.
+      const MAX_TIMEOUT_MS = 60 * 60 * 1000; // 1-hour ceiling on timeout
+      const TIMEOUT_MARGIN = 4; // safety factor applied to the estimate
+      const TIMEOUT_FLOOR_MS = 2 * 60 * 1000; // added to the margined estimate (also acts as a min timeout)
+      const MAX_EST_MS = 30 * 60 * 1000; // refuse jobs whose estimate exceeds this (before margin/floor)
+      const totalFrames = (endCyc - startCyc + 1) * Math.max(1, framesPerCycle);
+      // Resolution defaults to the live pane size when width/height are omitted; assume ~2 MP in that case.
+      const megapixels =
+        typeof width === 'number' && typeof height === 'number'
+          ? Math.max(0.1, (width * height) / 1e6)
+          : 2;
+      const perFrameMs = 500 + megapixels * 1500; // base render/encode + resolution-dependent cost
+      const estimatedMs = 30000 + totalFrames * perFrameMs;
+
+      let captureTimeoutMs: number;
+      if (typeof timeout === 'number' && timeout > 0) {
+        // Explicit override: trust the caller - no time estimate check (but do clamp to the timeout cap).
+        captureTimeoutMs = Math.min(MAX_TIMEOUT_MS, timeout * 1000);
+        log(
+          '[CaptureVideoTool] Using explicit RPC timeout (ms):',
+          captureTimeoutMs,
+          '(estimate ~',
+          Math.round(estimatedMs),
+          'ms) for',
+          totalFrames,
+          'frame(s) at ~',
+          megapixels.toFixed(2),
+          'MP'
+        );
+      } else {
+        // Refuse jobs with large estimated time.
+        // Report the estimate, the knobs the caller can turn down, and the `timeout` override.
+        if (estimatedMs > MAX_EST_MS) {
+          const estMin = (estimatedMs / 60000).toFixed(1);
+          return new vscode.LanguageModelToolResult([
+            new vscode.LanguageModelTextPart(
+              `Refusing to capture: estimated render time is ~${estMin} min (> ${MAX_EST_MS / 60000} min limit) ` +
+              `for ${totalFrames} frame(s) at ~${megapixels.toFixed(2)} megapixels each. ` +
+              `Reduce the cycle range (${startCyc}-${endCyc}), ` +
+              `lower fps (currently ${framesPerCycle} frame(s)/cycle), or reduce the recording resolution (width/height). ` +
+              `To override this protection, supply an explicit 'timeout' (capped at ${MAX_TIMEOUT_MS / 60000} minutes). ` +
+              `Note that long, high-resolution captures can exhaust the webview's memory.`
+            )
+          ]);
+        }
+
+        captureTimeoutMs = Math.min(MAX_TIMEOUT_MS, estimatedMs * TIMEOUT_MARGIN + TIMEOUT_FLOOR_MS);
+        log(
+          '[CaptureVideoTool] Using RPC timeout (ms):',
+          captureTimeoutMs,
+          '(estimate ~',
+          Math.round(estimatedMs),
+          'ms) for',
+          totalFrames,
+          'frame(s) at ~',
+          megapixels.toFixed(2),
+          'MP'
+        );
+      }
       
       // Call the IDE method to get the video blob
       const result = await vscode.commands.executeCommand(
         'makerchip.callIdeMethodWithResult', 
         'captureVideo', 
         [startCyc, endCyc, videoOptions], 
-        panelName
+        panelName,
+        false,
+        captureTimeoutMs
       ) as { __makerchipBlob?: true; base64?: string; mimeType?: string } | null;
       
       log('[CaptureVideoTool] Result received:', result ? `SerializedBlob (${result.base64?.length ?? 0} base64 chars, type: ${result.mimeType})` : 'null');
@@ -817,78 +1085,49 @@ export class CaptureVideoTool implements vscode.LanguageModelTool<CaptureVideoIn
         ]);
       }
       
-      // Determine actual format (handle auto-selection)
-      const actualFormat = format === 'auto' ? (framesPerCycle === 1 ? 'gif' : 'webm') : format;
-      const ext = actualFormat === 'gif' ? 'gif' : 'webm';
-      
+      // The IDE encodes with the requested `format`, else it chooses the codec (GIF for one
+      // frame/cycle, H.264 MP4 otherwise). Trust the returned MIME type for the real format, and
+      // fall back to `format`/frame-count only when the blob didn't report a type.
+      const formatMime: Record<string, string> = {
+        gif: 'image/gif', mp4: 'video/mp4', webm: 'video/webm', apng: 'image/apng'
+      };
+      const fallbackMime =
+        (format !== 'auto' && formatMime[format]) || (framesPerCycle === 1 ? 'image/gif' : 'video/mp4');
+      const mimeType = result.mimeType || fallbackMime;
+      const mimeSubtype = (mimeType.split('/')[1] || '').replace(/^x-/, '');
+      // Prefer an explicit `filename` extension; else derive from the MIME subtype.
+      const saveExt = typeof filename === 'string' ? path.extname(filename).slice(1).toLowerCase() : '';
+      const ext = saveExt || (mimeSubtype === 'jpeg' ? 'jpg' : (mimeSubtype || (framesPerCycle === 1 ? 'gif' : 'mp4')));
+      const actualFormat = ext;
+
       // Decode the base64 envelope produced by the webview into a buffer.
       const videoBuffer = Buffer.from(result.base64, 'base64');
-      const videoBytes = new Uint8Array(videoBuffer);
-      
-      // Determine MIME type from blob or format
-      const mimeType = result.mimeType || `video/${ext}`;
       
       // Panel info for logging
       const panelInfo = panelName ? ` from panel '${panelName}'` : '';
       const cycles = endCyc - startCyc + 1;
       
-      // Determine if we should save to file
-      // Auto-save for larger files or if explicitly requested
-      const shouldSave = saveToFile !== false && (saveToFile || videoBuffer.length > 100 * 1024); // Save if >100KB
-      
-      let savedPath: string | undefined;
-      if (shouldSave) {
-        if (typeof saveToFile === 'string') {
-          // Use provided path
-          savedPath = saveToFile;
-        } else {
-          // Auto-generate path (timestamped for uniqueness)
-          const timestamp = Date.now();
-          const filename = `makerchip-viz-${startCyc}-${endCyc}-${timestamp}.${ext}`;
-          savedPath = path.join(os.tmpdir(), filename);
-        }
-        fs.writeFileSync(savedPath, videoBuffer);
-        log('[CaptureVideoTool] Saved video to file:', savedPath);
-      }
-      
-      // Try to use the proposed API for direct video return
-      const LanguageModelToolResult2 = (vscode as any).LanguageModelToolResult2;
-      const LanguageModelDataPart = (vscode as any).LanguageModelDataPart;
-      
-      if (LanguageModelToolResult2 && LanguageModelDataPart && LanguageModelDataPart.video) {
-        log('[CaptureVideoTool] Using proposed API (LanguageModelDataPart) to return video directly');
-        try {
-          const message =
-             `Successfully captured VIZ simulation${panelInfo} as ${actualFormat.toUpperCase()} video (${cycles} cycles, ${Math.round(videoBytes.length / 1024)}KB).`
-               + savedPath ? `\nSaved to: ${savedPath}` : '';
-          
-          return new LanguageModelToolResult2([
-            new vscode.LanguageModelTextPart(message),
-            LanguageModelDataPart.video(videoBytes, mimeType)
-          ]);
-        } catch (error) {
-          log('[CaptureVideoTool] Failed to use proposed API, falling back to file:', error);
-        }
-      }
-      
-      // Fallback: Save to file if not already saved
-      if (!savedPath) {
-        const timestamp = Date.now();
-        const filename = `makerchip-viz-${startCyc}-${endCyc}-${timestamp}.${ext}`;
-        savedPath = path.join(os.tmpdir(), filename);
-        fs.writeFileSync(savedPath, videoBuffer);
-      }
-      log('[CaptureVideoTool] Proposed API not available, using file fallback:', savedPath);
-      
+      // Always persist to a file. Video bytes are never inlined into the conversation: models
+      // can't consume a video, and a multi-MB data part would only bloat the context. Use the
+      // caller's `filename` when given, else a timestamped file in the OS temp dir.
+      const savedPath = typeof filename === 'string' && filename.length > 0
+        ? filename
+        : path.join(os.tmpdir(), `makerchip-viz-${startCyc}-${endCyc}-${Date.now()}.${ext}`);
+      fs.writeFileSync(savedPath, videoBuffer);
+      log('[CaptureVideoTool] Saved video to file:', savedPath);
+
+      // For image formats (single-frame GIF/APNG, e.g. a calibration capture) the saved file can be
+      // viewed directly to inspect the frame; real videos are only referenced by path.
+      const isImageFormat = actualFormat === 'gif' || actualFormat === 'apng' || actualFormat === 'png';
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
           `Successfully captured VIZ simulation${panelInfo} as ${actualFormat.toUpperCase()} video.\n` +
           `Cycles: ${startCyc}-${endCyc} (${cycles} total)\n` +
-          `Format: ${actualFormat.toUpperCase()} (${framesPerCycle} frames/cycle)\n` +
-          `Duration: ${cycles * cycleTimeMs / 1000}s at ${cycleTimeMs}ms/cycle\n` +
+          `Format: ${actualFormat.toUpperCase()} (${framesPerCycle} frame(s)/cycle)\n` +
+          `Duration: ${(cycles / cyclesPerSecond).toFixed(2)}s at ${cyclesPerSecond} cycle(s)/s (${Math.round(1000 / cyclesPerSecond)}ms/cycle)\n` +
           `File: ${savedPath}\n` +
-          `Size: ${Math.round(videoBuffer.length / 1024)}KB\n\n` +
-          `The video file is available for viewing.`
+          `Size: ${Math.round(videoBuffer.length / 1024)}KB` +
+          (isImageFormat ? `\n\nThis is an image format — view ${savedPath} to inspect the frame(s).` : '')
         )
       ]);
       

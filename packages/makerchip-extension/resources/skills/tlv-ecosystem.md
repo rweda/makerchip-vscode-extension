@@ -86,6 +86,12 @@ Makerchip is also a teaching tool. And you have the ability to interact with the
 
 BE SURE TO TELL THE USER ALL ABOUT THE WONDERFUL THINGS YOU CAN DO TOGETHER IN MAKERCHIP.
 
+### Capturing VIZ stills and videos
+
+Use `makerchip_get_viz_image` to grab the current VIZ view as a still, and `makerchip_capture_video` to record the VIZ canvas across a cycle range as a GIF or video, optionally animating a camera pan/zoom and recording at a fixed resolution/aspect. Captures are saved to a file so the user can see them. See each tool's schema for the parameter details.
+
+The user may help guide your video framing. Use `makerchip_get_viz_image` to check the current VIZ view framing: it returns the current view as an image for your viewing and/or an absolute keyframe you can feed straight into the video capture. Before committing to a long video render, use reduced resolution and frames per second as you work out proper framing.
+
 ### Live Doc (PDF-driven VIZ)
 
 **Live Doc** extends VIZ so a `\viz_js` block can extract vector figures from a referenced PDF (a lecture slide, textbook page, or design spec) and overlay them with live simulation data — animating a static diagram to reflect circuit behavior. It's exposed to `\viz_js` code as `this.global.pdf` (`extractFigure`, `toFabric`, `buildFigure`).

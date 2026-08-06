@@ -302,20 +302,20 @@ export function activate(ctx: vscode.ExtensionContext) {
   //   4. A timeout rejects and removes the entry if no reply arrives, so a lost or hung
   //      reply neither leaks a map entry nor hangs the caller forever.
   context.subscriptions.push(
-    vscode.commands.registerCommand('makerchip.callIdeMethodWithResult', async (method: string, args: any[] = [], panelName?: string, createIfNeeded: boolean = false): Promise<any> => {
+    vscode.commands.registerCommand('makerchip.callIdeMethodWithResult', async (method: string, args: any[] = [], panelName?: string, createIfNeeded: boolean = false, timeoutMs: number = 10000): Promise<any> => {
       const requestId = `req_${++requestCounter}`;
       const resultPromise = new Promise<any>((resolve, reject) => {
         // Step 1: register the callbacks before the call is posted (step 2 below) so the
         // reply handler (step 3) is guaranteed to find this entry.
         pendingIdeResults.set(requestId, { resolve, reject });
-        // Step 4: safety net — if no reply arrives, reject and unregister.
+        // Step 4: safety net — if no reply arrives, reject and unregister after configured timeout.
         setTimeout(() => {
           if (pendingIdeResults.has(requestId)) {
             pendingIdeResults.delete(requestId);
             console.error(`[callIdeMethodWithResult] Timeout for request ${requestId} (method: ${method})`);
             reject(new Error(`Timeout waiting for IDE method '${method}' result`));
           }
-        }, 10000);
+        }, timeoutMs);
       });
 
       // Step 2: post the call. callIDE is the single posting site (it also tracks compile
