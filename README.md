@@ -51,22 +51,27 @@ npm run compile
 
 ### Launching the Extension Development Host
 
-A convenience symlink at the repo root forwards to the real script:
+**Always** launch the VS Code Extension Development Host via the `./launch` script. A convenience symlink at the repo root (`./launch`) forwards to the real script
+in [`packages/makerchip-extension`](packages/makerchip-extension/README.md#quick-start-with-launch-script).
+Its single argument selects **the sandhost you develop against** — a deployed
+URL or a local `mono` clone:
 
 ```bash
-./launch                # Connect to default server (beta.makerchip.com)
-./launch :8800          # Cloudflare tunnel to localhost:8800 (local SandHost)
-./launch :              # Tunnel to localhost:8080 (default port)
-./launch https://...    # Explicit server URL
+./launch                             # Deployed default server (beta.makerchip.com)
+./launch https://makerchip.com/v123  # Deployed server at an explicit URL
+./launch example_videos              # A local mono clone (mono_example_videos)
 ```
 
-The script loads **both** `makerchip-extension` and `tlv-extension` from source, which
-satisfies the hard `extensionDependencies` without a Marketplace publish. Full documentation
-and tunnel/workspace options are in [`packages/makerchip-extension/README.md`](packages/makerchip-extension/README.md).
+For a clone it wires up everything (SandHost, Cloudflare tunnel, dedicated
+workspace, dedicated VS Code profile) and loads **both** `makerchip-extension`
+and `tlv-extension` from source, satisfying the hard `extensionDependencies`
+without a Marketplace publish. Clone resolution, tunnel ownership/teardown, the
+`bin/reap` reaper, and the full per-clone workflow are documented in the
+[package README](packages/makerchip-extension/README.md#quick-start-with-launch-script).
 
 ### Co-developing both extensions
 
-The "Run Extension" launch config (F5) and the `./launch` script both pass two
+The "Run Extension" launch config (F5) (default deployed sandhost only) and the `./launch` script both pass two
 `--extensionDevelopmentPath` args so edits to either extension are picked up together.
 The default build task (`watch: all`) runs `tsc -watch` for both in parallel.
 

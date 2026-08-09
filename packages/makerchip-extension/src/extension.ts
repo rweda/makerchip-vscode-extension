@@ -43,6 +43,11 @@ const pendingCompiles = new Map<string, CompileSource>(); // panelKey -> source 
 // resolve/reject of the promise handed back to the caller; the matching 'ideResult'/
 // 'ideError' message (or a timeout) settles and removes it. See callIdeMethodWithResult.
 const pendingIdeResults = new Map<string, {resolve: (result: any) => void, reject: (error: Error) => void}>();
+// Single-slot capture of the most recent reply that arrived AFTER its callIdeMethodWithResult
+// call had already timed out (so its pending entry was gone). Overwritten each time; retrieved
+// on demand via the 'makerchip.getLateReply' command / makerchip_get_late_reply tool. The
+// timestamp + method + requestId let a caller judge whether it is the reply they were awaiting.
+let lastLateReply: {requestId: string, method: string, kind: 'result' | 'error', value: any, timestamp: number} | null = null;
 let panelCounter = 1;
 let requestCounter = 0;
 let statusBarItem: vscode.StatusBarItem;
@@ -289,6 +294,15 @@ export function activate(ctx: vscode.ExtensionContext) {
     })
   );
 
+  // BUS EMIT COMMAND (publish an application event onto the IDE bus as a `platform` participant).
+  // Optional `agent` tags who the platform emits on behalf of: omitted -> source "platform";
+  // otherwise source "platform.<agent>" (e.g. agent "ai" -> "platform.ai").
+  context.subscriptions.push(
+    vscode.commands.registerCommand('makerchip.busEmit', async (type: string, payload: any, target?: string | string[], agent?: string, panelName?: string) => {
+      await callIDE('busEmit', [type, payload, target, agent], panelName, false);
+    })
+  );
+
   // INVOKE IDE METHOD AND RETURN RESULT (used by tools that need return values)
   //
   // The webview bridge is fire-and-forget (postMessage), so obtaining a return value
@@ -302,20 +316,22 @@ export function activate(ctx: vscode.ExtensionContext) {
   //   4. A timeout rejects and removes the entry if no reply arrives, so a lost or hung
   //      reply neither leaks a map entry nor hangs the caller forever.
   context.subscriptions.push(
-    vscode.commands.registerCommand('makerchip.callIdeMethodWithResult', async (method: string, args: any[] = [], panelName?: string, createIfNeeded: boolean = false): Promise<any> => {
+    vscode.commands.registerCommand('makerchip.callIdeMethodWithResult', async (method: string, args: any[] = [], panelName?: string, createIfNeeded: boolean = false, timeoutMs: number = 10000): Promise<any> => {
       const requestId = `req_${++requestCounter}`;
       const resultPromise = new Promise<any>((resolve, reject) => {
         // Step 1: register the callbacks before the call is posted (step 2 below) so the
         // reply handler (step 3) is guaranteed to find this entry.
         pendingIdeResults.set(requestId, { resolve, reject });
-        // Step 4: safety net — if no reply arrives, reject and unregister.
+        // Step 4: safety net — if no reply arrives, reject and unregister. The default 10s suits
+        // synchronous IDE methods; callers awaiting a slow downstream op (e.g. a pane RPC that
+        // runs a compile) pass a larger timeoutMs.
         setTimeout(() => {
           if (pendingIdeResults.has(requestId)) {
             pendingIdeResults.delete(requestId);
             console.error(`[callIdeMethodWithResult] Timeout for request ${requestId} (method: ${method})`);
-            reject(new Error(`Timeout waiting for IDE method '${method}' result`));
+            reject(new Error(`Timeout waiting for IDE method '${method}' result. If a late result arrives it can be retrieved with the makerchip_get_late_reply tool.`));
           }
-        }, 10000);
+        }, timeoutMs);
       });
 
       // Step 2: post the call. callIDE is the single posting site (it also tracks compile
@@ -325,6 +341,15 @@ export function activate(ctx: vscode.ExtensionContext) {
       // Settled later by the 'ideResult'/'ideError' handler (step 3) or the timeout (step 4).
       return resultPromise;
     })
+  );
+
+  // RETRIEVE LATE REPLY
+  //
+  // Returns the most recent reply that arrived after its callIdeMethodWithResult call had
+  // already timed out, or null if none has been captured. Single slot, not cleared on read,
+  // so a caller can re-check; the timestamp/method/requestId let it confirm the match.
+  context.subscriptions.push(
+    vscode.commands.registerCommand('makerchip.getLateReply', async () => lastLateReply)
   );
 
   // LIST PANELS COMMAND
@@ -375,6 +400,29 @@ export function activate(ctx: vscode.ExtensionContext) {
     })
   );
 
+  // RELOAD PANELS COMMAND
+  //
+  // Reload every open Makerchip webview against the freshly-resolved server URL
+  // (getServerUrl() reads the clone's sandhost/TUNNEL_INFO / configuration).
+  // Recovers already-open panels without a full window reload in two cases:
+  //   - the sandserv backend was restarted (same URL, dropped connections), or
+  //   - the dev tunnel was recreated by ./launch (new URL after the old died).
+  // Also exposed to Copilot as the makerchip_reload_panels tool.
+  context.subscriptions.push(
+    vscode.commands.registerCommand('makerchip.reloadPanels', async (): Promise<{ serverUrl: string; panels: string[] }> => {
+      const serverUrl = await getServerUrl();
+      const reloaded = Array.from(panels.keys());
+      for (const [key, panel] of panels) {
+        // Re-rendering the HTML reloads the IDE iframe (reconnecting to serverUrl).
+        // The panel's existing message handler stays attached and handles the fresh
+        // 'ready'/results, so no re-wiring is required.
+        panel.webview.html = buildWebviewHtml(panel, key, serverUrl);
+      }
+      log(`Reloaded ${reloaded.length} panel(s) against ${serverUrl}`);
+      return { serverUrl, panels: reloaded };
+    })
+  );
+
   // To debug webviews: Help > Toggle Developer Tools, then inspect the webview <iframe> element
 }
 
@@ -394,6 +442,38 @@ async function openMakerchipPanel(panelKey: string): Promise<void> {
     }
   );
   return setupPanel(panel, panelKey);
+}
+
+/**
+ * Build the webview HTML for a Makerchip panel, pointed at a given server URL.
+ * Setting the returned string as `panel.webview.html` (re)loads the IDE iframe;
+ * reusing it with a fresh URL is how {@link makerchip.reconnectTunnel} repoints
+ * an already-open panel at a newly created tunnel without reopening the window.
+ * @param panel The webview panel the HTML is for (used to resolve the script URI).
+ * @param panelKey Unique identifier for this panel instance.
+ * @param serverUrl The Makerchip server/tunnel URL the IDE should connect to.
+ */
+function buildWebviewHtml(panel: vscode.WebviewPanel, panelKey: string, serverUrl: string): string {
+  const nonce = getNonce();
+
+  // Get webview URI for the script file
+  const scriptUri = panel.webview.asWebviewUri(
+    vscode.Uri.joinPath(context.extensionUri, 'out', 'webview.js')
+  );
+
+  // Detect VS Code theme to match Makerchip IDE dark mode
+  const isDarkTheme = vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark ||
+                      vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.HighContrast;
+
+  // Load HTML template and replace placeholders
+  const htmlPath = path.join(context.extensionPath, 'out', 'webview.html');
+  let html = fs.readFileSync(htmlPath, 'utf8');
+  html = html.replace(/{{nonce}}/g, nonce);
+  html = html.replace(/{{scriptUri}}/g, scriptUri.toString());
+  html = html.replace(/{{serverUrl}}/g, serverUrl);
+  html = html.replace(/{{defaultDarkMode}}/g, isDarkTheme.toString());
+  html = html.replace(/{{panelKey}}/g, panelKey);
+  return html;
 }
 
 /**
@@ -452,8 +532,6 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string): Promise<void>
     // Store panel in map
     panels.set(panelKey, panel);
 
-    const nonce = getNonce();
-    
     // Get server URL - required, no default fallback
     let serverUrl: string;
     try {
@@ -465,26 +543,9 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string): Promise<void>
       settleReject(error instanceof Error ? error : new Error(errorMsg));
       return;
     }
-    
-    // Get webview URI for the script file
-    const scriptUri = panel.webview.asWebviewUri(
-      vscode.Uri.joinPath(context.extensionUri, 'out', 'webview.js')
-    );
 
-    // Detect VS Code theme to match Makerchip IDE dark mode
-    const isDarkTheme = vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark ||
-                        vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.HighContrast;
-
-    // Load HTML template and replace placeholders
-    const htmlPath = path.join(context.extensionPath, 'out', 'webview.html');
-    let html = fs.readFileSync(htmlPath, 'utf8');
-    html = html.replace(/{{nonce}}/g, nonce);
-    html = html.replace(/{{scriptUri}}/g, scriptUri.toString());
-    html = html.replace(/{{serverUrl}}/g, serverUrl);
-    html = html.replace(/{{defaultDarkMode}}/g, isDarkTheme.toString());
-    html = html.replace(/{{panelKey}}/g, panelKey);
-    
-    panel.webview.html = html;
+    // Render the webview against the resolved server URL.
+    panel.webview.html = buildWebviewHtml(panel, panelKey, serverUrl);
 
     // Arm the readiness timeout. If the webview never posts 'ready' (e.g. the
     // plugin failed to load, or activation raced VS Code startup), reject so
@@ -536,7 +597,9 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string): Promise<void>
           resolveResult(msg.result);
         } else if (msg.requestId) {
           // No matching entry: the request already timed out (step 4) or was never registered.
-          console.warn(`[ideResult] Received result for unknown request ID: ${msg.requestId}`);
+          // Capture it as the late reply so a caller that gave up can still retrieve it.
+          lastLateReply = {requestId: msg.requestId, method: msg.method, kind: 'result', value: msg.result, timestamp: Date.now()};
+          console.warn(`[ideResult] Late result for timed-out request ${msg.requestId} (method: ${msg.method})`);
         }
         // Note: the cache entry for a compile is initialized from the server's
         // 'compileStart' (newcompile) event, which also reports sim/dot.
@@ -551,10 +614,12 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string): Promise<void>
           reject(new Error(msg.error));
         } else if (msg.requestId) {
           // No matching entry: the request already timed out (step 4) or was never registered.
-          console.warn(`[ideError] Received error for unknown request ID: ${msg.requestId}`);
+          // Capture it as the late reply so a caller that gave up can still retrieve it.
+          lastLateReply = {requestId: msg.requestId, method: msg.method, kind: 'error', value: msg.error, timestamp: Date.now()};
+          console.warn(`[ideError] Late error for timed-out request ${msg.requestId} (method: ${msg.method})`);
         }
       }
-      
+
       if (msg.type === 'compileStart') {
         // Server accepted a compile (newcompile). Initialize the cache entry with
         // the source (captured when the compile was requested) and the expected
@@ -664,7 +729,8 @@ function getNonce() {
 }
 
 /**
- * Read a TUNNEL_URL from a ./launch tunnel state file.
+ * Read a TUNNEL_URL from a ./launch tunnel state file (a clone's
+ * sandhost/TUNNEL_INFO).
  * @param file Absolute path to a tunnel state file.
  * @returns The tunnel URL, or undefined if absent/invalid.
  */
@@ -680,40 +746,33 @@ function readTunnelUrl(file: string): string | undefined {
 }
 
 /**
- * Get the Makerchip server URL from:
- * 1. MAKERCHIP_TUNNEL_URL env var (set by ./launch, per-window; disambiguates
- *    when multiple tunnels are active).
- * 2. Active tunnel registry (ACTIVE_TUNNELS/<port>, created by ./launch) - only
- *    when exactly one tunnel is active (otherwise ambiguous, so skipped).
+ * Get the Makerchip server URL from (highest priority first):
+ * 1. MAKERCHIP_SERVER_URL env (set by `./launch <url>`): an explicit, static
+ *    server URL (e.g. production). Fine to freeze since it never changes.
+ * 2. The clone's tunnel: `./launch <clone>` records the Cloudflare tunnel in
+ *    <clone>/sandhost/TUNNEL_INFO and opens the clone as the workspace folder,
+ *    so we resolve it via the workspace folder — unambiguous even with several
+ *    clones running. Read FRESH each call, so Reload Panels picks up a tunnel
+ *    that ./launch recreated (e.g. on a new URL) without a reopen.
  * 3. VS Code configuration (makerchip.serverUrl)
  * 4. Default: DEFAULT_SERVER_URL
  */
 async function getServerUrl(): Promise<string> {
-  // 1. Explicit per-window tunnel URL from ./launch (tunnel mode).
-  const envUrl = process.env.MAKERCHIP_TUNNEL_URL;
-  if (envUrl && envUrl.startsWith('http')) {
-    log(`Using server URL from MAKERCHIP_TUNNEL_URL: ${envUrl}`);
-    return envUrl;
+  // 1. Explicit static server URL pinned by ./launch (url mode).
+  const pinnedUrl = process.env.MAKERCHIP_SERVER_URL;
+  if (pinnedUrl) {
+    log(`Using server URL from MAKERCHIP_SERVER_URL: ${pinnedUrl}`);
+    return pinnedUrl;
   }
 
-  // 2. Active tunnel registry (ACTIVE_TUNNELS/<port>). Only unambiguous when a
-  //    single tunnel is active; with several, MAKERCHIP_TUNNEL_URL is required.
-  const tunnelDir = path.join(__dirname, '..', 'ACTIVE_TUNNELS');
-  if (fs.existsSync(tunnelDir)) {
-    try {
-      const urls = fs.readdirSync(tunnelDir)
-        .map(name => readTunnelUrl(path.join(tunnelDir, name)))
-        .filter((u): u is string => !!u);
-      if (urls.length === 1) {
-        log(`Using server URL from active tunnel: ${urls[0]}`);
-        return urls[0];
-      } else if (urls.length > 1) {
-        log(`Warning: ${urls.length} active tunnels found in ACTIVE_TUNNELS; ` +
-          `set MAKERCHIP_TUNNEL_URL (launch via ./launch :port) to disambiguate. ` +
-          `Falling back to configuration.`);
-      }
-    } catch (err) {
-      log(`Warning: Failed to read tunnel registry: ${err}`);
+  // 2. The clone's tunnel state, resolved via the workspace folder (the clone
+  //    root). Reading fresh keeps Reload Panels working across tunnel recreation.
+  for (const folder of vscode.workspace.workspaceFolders ?? []) {
+    const infoFile = path.join(folder.uri.fsPath, 'sandhost', 'TUNNEL_INFO');
+    const url = readTunnelUrl(infoFile);
+    if (url) {
+      log(`Using server URL from clone tunnel (${infoFile}): ${url}`);
+      return url;
     }
   }
 

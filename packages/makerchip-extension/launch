@@ -1,76 +1,118 @@
 #!/bin/bash
-# Launch VS Code with local Makerchip extension.
-# May tunnel to a local sandhost for development.
+# Launch a VS Code Extension Development Host (EDH) for the Makerchip extension,
+# wired to the right SandHost. The single argument selects WHAT you develop
+# against; everything else (tunnel, workspace, VS Code profile) follows from it.
 #
 # Usage:
-#   ./launch                              # Connect to default server (beta.makerchip.com)
-#   ./launch "" <workspace>               # Default server + workspace
-#   ./launch https://makerchip.com        # Connect to production
-#   ./launch https://makerchip.com/v123   # Connect to specific version (path-based)
-#   ./launch :8800                        # Create tunnel to localhost:8800
-#   ./launch :                            # Create tunnel to localhost:8080 (default)
-#   ./launch : <workspace>                # Tunnel + workspace
-#   ./launch https://url <workspace>      # URL + workspace
+#   ./launch                     # Deployed default server (beta.makerchip.com).
+#   ./launch <url>               # Deployed server at <url>, e.g.
+#                                #   https://makerchip.com or https://makerchip.com/v123.
+#   ./launch <mono-clone>        # A local mono clone (see resolution below).
 #
-# Multiple tunnels on different ports can run simultaneously; each ./launch
-# invocation owns a state file at ACTIVE_TUNNELS/<port>. Each launched window is
-# bound to its own tunnel via the MAKERCHIP_TUNNEL_URL environment variable.
+# A <mono-clone> reference is resolved, in order, as:
+#   1. a path (relative or absolute) to an existing clone directory,
+#   2. a directory <name> under $MONO_REPO_PARENT_DIR (default: the parent of
+#      this extension repo, i.e. ~/repos in the standard layout),
+#   3. the slug form mono_<name> under that same parent.
 #
-# For tunnel mode (:port), cloudflared is started in the background (under nohup)
-# and this script exits immediately, returning your shell. The tunnel keeps
-# running until you tear it down with "./stop <port>" (a convenience proxy for
-# ACTIVE_TUNNELS/stop_<port>.sh, the teardown script written for every tunnel),
-# or "kill <pid>".
+# The clone is the unit of coupling:
+#   clone <-> SandHost/port <-> tunnel <-> workspace <-> VS Code profile
+# so `./launch <clone>` does everything needed to develop against it:
+#   - starts its SandHost (bin/start) if it isn't already running,
+#   - ensures a Cloudflare tunnel to that SandHost's port,
+#   - opens the clone's workspace (its .vscode-env/<clone>.code-workspace),
+#   - in a VS Code profile (--user-data-dir) DEDICATED to that clone (its
+#     .vscode-env/profile), seeded with your normal settings.
+# Both the workspace and profile are created and owned by the clone's own
+# bin/vscode_setup, run only by the clone's ./install.sh (they live inside the
+# clone under a git-ignored .vscode-env/). ./launch and bin/open_code only VERIFY
+# readiness (bin/vscode_setup --check) and read back that same derivation -- so
+# ./launch, the clone's bin/open_code, and new_mono all open the SAME per-clone
+# profile (a clone must be installed first).
+#
+# Each clone gets its own profile so each can run its own EDH (VS Code allows one
+# EDH per --user-data-dir) with its own Copilot chats, while sharing your
+# settings/keybindings/snippets (symlinked, not copied). Deployed modes (no
+# clone) share ONE profile ($EDH_DATA_ROOT/deployed) and open no workspace.
+#
+# Re-running `./launch <clone>` refocuses that clone's existing window (no
+# duplicate) and re-ensures the tunnel. If a window is already open against a
+# tunnel that has since been recreated, run "Makerchip: Reload Panels" (or ask
+# Copilot to reload panels) to repoint it — the extension resolves the URL live
+# from the clone's sandhost/TUNNEL_INFO, so a recreation is picked up without a
+# reopen.
+#
+# The tunnel is owned by the clone: tear it down with the clone's
+# bin/teardown_tunnel when you're done (e.g. before trashing it). bin/stop leaves
+# it running so an open window survives a SandHost restart. Use the clone's
+# bin/reap to find/kill orphaned SandHosts and tunnels left by deleted clones.
 
 set -e
 
-# Resolve the real script location so this works correctly when invoked via a
-# symlink (e.g. a top-level ./launch symlink pointing here).
+# Resolve the real script location so this works when invoked via a symlink
+# (e.g. a top-level ./launch symlink pointing here).
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
-ARG="${1:-}"
-WORKSPACE="${2:-}"
-# Directory holding one state file per active tunnel: ACTIVE_TUNNELS/<port>.
-# Multiple tunnels (different ports) can be active simultaneously; each ./launch
-# invocation owns and cleans up only its own port's file.
-TUNNEL_STATE_DIR="$SCRIPT_DIR/ACTIVE_TUNNELS"
 
-# Default server URL
+# The sole positional is the target: empty, a URL, or a mono-clone reference.
+TARGET="${1:-}"
+
+# Default deployed server when no target is given.
 DEFAULT_SERVER="https://beta.makerchip.com"
 
-# Parse argument to determine mode
-if [ -z "$ARG" ]; then
-  # No argument: use default server
+# Where mono clones live (siblings of this extension repo by default; that path
+# is ~/repos in the standard layout). Override with $MONO_REPO_PARENT_DIR.
+MONO_REPO_PARENT_DIR="${MONO_REPO_PARENT_DIR:-$(cd "$SCRIPT_DIR/../../.." && pwd)}"
+
+# Deployed-mode (and legacy-clone fallback) VS Code profiles live here and PERSIST between runs so
+# per-instance state (Copilot sign-in, chats, window layout) is retained. Point
+# this at /tmp instead if you'd rather it be self-cleaning (at the cost of
+# re-auth after each reboot). Extensions load from the default --extensions-dir,
+# so they need no reinstall regardless.
+EDH_DATA_ROOT="$HOME/.cache/makerchip-edh"
+
+# ---------------------------------------------------------------------------
+# Determine mode from the target.
+#   default : no target        -> deployed DEFAULT_SERVER, shared profile
+#   url     : http(s):// target -> deployed <url>, shared profile
+#   clone   : anything else     -> resolve to a local mono clone
+# ---------------------------------------------------------------------------
+if [ -z "$TARGET" ]; then
   MODE="default"
   SERVER_URL="$DEFAULT_SERVER"
-elif [[ "$ARG" =~ ^: ]]; then
-  # Starts with ':' → tunnel mode
-  MODE="tunnel"
-  PORT="${ARG#:}"
-  PORT="${PORT:-8080}"  # Default to 8080 if just ':'
-  
-  # Validate port is numeric
-  if ! [[ "$PORT" =~ ^[0-9]+$ ]]; then
-    echo "Error: Port must be numeric (got: $PORT)"
+elif [[ "$TARGET" =~ ^https?:// ]]; then
+  MODE="url"
+  SERVER_URL="$TARGET"
+elif [[ "$TARGET" =~ ^: ]]; then
+  # Migration aid: the old ":port" form is gone (the clone is the glue now).
+  echo "Error: port-based launch (\"$TARGET\") is no longer supported." >&2
+  echo "       Pass a mono clone instead, e.g. ./launch example_videos" >&2
+  exit 1
+else
+  MODE="clone"
+  # Resolve the clone reference (path -> name under parent -> mono_<name>).
+  if [ -d "$TARGET" ]; then
+    CLONE_DIR="$(cd "$TARGET" && pwd)"
+  elif [ -d "$MONO_REPO_PARENT_DIR/$TARGET" ]; then
+    CLONE_DIR="$(cd "$MONO_REPO_PARENT_DIR/$TARGET" && pwd)"
+  elif [ -d "$MONO_REPO_PARENT_DIR/mono_$TARGET" ]; then
+    CLONE_DIR="$(cd "$MONO_REPO_PARENT_DIR/mono_$TARGET" && pwd)"
+  else
+    echo "Error: no mono clone found for \"$TARGET\"." >&2
+    echo "       Tried: ./$TARGET, $MONO_REPO_PARENT_DIR/$TARGET, $MONO_REPO_PARENT_DIR/mono_$TARGET" >&2
+    echo "       (set \$MONO_REPO_PARENT_DIR if your clones live elsewhere)." >&2
     exit 1
   fi
-
-  # Per-port tunnel state file. Different ports coexist as separate files, so
-  # several tunnels can run at once without disturbing each other.
-  TUNNEL_STATE_FILE="$TUNNEL_STATE_DIR/$PORT"
-  # Teardown script for this port (written when the tunnel is created). Running
-  # it stops the tunnel and removes its state - the basis of background use.
-  STOP_SCRIPT="$TUNNEL_STATE_DIR/stop_$PORT.sh"
-else
-  # Anything else → explicit URL
-  MODE="url"
-  SERVER_URL="$ARG"
+  CLONE_NAME="$(basename "$CLONE_DIR")"
 fi
 
-# Function to start tunnel and return URL
+# ---------------------------------------------------------------------------
+# Helpers.
+# ---------------------------------------------------------------------------
+
+# Start a Cloudflare tunnel to localhost:<port>; echo "<pid> <url> <log_file>".
 start_tunnel() {
   local port=$1
-  
-  # Check if cloudflared is installed
+
   if ! command -v cloudflared &> /dev/null; then
     echo "Error: cloudflared is not installed" >&2
     echo "" >&2
@@ -80,17 +122,21 @@ start_tunnel() {
     echo "  Or visit: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/" >&2
     exit 1
   fi
-  
+
   echo "Starting Cloudflare tunnel to localhost:$port..." >&2
-  
-  # Start cloudflared in the background, saving logs to a temp file. nohup keeps
-  # the tunnel alive if the launching terminal closes (needed for background
-  # use); $! stays correct because nohup execs cloudflared in place.
+
+  # setsid runs cloudflared in its OWN session (a new process group with no
+  # controlling terminal), so neither closing the terminal (SIGHUP) nor a Ctrl+C
+  # at a later prompt (SIGINT, sent to *this* script's foreground group) reaches
+  # it. cloudflared is a Go program that catches SIGINT for graceful shutdown, so
+  # a bare `nohup ... &` (same process group) let Ctrl+C kill the freshly-made
+  # tunnel -- which is why relaunches kept finding it "not running" and recreating
+  # it instead of reusing. $! is cloudflared's pid: setsid isn't a group leader
+  # here (job control is off in scripts), so it execs in place rather than forking.
   local log_file=$(mktemp)
-  nohup cloudflared tunnel --url "http://localhost:$port" > "$log_file" 2>&1 &
+  setsid cloudflared tunnel --url "http://localhost:$port" < /dev/null > "$log_file" 2>&1 &
   local pid=$!
-  
-  # Wait for tunnel URL (max 15 seconds)
+
   local waited=0
   local tunnel_url=""
   while [ $waited -lt 15 ]; do
@@ -103,53 +149,41 @@ start_tunnel() {
     sleep 1
     waited=$((waited + 1))
   done
-  
+
   if [ -z "$tunnel_url" ]; then
     echo "Error: Failed to establish tunnel" >&2
     echo "Check logs: cat $log_file" >&2
     kill $pid 2>/dev/null || true
     exit 1
   fi
-  
+
   echo "✓ Tunnel established: $tunnel_url" >&2
-  
-  # Return both PID and URL (space-separated) to stdout
   echo "$pid $tunnel_url $log_file"
 }
 
-# Build code command arguments.
-# makerchip declares a hard extensionDependencies on tl-verilog, so we also load
-# the language extension from source. This satisfies the dependency without a
-# published Marketplace build and lets both modes be co-developed (reload the
-# window to pick up edits to either). Requires tlv-extension to be built (it has
-# its own compile/watch; the makerchip watch task does not build it).
-CODE_ARGS=(--extensionDevelopmentPath="$SCRIPT_DIR" --extensionDevelopmentPath="$SCRIPT_DIR/../tlv-extension")
-if [ -n "$WORKSPACE" ]; then
-  # Guard: refuse a workspace/path that doesn't exist. Without this, `code`
-  # silently opens any bogus argument as an empty editor. That is how stray
-  # buffers named after shell tokens (e.g. a word-split "'ws' && '/tmp/...'"
-  # command) get created and then restored into every future window.
-  if [ ! -e "$WORKSPACE" ]; then
-    echo "Error: workspace/path does not exist: $WORKSPACE" >&2
-    echo "       (refusing to launch; 'code' would open it as a blank editor)" >&2
-    exit 1
-  fi
-  CODE_ARGS+=("$WORKSPACE")
-fi
-
-
+# Seed a VS Code user-data-dir with your default settings/keybindings/snippets
+# (symlinked, so edits propagate and no per-instance copy drifts). This mirrors
+# mono's bin/vscode_setup and is used for deployed mode (no clone) and for clones
+# that predate that helper.
+seed_profile() {
+  local udd="$1"
+  local src="$HOME/.config/Code/User"
+  mkdir -p "$udd/User"
+  local item
+  for item in settings.json keybindings.json snippets; do
+    if [ -e "$src/$item" ]; then
+      ln -sfn "$src/$item" "$udd/User/$item"
+    fi
+  done
+}
 
 # Verify a compiled extension is present and not stale relative to its TS sources.
-# The Extension Development Host runs whatever is in each out/ dir; if a compile
-# failed (e.g. an old Node silently choking on newer TS syntax) or never ran, the
-# EDH launches STALE code.
-#
-# Usage: check_build <label> <src_dir> <compiled_entry> [<compiled_entry> ...]
+# The EDH runs whatever is in each out/ dir; if a compile failed or never ran, it
+# would launch STALE code. Usage: check_build <label> <src_dir> <entry> [<entry> ...]
 check_build() {
   local label="$1"; shift
   local src_dir="$1"; shift
 
-  # 1) Every expected compiled entry must exist (i.e. a compile actually ran).
   local entry
   for entry in "$@"; do
     if [ ! -f "$entry" ]; then
@@ -161,141 +195,235 @@ check_build() {
     fi
   done
 
-  # 2) No source .ts may be newer than a compiled entry (i.e. build is current).
-  #    A failed/interrupted compile leaves out/ older than src/.
   if [ -d "$src_dir" ]; then
+    # Freshness: treat the build as current as long as the watcher rebuilt SOME
+    # artifact after your last edit. Compare sources against the NEWEST artifact only.
+    local newest=""
     for entry in "$@"; do
-      local newer
-      newer=$(find "$src_dir" -name '*.ts' -newer "$entry" -print -quit 2>/dev/null || true)
-      if [ -n "$newer" ]; then
-        echo "Warning: $label build looks STALE (source newer than compiled output):" >&2
-        echo "           $newer" >&2
-        echo "         is newer than" >&2
-        echo "           $entry" >&2
-        echo "" >&2
-        echo "  The Extension Development Host may run OLD code, producing confusing" >&2
-        echo "  runtime errors that don't match the source (e.g. version mismatches)." >&2
-        echo "  If a 'watch' task is running, it may just be mid-rebuild; otherwise run" >&2
-        echo "  'npm run compile' in the package dir and check for compile errors." >&2
-        echo "" >&2
-        if [ -t 0 ]; then
-          read -p "  Press ENTER to launch anyway, or Ctrl+C to cancel: "
-        else
-          echo "  (non-interactive: launching anyway)" >&2
-        fi
-        break
-      fi
+      if [ -z "$newest" ] || [ "$entry" -nt "$newest" ]; then newest="$entry"; fi
     done
+    local newer
+    newer=$(find "$src_dir" -name '*.ts' -newer "$newest" -print -quit 2>/dev/null || true)
+    if [ -n "$newer" ]; then
+      echo "Warning: $label build looks STALE (source newer than newest compiled output):" >&2
+      echo "           $newer" >&2
+      echo "         is newer than" >&2
+      echo "           $newest" >&2
+      echo "" >&2
+      echo "  The Extension Development Host may run OLD code, producing confusing" >&2
+      echo "  runtime errors that don't match the source (e.g. version mismatches)." >&2
+      echo "  If a 'watch' task is running, it may just be mid-rebuild; otherwise run" >&2
+      echo "  'npm run compile' in the package dir and check for compile errors." >&2
+      echo "" >&2
+      if [ -t 0 ]; then
+        read -p "  Press ENTER to launch anyway, or Ctrl+C to cancel: "
+      else
+        echo "  (non-interactive: launching anyway)" >&2
+      fi
+    fi
   fi
 }
 
-# makerchip-extension: main entry + the separately-compiled webview bundle
-# (webview.ts is excluded from the main tsconfig and built on its own, so a
-# webview-only compile failure would go unnoticed without checking it too).
-check_build "Makerchip extension" "$SCRIPT_DIR/src" \
-  "$SCRIPT_DIR/out/extension.js" "$SCRIPT_DIR/out/webview.js"
+# ---------------------------------------------------------------------------
+# Clone mode: ensure the SandHost is up, then ensure a tunnel to its port.
+# ---------------------------------------------------------------------------
+if [ "$MODE" = "clone" ]; then
+  SANDHOST_INFO="$CLONE_DIR/sandhost/SANDHOST_INFO"
 
-# tl-verilog extension: loaded from source alongside makerchip. Its build is a
-# common blind spot because the makerchip watch task does NOT build it.
-check_build "TL-Verilog extension" "$SCRIPT_DIR/../tlv-extension/src" \
-  "$SCRIPT_DIR/../tlv-extension/out/src/extension.js"
+  # Echo the live SandHost port if a running instance is recorded, else nothing.
+  sandhost_live_port() {
+    [ -f "$SANDHOST_INFO" ] || return 0
+    local pid port
+    pid="$(sed -n 's/^SANDHOST_PID=//p' "$SANDHOST_INFO" | head -1)"
+    port="$(sed -n 's/^SANDHOST_PORT=//p' "$SANDHOST_INFO" | head -1)"
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+      printf '%s' "$port"
+    fi
+  }
 
+  PORT="$(sandhost_live_port)"
+  if [ -z "$PORT" ]; then
+    echo "SandHost for $CLONE_NAME is not running; starting it (bin/start)..."
+    if [ ! -x "$CLONE_DIR/bin/start" ]; then
+      echo "Error: $CLONE_DIR/bin/start not found or not executable." >&2
+      exit 1
+    fi
+    # bin/start runs a backgrounded instance and records the chosen port in
+    # SANDHOST_INFO before returning; run it from the clone root.
+    ( cd "$CLONE_DIR" && ./bin/start )
+    # Poll briefly for a live SANDHOST_INFO (belt-and-suspenders).
+    waited=0
+    while [ $waited -lt 15 ]; do
+      PORT="$(sandhost_live_port)"
+      [ -n "$PORT" ] && break
+      sleep 1
+      waited=$((waited + 1))
+    done
+    if [ -z "$PORT" ]; then
+      echo "Error: SandHost for $CLONE_NAME did not come up (no live SANDHOST_INFO)." >&2
+      echo "       Run bin/start in $CLONE_DIR manually and check its output." >&2
+      exit 1
+    fi
+    echo
+  fi
+  echo "SandHost for $CLONE_NAME is on port $PORT."
 
+  # Tunnel state lives WITH the clone, in sandhost/TUNNEL_INFO, so the extension
+  # can resolve it unambiguously from its workspace folder (even with several
+  # clones running) and the clone owns its own teardown (bin/teardown_tunnel).
+  TUNNEL_INFO="$CLONE_DIR/sandhost/TUNNEL_INFO"
 
-# Handle tunnel mode
-if [ "$MODE" = "tunnel" ]; then
-  # Reuse an existing, still-alive tunnel for THIS port if one is present.
-  # Because state is per-port, tunnels on other ports are left untouched.
-  if [ -f "$TUNNEL_STATE_FILE" ]; then
-    source "$TUNNEL_STATE_FILE"
-
-    if kill -0 "$TUNNEL_PID" 2>/dev/null; then
-      # Tunnel for this port is running - reuse it.
-      echo "Tunnel already running on port $PORT (PID: $TUNNEL_PID)"
-      echo "Tunnel URL: $TUNNEL_URL"
-      echo ""
-      echo "The Extension Development Host will reload with this tunnel."
-      echo "To stop the tunnel, run ./stop $PORT (or see ${TUNNEL_STATE_FILE})."
-      SERVER_URL="$TUNNEL_URL"
-      # Launch code bound to this tunnel (via MAKERCHIP_TUNNEL_URL) and exit.
-      echo ""
-      echo "Launching VS Code Extension Development Host..."
-      MAKERCHIP_TUNNEL_URL="$SERVER_URL" code "${CODE_ARGS[@]}"
-      exit 0
+  # Reuse a still-alive tunnel for THIS clone's current port, else (re)create it.
+  REUSE_TUNNEL=false
+  if [ -f "$TUNNEL_INFO" ]; then
+    TUNNEL_PID=""; TUNNEL_PORT=""; TUNNEL_URL=""; TUNNEL_LOG_FILE=""
+    source "$TUNNEL_INFO"
+    if [ -n "$TUNNEL_PID" ] && kill -0 "$TUNNEL_PID" 2>/dev/null; then
+      if [ "$TUNNEL_PORT" = "$PORT" ]; then
+        echo "Reusing tunnel on port $PORT (PID $TUNNEL_PID): $TUNNEL_URL"
+        SERVER_URL="$TUNNEL_URL"
+        REUSE_TUNNEL=true
+      else
+        # SandHost came up on a different port; replace the stale tunnel so we
+        # don't leak an orphaned cloudflared pointing at the old port.
+        echo "SandHost port changed ($TUNNEL_PORT -> $PORT); replacing stale tunnel (PID $TUNNEL_PID)..."
+        kill -TERM "$TUNNEL_PID" 2>/dev/null || true
+        rm -f "$TUNNEL_LOG_FILE" 2>/dev/null || true
+        rm -f "$TUNNEL_INFO"
+      fi
     else
-      # Tunnel process is dead - clean up stale state and recreate below.
-      echo "Cleaning up stale tunnel state for port $PORT..."
+      echo "Cleaning up stale tunnel state (PID ${TUNNEL_PID:-?} not running)..."
       rm -f "$TUNNEL_LOG_FILE" 2>/dev/null || true
-      rm -f "$TUNNEL_STATE_FILE"
-      rm -f "$STOP_SCRIPT"
+      rm -f "$TUNNEL_INFO"
     fi
   fi
 
-  # Start a new tunnel for this port (if we get here).
-  mkdir -p "$TUNNEL_STATE_DIR"
-  tunnel_info=$(start_tunnel "$PORT")
-  CLOUDFLARED_PID=$(echo "$tunnel_info" | cut -d' ' -f1)
-  SERVER_URL=$(echo "$tunnel_info" | cut -d' ' -f2)
-  TUNNEL_LOG=$(echo "$tunnel_info" | cut -d' ' -f3)
-  
-  # Save tunnel state
-  cat > "$TUNNEL_STATE_FILE" << TUNNEL_EOF
-# ACTIVE CLOUDFLARE TUNNEL (one file per port, under ACTIVE_TUNNELS/)
-# This file indicates an active tunnel created by the ./launch script.
-# Several such files can exist at once, one per tunnelled port.
-# 
-# To stop this tunnel:
-#   1. Run the teardown script: $STOP_SCRIPT, OR
-#   2. Manually run: kill $CLOUDFLARED_PID && rm -f $TUNNEL_LOG && rm -f "$TUNNEL_STATE_FILE"
-#      (or just "kill $CLOUDFLARED_PID" is probably sufficient)
+  if [ "$REUSE_TUNNEL" = false ]; then
+    mkdir -p "$CLONE_DIR/sandhost"
+    tunnel_info=$(start_tunnel "$PORT")
+    CLOUDFLARED_PID=$(echo "$tunnel_info" | cut -d' ' -f1)
+    SERVER_URL=$(echo "$tunnel_info" | cut -d' ' -f2)
+    TUNNEL_LOG=$(echo "$tunnel_info" | cut -d' ' -f3)
+
+    cat > "$TUNNEL_INFO" << TUNNEL_EOF
+# Active Cloudflare tunnel for this clone, created by the makerchip extension's
+# ./launch. Gitignored local state; the extension reads TUNNEL_URL from here.
 #
-# Tunnel details:
+# Tear it down when you're done with the clone (e.g. before trashing it):
+#   bin/teardown_tunnel
+# bin/stop / bin/start (restart) deliberately leave it running so an open VS Code
+# window survives a SandHost restart (the port is locked, so the URL stays valid).
+#
 TUNNEL_PORT=$PORT
 TUNNEL_PID=$CLOUDFLARED_PID
 TUNNEL_URL=$SERVER_URL
 TUNNEL_LOG_FILE=$TUNNEL_LOG
 TUNNEL_EOF
 
-  # Write a self-contained teardown script. This is what makes the background
-  # model convenient: from any terminal, stop the tunnel and remove all of its
-  # state (including this script itself) by running one file.
-  cat > "$STOP_SCRIPT" << STOP_EOF
-#!/bin/bash
-# Teardown for the Makerchip Cloudflare tunnel on port $PORT (created by ./launch).
-kill $CLOUDFLARED_PID 2>/dev/null || true
-rm -f "$TUNNEL_LOG"
-rm -f "$TUNNEL_STATE_FILE"
-rm -f "$STOP_SCRIPT"
-echo "Stopped tunnel on port $PORT (PID $CLOUDFLARED_PID)."
-STOP_EOF
-  chmod +x "$STOP_SCRIPT"
-
-  echo "Cloudflared PID: $CLOUDFLARED_PID"
-  echo "Tunnel logs: $TUNNEL_LOG"
-  echo "Stop script: $STOP_SCRIPT"
+    echo "   PID: $CLOUDFLARED_PID"
+    echo "   logs: $TUNNEL_LOG"
+    echo "   state: $TUNNEL_INFO"
+    echo "   teardown: $CLONE_DIR/bin/teardown_tunnel"
+  fi
 fi
 
-echo "Server URL: $SERVER_URL"
-echo ""
-
-# Launch VS Code Extension Development Host
-echo "Launching VS Code Extension Development Host..."
-if [ "$MODE" = "tunnel" ]; then
-  # Bind this window to THIS tunnel so it works even when other tunnels are
-  # active. The extension reads MAKERCHIP_TUNNEL_URL first (see getServerUrl()).
-  MAKERCHIP_TUNNEL_URL="$SERVER_URL" code "${CODE_ARGS[@]}"
+# ---------------------------------------------------------------------------
+# Resolve the clone's workspace + VS Code profile (--user-data-dir).
+#   clone    -> both live INSIDE the clone under .vscode-env/, owned by the clone's
+#               bin/vscode_setup. Delegating to it means ./launch, the clone's
+#               bin/open_code, and new_mono all open the SAME profile, so a plain
+#               window and this EDH share the clone's Copilot chats.
+#   deployed -> a single shared external profile; open no workspace.
+# VS Code enforces one Extension Development Host per --user-data-dir, so a
+# dedicated profile per clone makes each an independent instance (its own window,
+# its own chats).
+# ---------------------------------------------------------------------------
+WORKSPACE=""
+if [ "$MODE" = "clone" ]; then
+  if [ -x "$CLONE_DIR/bin/vscode_setup" ]; then
+    # Only VERIFY readiness here (--check); never create. Setup is owned solely by
+    # the clone's ./install.sh (which runs bin/vscode_setup), so a never-installed
+    # clone fails loudly here instead of being silently provisioned by ./launch.
+    if paths="$("$CLONE_DIR/bin/vscode_setup" --check)"; then
+      EDH_USER_DATA_DIR="$(printf '%s\n' "$paths" | sed -n '1p')"
+      WORKSPACE="$(printf '%s\n' "$paths" | sed -n '2p')"
+    else
+      echo "Error: '$CLONE_NAME' is not VS Code-ready. Run './install.sh' in the" >&2
+      echo "       clone (it runs bin/vscode_setup), then re-run ./launch." >&2
+      exit 1
+    fi
+  else
+    # Fallback for clones predating bin/vscode_setup: an external per-clone
+    # profile and no workspace. Such a clone won't share chats with open_code --
+    # re-run ./install.sh in it (once it has the new bin/ scripts) to encapsulate.
+    edh_slug="$(printf '%s' "$CLONE_NAME" | tr -c 'A-Za-z0-9._-' '_')"
+    EDH_USER_DATA_DIR="$EDH_DATA_ROOT/$edh_slug"
+    mkdir -p "$EDH_USER_DATA_DIR"
+    seed_profile "$EDH_USER_DATA_DIR"
+    echo "Note: $CLONE_NAME has no bin/vscode_setup; using an external profile and" >&2
+    echo "      no workspace. Re-run ./install.sh in the clone to encapsulate." >&2
+  fi
 else
-  code "${CODE_ARGS[@]}"
+  EDH_USER_DATA_DIR="$EDH_DATA_ROOT/deployed"
+  mkdir -p "$EDH_USER_DATA_DIR"
+  seed_profile "$EDH_USER_DATA_DIR"
 fi
 
-if [ "$MODE" = "tunnel" ]; then
-  # The tunnel (cloudflared, under nohup) keeps running in the background; this
-  # script exits and returns your shell. Tear the tunnel down when you're done.
-  echo ""
-  echo "✓ Extension Development Host launched"
-  echo "Tunnel active on PID: $CLOUDFLARED_PID"
-  echo "Tunnel URL: $SERVER_URL"
-  echo ""
-  echo "Tunnel left running in the background. To stop it, run:"
-  echo "  ./stop $PORT"
+# ---------------------------------------------------------------------------
+# Build the `code` invocation and verify the extension is compiled.
+# makerchip declares a hard extensionDependencies on tl-verilog, so we also load
+# the language extension from source (satisfies the dependency without a
+# published build and lets both be co-developed; reload the window to pick up
+# edits to either). No --new-window: with a per-clone user-data-dir, relaunching
+# the same clone reuses its single window rather than spawning a duplicate -- and
+# VS Code RELOADS (restarts) that dev-host window to load the latest build, so a
+# relaunch is also how you pick up recompiled extension code.
+# ---------------------------------------------------------------------------
+CODE_ARGS=(--user-data-dir="$EDH_USER_DATA_DIR" --extensionDevelopmentPath="$SCRIPT_DIR" --extensionDevelopmentPath="$SCRIPT_DIR/../tlv-extension")
+if [ -n "$WORKSPACE" ]; then
+  CODE_ARGS+=("$WORKSPACE")
+fi
+
+# makerchip-extension: main entry + the separately-compiled webview bundle
+# (webview.ts is excluded from the main tsconfig, so check it too).
+check_build "Makerchip extension" "$SCRIPT_DIR/src" \
+  "$SCRIPT_DIR/out/extension.js" "$SCRIPT_DIR/out/webview.js"
+# tl-verilog extension: a common blind spot because the makerchip watch task
+# does NOT build it.
+check_build "TL-Verilog extension" "$SCRIPT_DIR/../tlv-extension/src" \
+  "$SCRIPT_DIR/../tlv-extension/out/src/extension.js"
+
+# ---------------------------------------------------------------------------
+# Launch. Pin the server the extension should use:
+#   clone -> nothing to export: the extension resolves the tunnel URL from the
+#            clone's sandhost/TUNNEL_INFO via its workspace folder, re-read every
+#            time a panel is (re)created. A window reload -- which a relaunch
+#            triggers -- thus repoints panels at a recreated tunnel.
+#   url   -> the URL directly (static), via MAKERCHIP_SERVER_URL.
+#   default -> nothing (extension keeps its own default/auto-detection).
+# ---------------------------------------------------------------------------
+
+# Nudge: surface any orphaned SandHosts/tunnels from clones you've since removed.
+# --report so this stays a passive heads-up (a bare `bin/reap` would prompt to
+# kill); run `bin/reap` yourself to act on anything it flags.
+if [ "$MODE" = "clone" ] && [ -x "$CLONE_DIR/bin/reap" ]; then
+  echo
+  echo "---------------------------------"
+  echo "FYI: Current SandHosts and Tunnels (mono bin/reap):"
+  "$CLONE_DIR/bin/reap" --report || true
+  echo "---------------------------------"
+fi
+
+echo ""
+echo "Launching VS Code Extension Development Host..."
+if [ "$MODE" = "url" ]; then
+  export MAKERCHIP_SERVER_URL="$SERVER_URL"
+fi
+code "${CODE_ARGS[@]}"
+
+if [ "$MODE" = "clone" ]; then
+  echo "✓ Extension Development Host launched, and (re)connected to tunnel (port $PORT)."
+  echo "  When done with this clone, tear the tunnel down and stop the server:"
+  echo "     $CLONE_DIR/bin/teardown_tunnel"
+  echo "     $CLONE_DIR/bin/stop"
 fi

@@ -58,6 +58,11 @@
         "command": "makerchip.clearHighlights",
         "title": "Makerchip: Clear All Highlights",
         "icon": "$(clear-all)"
+      },
+      {
+        "command": "makerchip.reloadPanels",
+        "title": "Makerchip: Reload Panels",
+        "icon": "$(refresh)"
       }
     ],
     "configuration": {
@@ -211,7 +216,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(symbol-method)",
         "userDescription": "Call any Makerchip IDE method directly.",
-        "modelDescription": "Generic tool for calling any IDE Plugin API method directly. Many of these methods are explicitly exposed as tools. For full IDE Plugin details, see `.vscode-makerchip/resources/Makerchip-public/docs/plugin_api/index.html`. Note that methods like onReady, onCodeChange, onCompilationLog are callbacks and should not be called directly.",
+        "modelDescription": "Generic escape-hatch tool for calling any IDE Plugin API method directly and returning its result (e.g. the mnemonic from `reservePane`, or the pane object from `openPane`). Prefer a dedicated tool when one exists for the operation you need; use this for the long tail of methods that have no dedicated tool. For full IDE Plugin details, see `.vscode-makerchip/resources/Makerchip-public/docs/plugin_api/index.html`. Note that methods like onReady, onCodeChange, onCompilationLog are callbacks and should not be called directly.",
         "tags": [
           "makerchip",
           "ide",
@@ -242,6 +247,114 @@
                   "null"
                 ]
               }
+            },
+            "panelName": {
+              "type": "string",
+              "description": "Optional panel name to target. Default: `default`."
+            }
+          }
+        }
+      },
+      {
+        "name": "makerchip_emit",
+        "displayName": "Emit Makerchip Bus Event",
+        "toolReferenceName": "makerchipEmit",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(broadcast)",
+        "userDescription": "Publish an application event onto the Makerchip bus.",
+        "modelDescription": "Publish an application event onto the Makerchip application bus as the `platform.ai` participant (marking it AI-originated). Panes that subscribe to the given event `type` receive the payload (subject to their optional source filter). Use this to drive connected panes (e.g. hand a pane new input).",
+        "tags": [
+          "makerchip",
+          "bus",
+          "event",
+          "emit",
+          "advanced"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "description": "The application-event type to publish (e.g. 'sourceAsm'). Panes subscribe by this type."
+            },
+            "payload": {
+              "type": [
+                "string",
+                "number",
+                "boolean",
+                "object",
+                "array",
+                "null"
+              ],
+              "description": "The event payload delivered to subscribers. Any JSON-serializable value."
+            },
+            "target": {
+              "type": [
+                "string",
+                "array"
+              ],
+              "description": "Optional recipient filter (e.g. a pane mnemonic or 'ide') or an array of them. Omit to broadcast.",
+              "items": {
+                "type": "string"
+              }
+            },
+            "panelName": {
+              "type": "string",
+              "description": "Optional panel name to target. Default: `default`."
+            }
+          }
+        }
+      },
+      {
+        "name": "makerchip_pane_call",
+        "displayName": "Call Makerchip Pane Method",
+        "toolReferenceName": "makerchipPaneCall",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(arrow-right)",
+        "userDescription": "Call a method on a connected Makerchip pane and await its result.",
+        "modelDescription": "Call a method on a connected third-party pane and await its result (host-to-pane RPC). This is the request/response complement to makerchip_emit's fire-and-forget broadcast: use it when you need a value back from a pane you opened (e.g. tell the Compiler Explorer pane to run and wait for the outcome). The pane must have opened with `rpc: true` and implement a handler for the named method. Name the pane by its (uniquified) mnemonic.",
+        "tags": [
+          "makerchip",
+          "bus",
+          "rpc",
+          "pane",
+          "advanced"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "required": [
+            "mnemonic",
+            "method"
+          ],
+          "properties": {
+            "mnemonic": {
+              "type": "string",
+              "description": "The target pane's mnemonic (as returned when opening/reserving a third-party pane)."
+            },
+            "method": {
+              "type": "string",
+              "description": "The pane method to invoke. The pane must have declared `rpc: true` and implement this method."
+            },
+            "args": {
+              "type": "array",
+              "description": "Positional arguments passed to the pane method. Any JSON-serializable values.",
+              "items": {
+                "type": [
+                  "string",
+                  "number",
+                  "boolean",
+                  "object",
+                  "array",
+                  "null"
+                ]
+              }
+            },
+            "timeoutMs": {
+              "type": "number",
+              "description": "Optional response timeout in milliseconds. Default: 30000."
             },
             "panelName": {
               "type": "string",
@@ -653,7 +766,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(new-file)",
         "userDescription": "Open custom content (PDFs, web pages) in IDE panes.",
-        "modelDescription": "Opens third-party pane with PDF or iframe content. PDF: uses built-in viewer, supports any URL. Iframe: embeds web pages, subject to CSP/X-Frame-Options. Provide content via either `contentUrl` (a URL/data URI) OR `filePath` (an absolute path to a local file). Prefer `filePath` for local files: the extension reads the file and builds a data: URI internally, so large file contents never pass through the model context. Mnemonic is tab label plus optional `+`-delimited uniquifier string (or allow auto-uniquification). Returns actual mnemonic used (same or uniquified).\n\nEXAMPLES:\n\nLocal file (preferred for local content): {\"mnemonic\": \"Guide\", \"contentType\": \"iframe\", \"contentParams\": {\"filePath\": \"/home/user/docs/guide.html\"}}\n\nPDF URL: {\"mnemonic\": \"Guide\", \"contentType\": \"pdf\", \"contentParams\": {\"contentUrl\": \"https://example.com/guide.pdf\"}}\n\nIframe URL: {\"mnemonic\": \"Docs\", \"contentType\": \"iframe\", \"contentParams\": {\"contentUrl\": \"https://docs.example.com\"}, \"options\": {\"background\": true}}",
+        "modelDescription": "Opens third-party pane with PDF or iframe content. PDF: uses built-in viewer, supports any URL. Iframe: embeds web pages, subject to CSP/X-Frame-Options. Provide content via either `contentUrl` (a URL/data URI) OR `filePath` (an absolute path to a local file). Prefer `filePath` for local files: the extension reads the file and builds a data: URI internally, so large file contents never pass through the model context. Mnemonic is tab label plus optional `+`-delimited uniquifier string (or allow auto-uniquification). Returns actual mnemonic used (same or uniquified).\n\nEXAMPLES:\n\nLocal file (preferred for local content): {\"mnemonic\": \"Guide\", \"contentType\": \"iframe\", \"contentParams\": {\"filePath\": \"/home/user/docs/guide.html\"}}\n\nPDF URL: {\"mnemonic\": \"Guide\", \"contentType\": \"pdf\", \"contentParams\": {\"contentUrl\": \"https://example.com/guide.pdf\"}}\n\nIframe URL: {\"mnemonic\": \"Docs\", \"contentType\": \"iframe\", \"contentParams\": {\"contentUrl\": \"https://docs.example.com\"}, \"options\": {\"background\": true}}\n\nConnected pane (channel-wired onto the IDE bus, so one pane's events drive another): pass `options.channel` (produces/subscribes/rpc) and optional `options.params`. E.g. a Compiler Explorer pane with {\"options\": {\"channel\": {\"produces\": [\"sourceAsm\"], \"rpc\": true}, \"params\": {\"ce\": {\"language\": \"c\", \"compiler\": \"rv32-cgcc1430\"}}}} paired with a WARP-V pane {\"options\": {\"channel\": {\"subscribes\": [{\"type\": \"sourceAsm\", \"sources\": [\"Compiler Explorer\"]}], \"rpc\": true}}}.",
         "tags": [
           "makerchip",
           "ide",
@@ -705,6 +818,41 @@
                   "type": "boolean",
                   "description": "If true, pane construction data won't be stored for layout recovery. Use for temporary panes. Default is false.",
                   "default": false
+                },
+                "channel": {
+                  "type": "object",
+                  "description": "Optional channel contract wiring this pane onto the IDE communication bus. Enables connected multi-pane flows where one pane's events drive another (e.g. Compiler Explorer producing `sourceAsm` consumed by a WARP-V pane).",
+                  "properties": {
+                    "produces": {
+                      "type": "array",
+                      "items": { "type": "string" },
+                      "description": "Event types this pane may publish on the bus (e.g. [\"sourceAsm\"])."
+                    },
+                    "subscribes": {
+                      "type": "array",
+                      "description": "Event types this pane receives, optionally scoped to specific source agents.",
+                      "items": {
+                        "type": "object",
+                        "required": ["type"],
+                        "properties": {
+                          "type": { "type": "string", "description": "Event type to subscribe to (e.g. \"sourceAsm\", \"theme\")." },
+                          "sources": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Source agent identities to accept this event from (e.g. the mnemonic of the producing pane, or \"ide\")."
+                          }
+                        }
+                      }
+                    },
+                    "rpc": {
+                      "type": "boolean",
+                      "description": "If true, the pane may issue bounded IDE RPC calls (whitelisted safe Plugin API operations)."
+                    }
+                  }
+                },
+                "params": {
+                  "type": "object",
+                  "description": "Optional opaque parameters delivered to the pane via its `getContext` RPC. Shape is pane-defined (e.g. Compiler Explorer expects `{\"ce\": {\"language\", \"compiler\", \"options\", \"filters\", \"source\"}}`)."
                 }
               },
               "description": "Optional settings for pane behavior."
@@ -714,6 +862,23 @@
               "description": "Optional VS Code panel name to target. Default: `default`."
             }
           }
+        }
+      },
+      {
+        "name": "makerchip_get_late_reply",
+        "displayName": "Get Late Reply",
+        "toolReferenceName": "makerchipGetLateReply",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(history)",
+        "userDescription": "Retrieve an IDE reply that arrived after its call timed out.",
+        "modelDescription": "Returns the most recent IDE reply that arrived after its call had already timed out (with method, requestId, kind, value, timestamp), or nothing if none. Only use this when a timeout error explicitly refers you to it.",
+        "tags": [
+          "makerchip",
+          "advanced"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {}
         }
       },
       {
@@ -986,6 +1151,28 @@
           "panels",
           "list",
           "discovery"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "makerchip_reload_panels",
+        "displayName": "Reload Panels",
+        "toolReferenceName": "makerchipReloadPanels",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(refresh)",
+        "userDescription": "Reload open Makerchip panels, reconnecting to the current server/tunnel.",
+        "modelDescription": "Reloads every open Makerchip panel against the freshly-resolved Makerchip server/tunnel URL (from the ACTIVE_TUNNELS registry or makerchip.serverUrl). Use to recover already-open panels after a restart: the sandserv backend was restarted (dropped connections), or a dev tunnel was recreated by `./launch :port` (new URL after the old one died). Lighter than reloading the whole window; takes no parameters and affects all open panels.",
+        "tags": [
+          "makerchip",
+          "panels",
+          "reload",
+          "refresh",
+          "reconnect",
+          "tunnel",
+          "server"
         ],
         "inputSchema": {
           "type": "object",

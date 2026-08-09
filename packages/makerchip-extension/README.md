@@ -50,60 +50,102 @@ Example prompts:
 
 ### Quick Start with Launch Script
 
-The `./launch` script provides a convenient way to test the extension:
+The `./launch` script is the **single door for testing the extension**. Its one
+argument selects **the sandhost you are developing against**--a deployed one
+or a local `mono` via a cloudflared tunnel with its own VS Code workspace,
+and VS Code profile:
 
 ```bash
-# Launch extension connected to default server (beta.makerchip.com)
+# Deployed default server (beta.makerchip.com)
 ./launch
 
-# Launch connected to a specific server URL
-./launch https://makerchip.com
+# Deployed server at an explicit URL (e.g. a versioned deploy)
+./launch https://makerchip.com/v123
 
-# Launch with local SandHost via cloudflared tunnel
-./launch :8800         # Tunnel to localhost:8800
-./launch :             # Tunnel to localhost:8080 (default port)
+# A local mono clone (3 forms) (see resolution below)
+./launch feature_x
+./launch mono_feature_x
+./launch ~/repos/mono_feature_x
 ```
+
+A clone reference is resolved, in order, as: (1) a path to an existing clone
+directory, (2) a directory `<name>` under `$MONO_REPO_PARENT_DIR` (default: the
+parent of this extension repo, i.e. `~/repos`), or (3) the slug form `mono_<name>`
+under that parent.
+
+**The mono clone is the unit of coupling** —
+`clone ↔ SandHost/port ↔ tunnel ↔ workspace ↔ VS Code profile` — so
+`./launch <clone>` does everything needed to develop against it:
+
+- starts the clone's SandHost (`bin/start`) if it isn't already running,
+- ensures a Cloudflare tunnel to that SandHost's port,
+- opens the clone's workspace (`.vscode-env/<clone>.code-workspace` inside the clone),
+- in a VS Code profile (`--user-data-dir`) **dedicated to that clone**
+  (`.vscode-env/profile` inside the clone), seeded with your normal settings.
+
+Both the workspace and the profile are created and owned by the clone's own
+`bin/vscode_setup` (via `install.sh`) (they live inside the clone under a
+git-ignored `.vscode-env/` directory), which `./launch` delegates to — so `./launch`,
+the clone's `bin/open_code` both open the **same** per-clone profile. Each
+clone gets its own profile so each can run its own Extension Development Host
+(EDH) (VS Code allows one EDH per `--user-data-dir`) with its own Copilot chats, while
+sharing your settings/keybindings/snippets (symlinked, not copied). The deployed
+modes (no clone) share one profile and open no workspace.
 
 **Workflow for local development:**
 
-1. **Start local SandHost** (in mono repo):
+1. **Launch against a clone** (from the extension repo):
    ```bash
-   cd ../mono_vscode
-   bin/start 8800
+   ./launch feature_x
    ```
+   and stop it with `bin/stop`.
 
-2. **Launch extension with tunnel** (in extension repo):
-   ```bash
-   cd ../makerchip-vscode-extension
-   ./launch :8800
-   ```
+2. Make changes to mono → restart SandHost (`bin/start` in the clone) → run **Makerchip: Reload Panels** (or ask Copilot
+   to reload panels) to reconnect open webviews to the fresh build (or just
+   re-run `./launch <clone>`).
 
-3. Make changes to mono → restart SandHost (step 1) on same port, no need to restart extension
+3. Make changes to the extension → reload the VS Code window (Developer: Reload
+   Window). The EDH does not hot-reload; wait for `tsc` to finish first.
 
-4. Make changes to extension → reload VS Code window (Developer: Reload Window)
+4. Re-running `./launch <clone>` reloads that clone's existing window — VS Code
+   restarts the dev host to load the latest build (no duplicate) — and re-ensures
+   the tunnel.
 
-5. When done, stop the tunnel with its teardown script (see below).
+### Managing Tunnels
 
-`./launch :port` starts the tunnel (cloudflared, under `nohup`) in the background
-and **exits immediately**, returning your shell; the tunnel keeps running until
-you tear it down. Each tunnel's URL is stored in a per-port file
-`ACTIVE_TUNNELS/<port>` and reused across window reloads. Multiple tunnels
-(different ports) can run at once; each launched window is bound to its own
-tunnel via the `MAKERCHIP_TUNNEL_URL` environment variable that `./launch`
-passes to `code`.
+There's at most one tunnel per clone. The tunnel may remain up until you are finished with the `mono` repo.
 
-Every tunnel gets a teardown script at `ACTIVE_TUNNELS/stop_<port>.sh`. The
-convenient way to run it is `./stop <port>` (a proxy for that script); it stops
-the tunnel and removes all of its state (or just `kill <pid>`):
+**Start it.** If needed, `./launch <clone>` starts the tunnel (cloudflared, in its own
+session via `setsid`) in the background; it keeps running until torn down. The tunnel is owned by the
+clone: its URL is recorded in the clone's `sandhost/TUNNEL_INFO`, which the
+extension re-reads (resolved from its workspace folder) whenever a panel is built
+— so opening a new panel, reloading the window, or running **Makerchip: Reload
+Panels** picks up the current tunnel.
+
+**Stop it.** The tunnel is intentionally independent of the SandHost: `bin/stop` (and
+`bin/start`'s restart) leave it running so an open window survives a SandHost
+restart. Tear it down explicitly when you're done with the clone (e.g. before
+trashing it):
 
 ```bash
-./stop 8800
+bin/teardown_tunnel   # in the clone; stops cloudflared, clears sandhost/TUNNEL_INFO
+```
+
+**Restart it.** Though it may be kept open for the lifetime of the `mono` clone, if you do restart it, the Makerchip webviews simply need to be restarted.
+
+Detached SandHosts and tunnels outlive a deleted/trashed clone. Find and clean
+such strays with the clone's reaper (any clone's copy works — it scans the whole
+machine):
+
+```bash
+bin/reap          # Report orphans, then prompt [y/N] to kill them.
+                  # Or run with --report or --kill to avoid the prompt.
 ```
 
 ### Server Configuration
 
 By default, the extension connects to `beta.makerchip.com`. You can override this:
-- **Tunnel mode**: (development only) `./launch :port` creates a tunnel, records it under `ACTIVE_TUNNELS/<port>`, and binds the window to it via `MAKERCHIP_TUNNEL_URL` (neither exists in production). When exactly one tunnel is active, the extension also picks it up automatically from `ACTIVE_TUNNELS/`.
+- **Clone/tunnel mode**: (development only) `./launch <clone>` creates a tunnel to the clone's SandHost and records it in the clone's `sandhost/TUNNEL_INFO` (absent in production). The extension picks it up automatically. After restarting the tunnel or the SandHost server, run **Makerchip: Reload Panels** to reconnect already-open panels.
 - **VS Code Setting**: `makerchip.serverUrl` in your settings
 
 ## Copilot Enablement Architecture

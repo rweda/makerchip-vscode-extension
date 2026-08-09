@@ -10,6 +10,11 @@ development workflow. Key constraints to preserve when making changes:
 - **Grammar edits go in `tlv-grammar/` only** — `tlv-extension/syntaxes/tlverilog.tmLanguage` and
   `tlv-extension/language-configuration.json` are build artifacts copied by `scripts/copy-grammar.mjs`
   and are gitignored. Never edit them in `tlv-extension/`.
+- **`./launch` is clone-centric:** `./launch <mono-clone>` is the single door — it starts the
+  clone's SandHost if down, ensures a Cloudflare tunnel, and opens the clone's workspace in a
+  per-clone VS Code profile (`--user-data-dir`). `./launch <url>` / bare `./launch` target a
+  deployed server. The clone is the unit of coupling
+  (clone ↔ port ↔ tunnel ↔ workspace ↔ profile). See [`README.md`](../README.md).
 - **Co-dev setup:** `./launch` and "Run Extension" (F5) load both extensions from source via
   two `--extensionDevelopmentPath` args. The `watch: all` task builds both. Reload the
   Extension Development Host window after `tsc` finishes to pick up changes.

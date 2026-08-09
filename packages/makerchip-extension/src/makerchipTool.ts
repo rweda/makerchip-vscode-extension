@@ -79,17 +79,23 @@ export class IdeFunctionCallTool implements vscode.LanguageModelTool<IdeFunction
   ): Promise<vscode.LanguageModelToolResult> {
     try {
       const { method, args = [], panelName } = options.input;
-      
-      // Invoke the IDE method via command
-      await vscode.commands.executeCommand('makerchip.invokeIdeMethod', method, args, panelName);
-      
+
+      // Invoke the IDE method and capture its return value.
+      const result = await vscode.commands.executeCommand(
+        'makerchip.callIdeMethodWithResult',
+        method,
+        args,
+        panelName
+      );
+
       const panelInfo = panelName ? ` on panel '${panelName}'` : '';
+      const resultText = result === undefined ? '(no return value)' : JSON.stringify(result);
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
-          `Successfully invoked IDE method '${method}'${panelInfo} with arguments: ${JSON.stringify(args)}`
+          `IDE method '${method}'${panelInfo} returned: ${resultText}`
         )
       ]);
-      
+
     } catch (error: any) {
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
@@ -97,6 +103,24 @@ export class IdeFunctionCallTool implements vscode.LanguageModelTool<IdeFunction
         )
       ]);
     }
+  }
+}
+
+/**
+ * Language Model tool to retrieve a reply that arrived after its IDE call timed out.
+ * Only meant to be used when a timeout error explicitly points here.
+ */
+export class GetLateReplyTool implements vscode.LanguageModelTool<{}> {
+
+  async invoke(
+    _options: vscode.LanguageModelToolInvocationOptions<{}>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.LanguageModelToolResult> {
+    const late = await vscode.commands.executeCommand('makerchip.getLateReply');
+    const text = late
+      ? `Late reply: ${JSON.stringify(late)}`
+      : 'No late reply has been captured.';
+    return new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(text)]);
   }
 }
 
@@ -1215,6 +1239,24 @@ interface OpenThirdPartyPaneInput {
     background?: boolean;
     /** If true, pane data won't be stored for layout recovery (default: false) */
     nonTransferrable?: boolean;
+    /**
+     * Optional channel contract wiring this pane onto the IDE communication bus. Declares the
+     * event types the pane `produces` and `subscribes` to (optionally scoped to specific source
+     * agents), and whether the pane may issue bounded IDE RPC (`rpc`). This is what enables
+     * connected multi-pane flows — e.g. a Compiler Explorer pane that `produces: ["sourceAsm"]`
+     * and a WARP-V pane that `subscribes: [{type: "sourceAsm", sources: [<CE mnemonic>]}]`.
+     */
+    channel?: {
+      produces?: string[];
+      subscribes?: Array<{ type: string; sources?: string[] }>;
+      rpc?: boolean;
+    };
+    /**
+     * Optional opaque parameters delivered to the pane via its `getContext` RPC. Shape is
+     * pane-defined (e.g. Compiler Explorer expects `{ce: {language, compiler, options, filters,
+     * source}}`).
+     */
+    params?: any;
   };
   /** Optional panel name to target. If not provided, uses the default panel. */
   panelName?: string;
@@ -2027,6 +2069,173 @@ export class ListPanelsTool implements vscode.LanguageModelTool<ListPanelsToolIn
   }
 }
 
+interface ReloadPanelsToolInput {
+  // No parameters needed - reloads all open panels against the current server URL
+}
+
+/**
+ * Language Model tool that reloads all open Makerchip panels, reconnecting them
+ * to the current Makerchip server/tunnel URL. Use it to recover already-open
+ * panels after a restart:
+ *   - the sandserv backend was restarted (connections dropped), or
+ *   - `./launch :port` created a new tunnel after the old one died (new URL).
+ * Lighter than a full "Developer: Reload Window"; affects only Makerchip panels.
+ */
+export class ReloadPanelsTool implements vscode.LanguageModelTool<ReloadPanelsToolInput> {
+
+  async prepareInvocation(
+    options: vscode.LanguageModelToolInvocationPrepareOptions<ReloadPanelsToolInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.PreparedToolInvocation> {
+    return {
+      invocationMessage: 'Reloading Makerchip panels...'
+    };
+  }
+
+  async invoke(
+    options: vscode.LanguageModelToolInvocationOptions<ReloadPanelsToolInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.LanguageModelToolResult> {
+    try {
+      const result = await vscode.commands.executeCommand<{ serverUrl: string; panels: string[] }>(
+        'makerchip.reloadPanels'
+      );
+      const serverUrl = result?.serverUrl ?? '(unknown)';
+      const reloaded = result?.panels ?? [];
+
+      const message = reloaded.length === 0
+        ? `No open Makerchip panels to reload. New panels will use the current server URL: ${serverUrl}`
+        : `Reloaded ${reloaded.length} panel(s) (${reloaded.join(', ')}), reconnecting to ${serverUrl}.`;
+
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(message)
+      ]);
+    } catch (error: any) {
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(
+          `Failed to reload panels: ${error.message}`
+        )
+      ]);
+    }
+  }
+}
+
+interface BusEmitInput {
+  /**
+   * The application-event type to publish (e.g. 'sourceAsm'). Panes subscribe by this type;
+   * the event rides the shared `ext/<type>` application-bus channel. Because this tool is driven
+   * by an AI agent, the platform stamps the source `platform.ai` (a recipient can accept
+   * `platform.ai` exactly, or accept the whole platform family via a startsWith check).
+   */
+  type: string;
+  /** The event payload delivered to subscribers. Any JSON-serializable value. */
+  payload?: any;
+  /**
+   * Optional recipient filter: a pane mnemonic (or 'ide'), or an array of them. When omitted the
+   * event is broadcast to every matching subscriber.
+   */
+  target?: string | string[];
+  /** Optional panel name to target. If not provided, uses the default panel. */
+  panelName?: string;
+}
+
+/**
+ * Publish an application event onto the IDE bus as the `platform.ai` participant (an AI-relayed
+ * emit). Panes that subscribe to the event `type` receive it (subject to their optional source
+ * filter, which may name `platform.ai`).
+ */
+export class BusEmitTool implements vscode.LanguageModelTool<BusEmitInput> {
+  async prepareInvocation(
+    options: vscode.LanguageModelToolInvocationPrepareOptions<BusEmitInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.PreparedToolInvocation> {
+    return { invocationMessage: `Emitting bus event '${options.input.type}'...` };
+  }
+
+  async invoke(
+    options: vscode.LanguageModelToolInvocationOptions<BusEmitInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.LanguageModelToolResult> {
+    try {
+      const { type, payload, target, panelName } = options.input;
+      // This tool is invoked by an AI agent, so the platform tags the emit with agent "ai"
+      // (source "platform.ai"). The AI cannot choose the agent tag (so it can't pose as the
+      // bare platform).
+      await vscode.commands.executeCommand('makerchip.busEmit', type, payload, target, 'ai', panelName);
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(`Emitted '${type}' onto the bus.`)
+      ]);
+    } catch (error: any) {
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(`Failed to emit bus event: ${error.message}`)
+      ]);
+    }
+  }
+}
+
+interface PaneCallInput {
+  /** The target pane's mnemonic (as returned by opening/reserving a third-party pane). */
+  mnemonic: string;
+  /** The pane method to invoke. The pane must have declared `rpc: true` and implement this method. */
+  method: string;
+  /** Positional arguments passed to the pane method. Any JSON-serializable values. */
+  args?: any[];
+  /** Optional response timeout in milliseconds (default 30000). */
+  timeoutMs?: number;
+  /** Optional panel name to target. If not provided, uses the default panel. */
+  panelName?: string;
+}
+
+/**
+ * Call a method on a connected third-party pane and await its result (host->pane RPC). This is the
+ * request/response complement to makerchip_emit's fire-and-forget broadcast: use it when you need a
+ * value back from a pane you opened (e.g. tell the Compiler Explorer pane to run and wait for the
+ * outcome). The pane must have declared `rpc: true` and implemented a handler for the method.
+ */
+export class PaneCallTool implements vscode.LanguageModelTool<PaneCallInput> {
+  async prepareInvocation(
+    options: vscode.LanguageModelToolInvocationPrepareOptions<PaneCallInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.PreparedToolInvocation> {
+    const { mnemonic, method } = options.input;
+    return { invocationMessage: `Calling '${method}' on pane '${mnemonic}'...` };
+  }
+
+  async invoke(
+    options: vscode.LanguageModelToolInvocationOptions<PaneCallInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.LanguageModelToolResult> {
+    try {
+      const { mnemonic, method, args = [], timeoutMs = 30000, panelName } = options.input;
+      if (!mnemonic || !method) {
+        return new vscode.LanguageModelToolResult([
+          new vscode.LanguageModelTextPart('Both a pane mnemonic and a method name are required.')
+        ]);
+      }
+      // The IDE forwards this over the named pane's channel (callPane). Give the outer IDE call a
+      // slightly longer deadline than the inner pane-RPC timeout so the pane-RPC timeout fires
+      // first with a clearer, pane-specific error.
+      const result = await vscode.commands.executeCommand(
+        'makerchip.callIdeMethodWithResult',
+        'callPane',
+        [mnemonic, method, args, timeoutMs],
+        panelName,
+        false,
+        timeoutMs + 5000
+      );
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(
+          `Pane '${mnemonic}' method '${method}' returned:\n${JSON.stringify(result, null, 2)}`
+        )
+      ]);
+    } catch (error: any) {
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(`Failed to call pane method: ${error.message}`)
+      ]);
+    }
+  }
+}
+
 /**
  * Register the Makerchip tools with the Language Model API
  */
@@ -2049,6 +2258,11 @@ export function registerMakerchipTool(context: vscode.ExtensionContext): void {
   const ideTool = vscode.lm.registerTool('makerchip_ide_call', new IdeFunctionCallTool());
   log('IDE call tool registered:', !!ideTool);
   context.subscriptions.push(ideTool);
+
+  // Register the late-reply retrieval tool
+  const lateReplyTool = vscode.lm.registerTool('makerchip_get_late_reply', new GetLateReplyTool());
+  log('Late reply tool registered:', !!lateReplyTool);
+  context.subscriptions.push(lateReplyTool);
   
   // Register the VIZ image capture tool
   const vizImageTool = vscode.lm.registerTool('makerchip_get_viz_image', new GetVizImageTool());
@@ -2134,6 +2348,21 @@ export function registerMakerchipTool(context: vscode.ExtensionContext): void {
   const listPanelsTool = vscode.lm.registerTool('makerchip_list_panels', new ListPanelsTool());
   log('List panels tool registered:', !!listPanelsTool);
   context.subscriptions.push(listPanelsTool);
+  
+  // Register the reload panels tool
+  const reloadPanelsTool = vscode.lm.registerTool('makerchip_reload_panels', new ReloadPanelsTool());
+  log('Reload panels tool registered:', !!reloadPanelsTool);
+  context.subscriptions.push(reloadPanelsTool);
+
+  // Register the application-bus emit tool
+  const busEmitTool = vscode.lm.registerTool('makerchip_emit', new BusEmitTool());
+  log('Bus emit tool registered:', !!busEmitTool);
+  context.subscriptions.push(busEmitTool);
+
+  // Register the pane-call (host->pane RPC) tool
+  const paneCallTool = vscode.lm.registerTool('makerchip_pane_call', new PaneCallTool());
+  log('Pane call tool registered:', !!paneCallTool);
+  context.subscriptions.push(paneCallTool);
   
   // Verify tools are in the list
   setTimeout(() => {
