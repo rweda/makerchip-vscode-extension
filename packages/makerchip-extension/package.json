@@ -135,7 +135,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(circuit-board)",
         "userDescription": "Compile and open TL-Verilog in Makerchip IDE.",
-        "modelDescription": "Opens/focuses IDE and compiles TL-Verilog code. Waits up to `waitSeconds` (default 30s) for the compilation and simulation and returns a status summary on completion or timeout. Status includes SandPiper/Verilator exit codes, pass/fail, and a log excerpt on failure — no need to read `metadata.json` via the shell. To continue waiting, call `makerchip_wait_compile` with the returned compile ID. Set `waitSeconds` to 0 to return immediately with just the compile ID.",
+        "modelDescription": "Opens/focuses IDE and compiles TL-Verilog code. Waits up to `waitSeconds` (default 30s) for the compilation and simulation and returns a status summary on completion or timeout. By default the wait returns as soon as the compile and simulation results are ready and does NOT block on the diagram (SVG) render, which can lag or time out well after the compile finishes; set `waitForDiagram: true` to also wait for the diagram. Status includes SandPiper/Verilator exit codes, pass/fail, and a log excerpt on failure — no need to read `metadata.json` via the shell. To continue waiting, call `makerchip_wait_compile` with the returned compile ID. Set `waitSeconds` to 0 to return immediately with just the compile ID.",
         "tags": [
           "makerchip",
           "tlv",
@@ -175,6 +175,10 @@
             "waitSeconds": {
               "type": "number",
               "description": "Seconds to wait for the compile to complete before returning (default 30). The tool blocks up to this long and returns a status summary. If still running when the timeout elapses, call `makerchip_wait_compile` with the returned compile ID. Set to 0 to return immediately with just the compile ID."
+            },
+            "waitForDiagram": {
+              "type": "boolean",
+              "description": "When false (default), returns as soon as the compile and simulation results are ready, without waiting for the diagram (SVG) render (which can lag or time out well after the compile finishes). Set true to also wait for the diagram, e.g. before capturing it."
             }
           }
         }
@@ -186,7 +190,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(watch)",
         "userDescription": "Wait for a Makerchip compilation to finish.",
-        "modelDescription": "Waits for a compilation (started by makerchip_compile) to complete, then returns its status summary (SandPiper/Verilator exit codes, pass/fail, and a log excerpt on failure). Use this to resume waiting when makerchip_compile reported the compile was still running. Blocks up to `waitSeconds` (default 30); if it is still running, call again with the same compile ID.",
+        "modelDescription": "Waits for a compilation (started by makerchip_compile) to complete, then returns its status summary (SandPiper/Verilator exit codes, pass/fail, and a log excerpt on failure). By default returns as soon as the compile and simulation results are ready without blocking on the diagram (SVG) render; set `waitForDiagram: true` to also wait for the diagram. Use this to resume waiting when makerchip_compile reported the compile was still running. Blocks up to `waitSeconds` (default 30); if it is still running, call again with the same compile ID.",
         "tags": [
           "makerchip",
           "tlv",
@@ -204,6 +208,10 @@
             "waitSeconds": {
               "type": "number",
               "description": "Seconds to wait for completion before returning (default 30). If still running, call again with the same compile ID."
+            },
+            "waitForDiagram": {
+              "type": "boolean",
+              "description": "When false (default), returns once the compile and simulation results are ready, without waiting for the diagram (SVG). Set true to also wait for the diagram, e.g. before capturing it."
             }
           },
           "required": ["compileId"]
@@ -216,7 +224,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(symbol-method)",
         "userDescription": "Call any Makerchip IDE method directly.",
-        "modelDescription": "Generic escape-hatch tool for calling any IDE Plugin API method directly and returning its result (e.g. the mnemonic from `reservePane`, or the pane object from `openPane`). Prefer a dedicated tool when one exists for the operation you need; use this for the long tail of methods that have no dedicated tool. For full IDE Plugin details, see `.vscode-makerchip/resources/Makerchip-public/docs/plugin_api/index.html`. Note that methods like onReady, onCodeChange, onCompilationLog are callbacks and should not be called directly.",
+        "modelDescription": "Generic tool for calling any IDE Plugin API method directly, returning the method's result. Many of these methods are explicitly exposed as tools. Methods that return data (e.g. getKeyframe, getCode) have their return value surfaced in the tool result; a Blob return is saved to a file and its path reported. `captureVideo` is not supported here — use the dedicated `makerchip_capture_video` tool instead. For full IDE Plugin details, see `.vscode-makerchip/resources/Makerchip-public/docs/plugin_api/index.html`. Note that methods like onReady, onCodeChange, onCompilationLog are callbacks and should not be called directly.",
         "tags": [
           "makerchip",
           "ide",
@@ -370,7 +378,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(device-camera)",
         "userDescription": "Capture the current VIZ visualization as an image.",
-        "modelDescription": "Returns the current Makerchip VIZ (Visual Debug) canvas visualization (from an open IDE panel with compiled/simulated code). Returns a base64-encoded data URL. Use this to iterate on VIZ development.",
+        "modelDescription": "Captures the current Makerchip VIZ (Visual Debug) view canvas (resulting from compiled/simulated code) and returns it inline as an image for the agent to inspect — use this to iterate on VIZ development and video rendering. It can also return the current view's absolute camera keyframe (scale/focus/size) for reuse in makerchip_capture_video; one call can return the image, the keyframe, or both. The image can additionally be saved to a file for the user, or captured for the user only (skipping the inline image to spend no vision tokens).",
         "tags": [
           "makerchip",
           "viz",
@@ -378,6 +386,7 @@
           "image",
           "screenshot",
           "capture",
+          "keyframe",
           "debug"
         ],
         "inputSchema": {
@@ -402,7 +411,17 @@
             },
             "saveToFile": {
               "type": ["boolean", "string"],
-              "description": "Optional: save image to file for user visibility. If true, saves to /tmp with auto-generated name. If string, uses as file path. Image data is always returned to the model."
+              "description": "Optional: also save the image to a file for the user to view. If true, saves to a temp file with an auto-generated name; if a string, uses it as the file path. (The image is also returned inline to the model unless `blind` is set.)"
+            },
+            "blind": {
+              "type": "boolean",
+              "description": "When true, do not return the image to the model — capture it to a file only, for the user. Spends no vision tokens. A file is always written (auto-named in the temp dir unless `saveToFile` gives a path)."
+            },
+            "response": {
+              "type": "string",
+              "enum": ["image", "keyframe", "both"],
+              "description": "What to return. 'both' (default) captures the image AND the current view's absolute keyframe; 'image' returns only the image; 'keyframe' returns only the keyframe (no image render — cheap). The keyframe is {cycle, scale, focus:{x,y}, width, height}, ready to drop into makerchip_capture_video's `keyframes` with `absolute: true`.",
+              "default": "both"
             }
           }
         }
@@ -476,15 +495,17 @@
         "toolReferenceName": "makerchipCaptureVideo",
         "canBeReferencedInPrompt": true,
         "icon": "$(device-camera-video)",
-        "userDescription": "Capture the VIZ simulation across a cycle range as a GIF or WebM video.",
-        "modelDescription": "Captures the Makerchip VIZ (Visual Debug) canvas across a range of simulation cycles and encodes it as a video (GIF or WebM) from an open IDE panel with compiled/simulated code. Use this to produce an animation of a design's behavior over time. With framesPerCycle=1 (default) and format 'auto', a GIF is produced (one frame per cycle) which is appropriate for designs without intra-cycle animation. Use framesPerCycle>1 (WebM) to also capture intra-cycle animation. The result is saved to a file and returned to the model when possible.",
+        "userDescription": "Capture the VIZ simulation across a cycle range as a GIF, MP4, WebM, or APNG video.",
+        "modelDescription": "Captures the Makerchip VIZ (Visual Debug) canvas across a range of simulation cycles and encodes it as a video, from an open IDE panel with compiled/simulated code. Use this to produce an animation of a design's behavior over time. Beyond the plain cycle range, it can capture intra-cycle animation, set playback speed, animate a camera pan/zoom, record at a fixed resolution/aspect, and emit GIF, MP4, WebM, or APNG. The result is always written to a file (auto-named in the temp dir unless you pass `filename`) and the path is returned; for image formats (GIF/APNG) you can then view that file to inspect the frame(s). TIP: to calibrate camera framing before a full render, call `makerchip_get_viz_image` (default `response: \"both\"`) to see the current view and get it as an absolute keyframe in one step, then derive your keyframes from that (with `absolute: true`) instead of rendering a throwaway clip. The user can also position the view for you to capture.",
         "tags": [
           "makerchip",
           "viz",
           "visualization",
           "video",
           "gif",
+          "mp4",
           "webm",
+          "apng",
           "animation",
           "capture",
           "debug"
@@ -502,41 +523,73 @@
             },
             "format": {
               "type": "string",
-              "enum": ["auto", "gif", "webm"],
-              "description": "Video format. 'auto' (default) produces GIF when framesPerCycle=1, otherwise WebM.",
+              "enum": ["auto", "gif", "mp4", "webm", "apng"],
+              "description": "Output format. 'auto' (default) lets the IDE choose: GIF for one frame per cycle, MP4 otherwise. Set explicitly to force a codec (e.g. 'mp4' for a shareable video, 'webm' for VP9, 'gif'/'apng' for looping clips). Independent of the output `filename` and its extension.",
               "default": "auto"
             },
-            "framesPerCycle": {
+            "fps": {
               "type": "number",
-              "description": "Number of frames to capture per cycle. Default: 1 (no intra-cycle animation).",
+              "description": "Output frames per second. Omit for one frame per cycle (settled final state, no intra-cycle animation)."
+            },
+            "cyclesPerSecond": {
+              "type": "number",
+              "description": "Playback speed in simulation cycles per second. Default: 1 (one cycle per second); e.g. 20 plays each cycle for 50ms.",
               "default": 1
-            },
-            "cycleTimeMs": {
-              "type": "number",
-              "description": "Milliseconds per cycle in playback. Default: 1000.",
-              "default": 1000
-            },
-            "quality": {
-              "type": "number",
-              "description": "GIF encoding quality 1-30, lower is better. Default: 10.",
-              "default": 10
             },
             "Mbps": {
               "type": "number",
-              "description": "WebM bitrate in Mbps. Default: 2.5 (recommended 10 for high quality).",
+              "description": "Video bitrate in Mbps (MP4 output; ignored for GIF). Default: 2.5 (recommended 10 for high quality).",
               "default": 2.5
             },
-            "restoreCycle": {
-              "type": ["boolean", "number"],
-              "description": "Restore cycle after capture: true for original, false to stay at endCyc, or a number for a specific cycle. Default: true."
+            "width": {
+              "type": "number",
+              "description": "Recording width in pixels. Defaults to the live VIZ pane canvas width. Set this together with height to record at a fixed resolution/aspect independent of the pane size (rendered headless in an offscreen canvas)."
+            },
+            "height": {
+              "type": "number",
+              "description": "Recording height in pixels. Defaults to the live VIZ pane canvas height. Set this together with width to record at a fixed resolution/aspect independent of the pane size."
+            },
+            "backgroundColor": {
+              "type": "string",
+              "description": "CSS canvas background color (e.g. 'white' or '#1e1e1e'). Defaults to the VIZ default."
+            },
+            "timeout": {
+              "type": "number",
+              "description": "Override the automatically computed RPC timeout, in seconds (capped at 3600). Only needed when a capture legitimately runs slower than the estimate allows; supplying it also bypasses the automatic refusal of large jobs. WARNING: encoding buffers every rendered frame in memory (ffmpeg via WebAssembly), so a long timeout with many/high-resolution frames can exhaust the webview heap and crash it — prefer reducing the cycle range, fps, or resolution over raising this."
             },
             "panelName": {
               "type": "string",
               "description": "Optional panel name to target. Default: `default`."
             },
-            "saveToFile": {
-              "type": ["boolean", "string"],
-              "description": "Save to file. If true, auto-generates a filename. If string, uses it as the file path. If false/undefined, only saves when the video is large."
+            "filename": {
+              "type": "string",
+              "description": "Optional output file path. If omitted, a timestamped file is written to the OS temp dir. The video is always saved to a file (never inlined into the conversation)."
+            },
+            "keyframes": {
+              "type": "array",
+              "description": "Camera keyframes for pan/zoom motion across the cycle range. A single keyframe = static camera; multiple keyframes animate the camera (Catmull-Rom interpolated). In relative mode (default) `scale` is a multiplier on the current VIZ scale (2 = 2x zoom in, 0.5 = zoom out) and `focus` is an {x,y} offset as a fraction of the visible area (+x right, +y down); here keyframes may be OMITTED for no camera motion (records the current view). In absolute mode (see `absolute`) `scale`/`focus` are absolute VIZ scale/coordinates, the current view is not used, and keyframes are REQUIRED (at least one entry) — `default` only fills in properties an entry omits, it does not replace the array.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "cycle": { "type": "number", "description": "Cycle at which this keyframe applies. First/last default to startCyc/endCyc when omitted." },
+                  "scale": { "type": "number", "description": "Camera zoom (relative multiplier, or absolute pixels to canvas units when `absolute` is true)." },
+                  "focus": {
+                    "type": "object",
+                    "description": "Camera center (relative fractional offset, or absolute VIZ coordinate when `absolute` is true).",
+                    "properties": { "x": { "type": "number" }, "y": { "type": "number" } }
+                  },
+                  "width": { "type": "number", "description": "Absolute mode only. Canvas width (px) that this keyframe's absolute `scale` was measured against — i.e. the `width` from `getKeyframe`. The recorder rescales `scale` by min(recordingWidth/width, recordingHeight/height) so the same framing holds when recording at a different resolution. Omit to assume the recording width (or `default.width`). Does not affect `focus`, which is a size-independent absolute coordinate." },
+                  "height": { "type": "number", "description": "Absolute mode only. Canvas height (px) that this keyframe's absolute `scale` was measured against — the `height` from `getKeyframe` (see `width`). Omit to assume the recording height (or `default.height`)." }
+                }
+              }
+            },
+            "absolute": {
+              "type": "boolean",
+              "description": "When true, keyframe `scale`/`focus` are absolute VIZ scale/coordinates rather than relative to the current view (good for reproducibility); get the current view as an absolute keyframe from `makerchip_get_viz_image`. Defaults to `false`, where keyframes are relative to the current view (good for building on a view the user has positioned)."
+            },
+            "default": {
+              "type": "object",
+              "description": "Default values for any keyframe property except `cycle` (same shape as a `keyframes` entry — e.g. `scale`, `focus`, `width`, `height`). (Often `{width, height}`.) Supplies these to any keyframe that omits them; a keyframe's own value takes precedence. Does not remove the requirement to pass at least one `keyframes` entry in absolute mode."
             }
           },
           "required": ["startCyc", "endCyc"]

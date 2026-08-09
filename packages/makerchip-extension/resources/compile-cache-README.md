@@ -48,7 +48,8 @@ Compilation status and metadata. Example:
 
 Key fields:
 - **fileComplete**: Object tracking which files finished streaming (`stdall`, `make.out`, `vlt_dump.vcd`).
-- **complete**: `true` when all files marked complete in `fileComplete`.
+- **resultsComplete**: `true` once the core results (compile + simulation) are settled, EXCLUDING the diagram (`graph.svg`). This is what agents normally wait on — the diagram render can lag, or time out, well after the compile/simulation finish.
+- **complete**: `true` once all expected files are settled, INCLUDING the diagram (`graph.svg`, unless `dot` is disabled).
 - **passed**: `true`/`false` - simulation result (extracted from logs when `stdall` completes)
 - **error**: If present, contains `{type, message}` - error types: 'compile', 'denied', 'compile-timeout', 'vcd-timeout', etc. E.g.:
 ```json

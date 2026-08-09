@@ -88,7 +88,8 @@ interface CompileMetadata {
   fileComplete: Partial<Record<ResultFileName, boolean>>; // true = file fully received OK
   fileError?: Partial<Record<ResultFileName, FileErrorInfo>>; // Per-file error (streamed files may retain partial content; single-payload files have null content)
   fileSkipped?: Partial<Record<ResultFileName, boolean>>; // File won't be produced (upstream failure, or sim/dot disabled)
-  complete: boolean;        // True once ALL expected files are settled (complete | error | skipped). For finer checks, inspect fileComplete.
+  resultsComplete: boolean; // True once the CORE results (compile + simulation) are settled, EXCLUDING the diagram (graph.svg). This is what agents typically wait on; the diagram render can lag or time out well after the compile/sim finish.
+  complete: boolean;        // True once ALL expected files are settled (complete | error | skipped), including the diagram. For finer checks, inspect fileComplete.
   passed?: boolean;         // Whether simulation passed (true/false/undefined if not yet determined)
   exitStatus?: {            // Exit codes from compilation stages
     sandpiper?: number;     // SandPiper compiler exit code
@@ -119,18 +120,26 @@ export interface MultiFileSource {
 export type CompileSource = string | MultiFileSource;
 
 /**
- * Recompute `metadata.complete`: true once every EXPECTED result file is settled
- * (received, errored, or skipped). Expected set depends on sim/dot: the diagram
- * (graph.svg) is expected unless dot is disabled; the waveform (vlt_dump.vcd) is
- * expected unless sim is disabled. When sim/dot are unknown (undefined) we assume
- * the file is expected so `complete` is never reported prematurely.
+ * Recompute `metadata.resultsComplete` and `metadata.complete`.
+ *
+ * - `resultsComplete`: true once every CORE result file is settled (received,
+ *   errored, or skipped). The core set EXCLUDES the diagram (graph.svg), whose
+ *   Graphviz render can lag well behind — or time out long after — the compile
+ *   and simulation have finished. This is the flag agents should normally wait
+ *   on to validate a compile.
+ * - `complete`: true once every EXPECTED file is settled, INCLUDING the diagram
+ *   (unless dot is disabled). Waveform (vlt_dump.vcd) is expected unless sim is
+ *   disabled. When sim/dot are unknown (undefined) the file is assumed expected
+ *   so completion is never reported prematurely.
  */
 function recomputeComplete(m: CompileMetadata): void {
-  const expected: ResultFileName[] = ['stdall', 'make.out', 'parse_model.json', 'navtlv.html'];
-  if (m.sim !== false) { expected.push('vlt_dump.vcd'); }
-  if (m.dot !== false) { expected.push('graph.svg'); }
+  const core: ResultFileName[] = ['stdall', 'make.out', 'parse_model.json', 'navtlv.html'];
+  if (m.sim !== false) { core.push('vlt_dump.vcd'); }
   const settled = (f: ResultFileName): boolean =>
     !!(m.fileComplete[f] || m.fileError?.[f] || m.fileSkipped?.[f]);
+  m.resultsComplete = core.every(settled);
+  // Full completion additionally requires the diagram (graph.svg), unless dot is disabled.
+  const expected: ResultFileName[] = m.dot !== false ? [...core, 'graph.svg'] : core;
   m.complete = expected.every(settled);
 }
 
@@ -237,6 +246,7 @@ export async function initCompile(id: string, sourceCode?: CompileSource, params
     dot: params?.dot,
     fileComplete: {},
     fileSkipped: {},
+    resultsComplete: false,
     complete: false,
     hasResults: true,   // Initially true, set to false when pruned
     hasSource: topContent != null,
@@ -427,24 +437,35 @@ export interface Cancellable {
 /**
  * Wait for a compilation to settle by polling its metadata in-process (no shell).
  *
- * Resolves as soon as `metadata.complete` is true, when the timeout elapses, or
- * when cancellation is requested. Because the extension host writes the metadata
- * itself, this lets tools await a compile without agents shelling out to read
- * `metadata.json`.
+ * Resolves as soon as the target completion flag is true, when the timeout
+ * elapses, or when cancellation is requested. By default it waits for
+ * `resultsComplete` (compile + simulation settled, EXCLUDING the diagram), so a
+ * slow or timing-out diagram render doesn't hold up the result. Pass
+ * `waitForDiagram` to instead wait for full `complete` (including the diagram
+ * SVG), e.g. before capturing the diagram. Because the extension host writes the
+ * metadata itself, this lets tools await a compile without agents shelling out to
+ * read `metadata.json`.
  *
  * @returns The latest metadata (may be null/incomplete) and whether the wait ended
- *   without the compile completing (`timedOut`, also set on cancellation).
+ *   without reaching the target (`timedOut`, also set on cancellation).
  */
 export async function waitForComplete(
   id: string,
   timeoutMs: number,
   pollMs = 400,
-  token?: Cancellable
+  token?: Cancellable,
+  waitForDiagram = false
 ): Promise<{ metadata: CompileMetadata | null; timedOut: boolean }> {
   const deadline = Date.now() + Math.max(0, timeoutMs);
+  // `resultsComplete ?? complete` defensively handles metadata written before
+  // this field existed (e.g. an older cached compile being restored).
+  const isDone = (m: CompileMetadata | null): boolean => {
+    if (!m) { return false; }
+    return waitForDiagram ? !!m.complete : !!(m.resultsComplete ?? m.complete);
+  };
   for (;;) {
     const metadata = await loadMetadata(id);
-    if (metadata?.complete) { return { metadata, timedOut: false }; }
+    if (isDone(metadata)) { return { metadata, timedOut: false }; }
     if (token?.isCancellationRequested) { return { metadata, timedOut: true }; }
     const remaining = deadline - Date.now();
     if (remaining <= 0) { return { metadata, timedOut: true }; }

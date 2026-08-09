@@ -24,10 +24,9 @@
 #   - in a VS Code profile (--user-data-dir) DEDICATED to that clone (its
 #     .vscode-env/profile), seeded with your normal settings.
 # Both the workspace and profile are created and owned by the clone's own
-# bin/vscode_setup, run only by the clone's ./install.sh (they live inside the
-# clone under a git-ignored .vscode-env/). ./launch and bin/open_code only VERIFY
-# readiness (bin/vscode_setup --check) and read back that same derivation -- so
-# ./launch, the clone's bin/open_code, and new_mono all open the SAME per-clone
+# bin/vscode_setup (they live inside the
+# clone under a git-ignored .vscode-env/) --
+# ./launch and the clone's bin/open_code open the SAME per-clone
 # profile (a clone must be installed first).
 #
 # Each clone gets its own profile so each can run its own EDH (VS Code allows one
@@ -341,9 +340,8 @@ fi
 WORKSPACE=""
 if [ "$MODE" = "clone" ]; then
   if [ -x "$CLONE_DIR/bin/vscode_setup" ]; then
-    # Only VERIFY readiness here (--check); never create. Setup is owned solely by
-    # the clone's ./install.sh (which runs bin/vscode_setup), so a never-installed
-    # clone fails loudly here instead of being silently provisioned by ./launch.
+    # VERIFY readiness here (--check). Setup is owned solely by
+    # the clone's ./install.sh (which runs bin/vscode_setup).
     if paths="$("$CLONE_DIR/bin/vscode_setup" --check)"; then
       EDH_USER_DATA_DIR="$(printf '%s\n' "$paths" | sed -n '1p')"
       WORKSPACE="$(printf '%s\n' "$paths" | sed -n '2p')"
