@@ -143,10 +143,11 @@ The `~/.vscode-makerchip/tmp/` directory is specifically for temporary files and
 
 The Makerchip IDE runs in webview panels within VS Code. Understanding panel management is essential:
 
-- **Opening Panels**: Panels are **only opened by `makerchip_compile`** when given `code` or `filePath` parameters
+- **Opening Panels**: Panels are **only opened by `makerchip_compile`** when given `code` or `filePath` parameters (`code: true` for minimal default code)
   - If `makerchip_compile` is called without these parameters (using active editor content), it requires an existing panel
   - Other tools (highlight, setCycle, getLayoutState, etc.) require an existing panel and will error if it doesn't exist
-
+  - Use `code: true` to open a panel with a minimal scratch design (`~/.vscode-makerchip/resources/minimal.tlv`)
+  - Add `oneShot: true` to compile without opening any editor (nothing to edit, no editor tab left behind) — the cleanest way to open a panel purely for pane/layout/IDE-tooling work. Applies equally to string `code` and `filePath`.
 - **Discovering Panels**: Use `makerchip_list_panels` to see which panels are currently open
   - Panel names can be passed to other tools via the `panelName` parameter
   - If no `panelName` is specified, tools target the 'default' panel

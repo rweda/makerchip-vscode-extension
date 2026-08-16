@@ -35,9 +35,19 @@ const DEFAULT_SERVER_URL = 'https://beta.makerchip.com';
 // pending forever, hanging every awaiting caller.
 const READY_TIMEOUT_MS = 30_000;
 
+// How long the pre-flight server-reachability probe (see setupPanel) waits for
+// any HTTP response before treating the server as unreachable.
+const SERVER_PROBE_TIMEOUT_MS = 5_000;
+
 // Track multiple panels by name
 const panels = new Map<string, vscode.WebviewPanel>();
 const panelReadyPromises = new Map<string, Promise<void>>();
+// Panels whose server was unreachable at their last render attempt. Such a panel
+// stays open (as a placeholder on restore, or on its stale content after a
+// failed reloadPanels) but cannot serve IDE calls; ensurePanelReady rejects for
+// these with guidance to run "Makerchip: Reload Panels" once the server is back.
+// Cleared when a render against a reachable server succeeds.
+const degradedPanels = new Set<string>();
 const pendingCompiles = new Map<string, CompileSource>(); // panelKey -> source (string or {files, top}) while awaiting an ID
 // In-flight callIdeMethodWithResult calls, keyed by requestId. Each entry holds the
 // resolve/reject of the promise handed back to the caller; the matching 'ideResult'/
@@ -61,7 +71,17 @@ let context: vscode.ExtensionContext;
  */
 async function ensurePanelReady(name?: string, createIfNeeded: boolean = false): Promise<void> {
   const panelKey = name || 'default';
-  
+
+  if (degradedPanels.has(panelKey)) {
+    // The panel exists but its server was unreachable at its last render, so it
+    // has no live IDE to talk to. Fail with guidance rather than posting into a
+    // placeholder / stale webview where the call would be silently lost.
+    throw new Error(
+      `Makerchip panel '${panelKey}' is disconnected: its server was unreachable at its last (re)load. ` +
+      `Bring the server up and run "Makerchip: Reload Panels" (or ask Copilot to reload panels) to reconnect.`
+    );
+  }
+
   if (panelReadyPromises.has(panelKey)) {
     // Panel is already open or opening - wait for it
     return panelReadyPromises.get(panelKey)!;
@@ -174,7 +194,7 @@ export function activate(ctx: vscode.ExtensionContext) {
           const n = parseInt(numbered[1], 10);
           if (n >= panelCounter) { panelCounter = n + 1; }
         }
-        const readyPromise = setupPanel(panel, panelKey);
+        const readyPromise = setupPanel(panel, panelKey, true);
         panelReadyPromises.set(panelKey, readyPromise);
         // Swallow rejection so an unhandled promise doesn't surface; callers that
         // need readiness go through ensurePanelReady() which observes this promise.
@@ -410,15 +430,35 @@ export function activate(ctx: vscode.ExtensionContext) {
   // Also exposed to Copilot as the makerchip_reload_panels tool.
   context.subscriptions.push(
     vscode.commands.registerCommand('makerchip.reloadPanels', async (): Promise<{ serverUrl: string; panels: string[] }> => {
-      const serverUrl = await getServerUrl();
-      const reloaded = Array.from(panels.keys());
+      const reloaded: string[] = [];
+      const failed: string[] = [];
       for (const [key, panel] of panels) {
-        // Re-rendering the HTML reloads the IDE iframe (reconnecting to serverUrl).
+        // Re-rendering the HTML reloads the IDE iframe (reconnecting to its URL).
+        // Resolve per panel so a panel with a dev override keeps its own server.
         // The panel's existing message handler stays attached and handles the fresh
         // 'ready'/results, so no re-wiring is required.
-        panel.webview.html = buildWebviewHtml(panel, key, serverUrl);
+        const url = await getServerUrl(key);
+        // Probe first: don't blank a working panel by reloading it against a dead
+        // server (e.g. a tunnel that hasn't been recreated yet). Leave unreachable
+        // panels on their existing content, mark them degraded, and report them.
+        try {
+          await probeServerReachable(url);
+        } catch (error: any) {
+          failed.push(key);
+          degradedPanels.add(key);
+          const errorMsg = error.message || String(error);
+          log(`Skipped reloading panel '${key}': ${errorMsg}`);
+          vscode.window.showErrorMessage(errorMsg);
+          continue;
+        }
+        panel.webview.html = buildWebviewHtml(panel, key, url);
+        degradedPanels.delete(key);
+        log(`Reloaded panel '${key}' against ${url}`);
+        reloaded.push(key);
       }
-      log(`Reloaded ${reloaded.length} panel(s) against ${serverUrl}`);
+      // Representative URL for the summary (default resolution, no panel override).
+      const serverUrl = await getServerUrl();
+      log(`Reloaded ${reloaded.length} panel(s)${failed.length ? `, skipped ${failed.length} unreachable` : ''}`);
       return { serverUrl, panels: reloaded };
     })
   );
@@ -442,6 +482,65 @@ async function openMakerchipPanel(panelKey: string): Promise<void> {
     }
   );
   return setupPanel(panel, panelKey);
+}
+
+/**
+ * Lightweight reachability probe for a Makerchip server/tunnel URL, used to fail
+ * fast (before loading a webview) instead of waiting out the readiness timeout.
+ * ANY HTTP response counts as "up" (status is ignored); only a connection error,
+ * DNS/TLS failure, or no response within {@link SERVER_PROBE_TIMEOUT_MS} throws.
+ * Runs in the extension host (Node fetch), so unlike the webview it is NOT
+ * subject to webview CSP -- e.g. it will not catch a plain http:// URL that the
+ * webview refuses (that surfaces later via the webview's 'initError').
+ * @param serverUrl The server/tunnel base URL to probe.
+ * @throws Error with a human-readable reason when the server is unreachable.
+ */
+async function probeServerReachable(serverUrl: string): Promise<void> {
+  const controller = new AbortController();
+  const probeTimeout = setTimeout(() => controller.abort(), SERVER_PROBE_TIMEOUT_MS);
+  try {
+    await fetch(serverUrl, { method: 'GET', signal: controller.signal });
+  } catch (error: any) {
+    const reason = error?.name === 'AbortError'
+      ? `no response within ${SERVER_PROBE_TIMEOUT_MS / 1000}s`
+      : (error?.message || String(error));
+    throw new Error(`Makerchip server is not reachable (${serverUrl}): ${reason}`);
+  } finally {
+    clearTimeout(probeTimeout);
+  }
+}
+
+/**
+ * Build a static placeholder page shown when a panel is RESTORED (after a VS
+ * Code reload) while its server is unreachable. Instead of disposing the panel
+ * (losing it), we keep it and render this, so bringing the server back and
+ * running "Makerchip: Reload Panels" re-renders the real IDE and restores the
+ * panel's persisted compile/layout. No script (default-src 'none'); the panel's
+ * persisted webview state is untouched because this page never calls setState.
+ * @param serverUrl The server/tunnel URL that could not be reached.
+ * @param reason Human-readable reason from the reachability probe.
+ */
+function buildUnreachablePlaceholderHtml(serverUrl: string, reason: string): string {
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline';">
+  <style>
+    body { font-family: var(--vscode-font-family, sans-serif); color: var(--vscode-foreground); padding: 2rem; line-height: 1.5; }
+    code { background: var(--vscode-textCodeBlock-background); padding: 0.1em 0.35em; border-radius: 3px; }
+    .muted { opacity: 0.8; }
+  </style>
+</head>
+<body>
+  <h2>Makerchip server unreachable</h2>
+  <p>This panel could not reconnect to its server when it was restored:</p>
+  <p><code>${esc(serverUrl)}</code></p>
+  <p class="muted">${esc(reason)}</p>
+  <p>Start (or restore) the server, then run <b>“Makerchip: Reload Panels”</b> from the Command Palette (or ask Copilot to reload panels) to reconnect. Your last compilation and layout will be restored.</p>
+</body>
+</html>`;
 }
 
 /**
@@ -482,9 +581,13 @@ function buildWebviewHtml(panel: vscode.WebviewPanel, panelKey: string, serverUr
  * serializer (panels restored after a VS Code reload).
  * @param panel The webview panel to initialize (freshly created or restored).
  * @param panelKey Unique identifier for this panel instance.
+ * @param isRestore True when called from the webview serializer to restore a
+ *   panel after a VS Code reload. In that case an unreachable server keeps the
+ *   panel as a recoverable placeholder instead of disposing it; for a fresh
+ *   open (false) an unreachable server fails fast and disposes.
  * @returns Promise that resolves when the IDE is ready.
  */
-function setupPanel(panel: vscode.WebviewPanel, panelKey: string): Promise<void> {
+function setupPanel(panel: vscode.WebviewPanel, panelKey: string, isRestore: boolean = false): Promise<void> {
   return new Promise(async (resolve, reject) => {
     // Guard so the promise settles exactly once, and a timeout guards against
     // a webview that never signals readiness.
@@ -532,10 +635,11 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string): Promise<void>
     // Store panel in map
     panels.set(panelKey, panel);
 
-    // Get server URL - required, no default fallback
+    // Get server URL - required, no default fallback. Pass panelKey so a
+    // per-panel dev override (makerchip.devServerUrls) can apply.
     let serverUrl: string;
     try {
-      serverUrl = await getServerUrl();
+      serverUrl = await getServerUrl(panelKey);
       log(`Opening ${displayName}...`);
     } catch (error: any) {
       const errorMsg = error.message || 'Failed to get server URL';
@@ -544,18 +648,54 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string): Promise<void>
       return;
     }
 
-    // Render the webview against the resolved server URL.
-    panel.webview.html = buildWebviewHtml(panel, panelKey, serverUrl);
+    // Probe reachability so we don't open a webview against a dead server and
+    // wait out the 30s readiness timeout.
+    let reachable = true;
+    let probeError = '';
+    try {
+      await probeServerReachable(serverUrl);
+    } catch (error: any) {
+      reachable = false;
+      probeError = error?.message || String(error);
+    }
 
-    // Arm the readiness timeout. If the webview never posts 'ready' (e.g. the
-    // plugin failed to load, or activation raced VS Code startup), reject so
-    // callers surface an error instead of hanging indefinitely.
-    readyTimeout = setTimeout(() => {
-      settleReject(new Error(
-        `Makerchip panel '${panelKey}' did not become ready within ${READY_TIMEOUT_MS / 1000}s. ` +
-        `Check the server connection (${serverUrl}) and try again.`
-      ));
-    }, READY_TIMEOUT_MS);
+    if (!reachable && !isRestore) {
+      // Fresh open (makerchip_compile) against an unreachable server: fail fast
+      // and dispose, so the caller gets a clear error and no zombie panel.
+      vscode.window.showErrorMessage(probeError);
+      settleReject(new Error(probeError));
+      return;
+    }
+
+    if (reachable) {
+      // Server is up: render the real IDE and wait for it to signal 'ready'.
+      degradedPanels.delete(panelKey);
+      panel.webview.html = buildWebviewHtml(panel, panelKey, serverUrl);
+
+      // Arm the readiness timeout. If the webview never posts 'ready' (e.g. the
+      // plugin failed to load, or activation raced VS Code startup), reject so
+      // callers surface an error instead of hanging indefinitely.
+      readyTimeout = setTimeout(() => {
+        settleReject(new Error(
+          `Makerchip panel '${panelKey}' did not become ready within ${READY_TIMEOUT_MS / 1000}s. ` +
+          `Check the server connection (${serverUrl}) and try again.`
+        ));
+      }, READY_TIMEOUT_MS);
+    } else {
+      // Restoring a panel after a VS Code reload while the server is down: keep
+      // the panel as a recoverable placeholder instead of disposing it, so
+      // bringing the server back and running "Makerchip: Reload Panels" restores
+      // it (its persisted compileId/layout are re-applied on the next render).
+      // Mark it degraded so a compile targeted at it meanwhile fails with a
+      // clear message. The message handler and onDidDispose below are still
+      // wired up, so the recovery re-render (which does not re-run setupPanel)
+      // is handled and cleanup still happens.
+      degradedPanels.add(panelKey);
+      panel.webview.html = buildUnreachablePlaceholderHtml(serverUrl, probeError);
+      log(`Restored panel '${panelKey}' is degraded: server unreachable (${serverUrl}). ` +
+          `Run "Makerchip: Reload Panels" once it's back to reconnect.`);
+      settleResolve();
+    }
 
     // Handle messages from webview: IDE ready state, compilation results, errors, and method responses
     panel.webview.onDidReceiveMessage(async (msg) => {
@@ -706,6 +846,7 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string): Promise<void>
       }
       panels.delete(panelKey);
       panelReadyPromises.delete(panelKey);
+      degradedPanels.delete(panelKey);
       pendingCompiles.delete(panelKey);
     });
   });
@@ -747,6 +888,12 @@ function readTunnelUrl(file: string): string | undefined {
 
 /**
  * Get the Makerchip server URL from (highest priority first):
+ * 0. Per-panel dev override (`makerchip.devServerUrls[panelKey]`): a map of
+ *    panel name -> server URL for development only. Lets specific panels load
+ *    from a different mono clone (e.g. an FDC3 spike) while others resolve
+ *    normally. Empty by default, so it is inert in production and adds no
+ *    language-model tool surface (panels are still targeted via `panelName`).
+ *    Only consulted when a `panelKey` is supplied.
  * 1. MAKERCHIP_SERVER_URL env (set by `./launch <url>`): an explicit, static
  *    server URL (e.g. production). Fine to freeze since it never changes.
  * 2. The clone's tunnel: `./launch <clone>` records the Cloudflare tunnel in
@@ -756,8 +903,19 @@ function readTunnelUrl(file: string): string | undefined {
  *    that ./launch recreated (e.g. on a new URL) without a reopen.
  * 3. VS Code configuration (makerchip.serverUrl)
  * 4. Default: DEFAULT_SERVER_URL
+ * @param panelKey Panel name whose dev override (priority 0) should apply, if any.
  */
-async function getServerUrl(): Promise<string> {
+async function getServerUrl(panelKey?: string): Promise<string> {
+  // 0. Per-panel dev override (highest priority), keyed by panel name.
+  if (panelKey) {
+    const overrides = vscode.workspace.getConfiguration('makerchip').get<Record<string, string>>('devServerUrls') ?? {};
+    const override = overrides[panelKey];
+    if (override) {
+      log(`Using dev server URL override for panel '${panelKey}': ${override}`);
+      return override;
+    }
+  }
+
   // 1. Explicit static server URL pinned by ./launch (url mode).
   const pinnedUrl = process.env.MAKERCHIP_SERVER_URL;
   if (pinnedUrl) {

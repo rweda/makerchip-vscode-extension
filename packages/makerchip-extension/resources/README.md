@@ -21,7 +21,10 @@ This skill file is the **primary source** of TL-Verilog knowledge for both Copil
 ├── .copilot-instructions.md    # Workspace introduction for Copilot
 ├── .vscode/skills/
 │   └── tlv-ecosystem.md        # Primary TL-Verilog documentation
-├── resources/                   # Reference repositories (see below)
+├── resources/                  # RAG resources for Copilot
+│   ├── <repos>                 # Cloned Git repositories (see below)
+│   ├── .version.json           # Repo version data
+│   └── minimal.tlv             # Minimal scratch design for opening a panel
 ├── compile-cache/              # Compilation results (see subdirectory README)
 ├── tmp/                        # Temporary files (see subdirectory README)
 └── README.md                   # This file

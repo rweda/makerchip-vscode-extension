@@ -96,6 +96,19 @@
             "https://makerchip.com",
             "https://v123.makerchip.com"
           ]
+        },
+        "makerchip.devServerUrls": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": {
+            "type": "string"
+          },
+          "markdownDescription": "Development-only per-panel server URL overrides: a map from panel name (the `panelName` passed to `makerchip_compile`) to a Makerchip server base URL. When a panel's name is a key here, that panel's IDE loads from the given URL instead of the normally-resolved server, letting you point specific panels at a different mono clone (e.g. an FDC3 spike) without affecting others or adding any language-model tool surface.\n\nThe URL must be **https** — VS Code webviews refuse plain-http origins, so use a clone's Cloudflare tunnel URL (from `<clone>/sandhost/TUNNEL_INFO`, created by `./launch <clone>`), not `http://localhost:<port>`.\n\nBecause this only matters for the window doing the driving, set it in that window's **workspace** settings (the `.code-workspace` file's `settings` block), not global/user settings — a per-clone profile's `settings.json` is typically a symlink to the global one, so it is not actually per-window. Leave empty (the default) in production.",
+          "examples": [
+            {
+              "fdc3": "https://your-clone-tunnel.trycloudflare.com"
+            }
+          ]
         }
       }
     },
@@ -135,7 +148,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(circuit-board)",
         "userDescription": "Compile and open TL-Verilog in Makerchip IDE.",
-        "modelDescription": "Opens/focuses IDE and compiles TL-Verilog code. Waits up to `waitSeconds` (default 30s) for the compilation and simulation and returns a status summary on completion or timeout. By default the wait returns as soon as the compile and simulation results are ready and does NOT block on the diagram (SVG) render, which can lag or time out well after the compile finishes; set `waitForDiagram: true` to also wait for the diagram. Status includes SandPiper/Verilator exit codes, pass/fail, and a log excerpt on failure — no need to read `metadata.json` via the shell. To continue waiting, call `makerchip_wait_compile` with the returned compile ID. Set `waitSeconds` to 0 to return immediately with just the compile ID.",
+        "modelDescription": "Opens/focuses a VS Code editor panel and a Makerchip panel for the given TL-Verilog file (`filePath` argument) and compiles the code into the Makerchip panel. The `.tlv` code can alternatively be given inline via the `code` argument. In this case the code will be loaded into a new, unsaved editor panel before compilation. `oneShot: true` can be used for quick experiments to avoid opening the code panel for editing to minimize clutter. This tool waits up to `waitSeconds` (default 30s) for the compilation and simulation and returns a status summary on completion or timeout. By default, this tool does NOT wait for the diagram (SVG) response, which can lag (controlled by the `waitForDiagram` argument). To continue waiting, call `makerchip_wait_compile` with the returned compile ID. Set `waitSeconds` to 0 to return immediately with just the compile ID. Return status includes SandPiper/Verilator exit codes, pass/fail, and a log excerpt on failure — no need to read `metadata.json` via the shell.",
         "tags": [
           "makerchip",
           "tlv",
@@ -160,8 +173,12 @@
               "description": "Optional path to a TL-Verilog file to open and compile. The file is read from disk (not the editor buffer). If the open buffer has unsaved edits, a warning is returned. If not provided, uses the currently active editor."
             },
             "code": {
-              "type": "string",
-              "description": "Optional TL-Verilog code to compile. When provided, creates a new unsaved file with this code and opens it in Makerchip. Use this to show examples or demonstrate TL-Verilog features."
+              "type": ["string", "boolean"],
+              "description": "Optional TL-Verilog code to compile. When a string is provided, creates a new unsaved file with this code and opens it in Makerchip. Use this to show examples or demonstrate TL-Verilog features. Pass boolean `true` to instead open the bundled minimal scratch design (`resources/minimal.tlv`) — the easy way to just open a Makerchip panel. Combine with `oneShot: true` to compile without opening any editor."
+            },
+            "oneShot": {
+              "type": "boolean",
+              "description": "One-shot mode (default false): compile the given `code`/`filePath` directly into the panel WITHOUT opening an editor — nothing to edit, no editor tab left behind. Ideal for just opening a panel to work with custom panes, the layout, or IDE tooling (e.g. `code: true, oneShot: true`), or to run a design once."
             },
             "additionalFiles": {
               "type": "array",
@@ -420,7 +437,7 @@
             "response": {
               "type": "string",
               "enum": ["image", "keyframe", "both"],
-              "description": "What to return. 'both' (default) captures the image AND the current view's absolute keyframe; 'image' returns only the image; 'keyframe' returns only the keyframe (no image render — cheap). The keyframe is {cycle, scale, focus:{x,y}, width, height}, ready to drop into makerchip_capture_video's `keyframes` with `absolute: true`.",
+              "description": "What to return. 'both' (default) captures the image AND the current view's absolute keyframe; 'image' returns only the image; 'keyframe' returns only the keyframe (no image render — cheap). The keyframe is {cycle, scale, focus:{x,y}, width, height}, ready to drop into makerchip_capture_video's `keyframes` with `mode: 'absolute'`.",
               "default": "both"
             }
           }
@@ -496,7 +513,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(device-camera-video)",
         "userDescription": "Capture the VIZ simulation across a cycle range as a GIF, MP4, WebM, or APNG video.",
-        "modelDescription": "Captures the Makerchip VIZ (Visual Debug) canvas across a range of simulation cycles and encodes it as a video, from an open IDE panel with compiled/simulated code. Use this to produce an animation of a design's behavior over time. Beyond the plain cycle range, it can capture intra-cycle animation, set playback speed, animate a camera pan/zoom, record at a fixed resolution/aspect, and emit GIF, MP4, WebM, or APNG. The result is always written to a file (auto-named in the temp dir unless you pass `filename`) and the path is returned; for image formats (GIF/APNG) you can then view that file to inspect the frame(s). TIP: to calibrate camera framing before a full render, call `makerchip_get_viz_image` (default `response: \"both\"`) to see the current view and get it as an absolute keyframe in one step, then derive your keyframes from that (with `absolute: true`) instead of rendering a throwaway clip. The user can also position the view for you to capture.",
+        "modelDescription": "Captures the Makerchip VIZ (Visual Debug) canvas across a range of simulation cycles and encodes it as a video, from an open Makerchip panel with compiled/simulated code. Use this to produce an animation of a design's behavior over time. Beyond the plain cycle range, it can capture intra-cycle animation, set playback speed, animate a camera pan/zoom, record at a fixed resolution/aspect, and emit GIF, MP4, WebM, or APNG. The result is always written to a file (auto-named in the temp dir unless you pass `filename`) and the path is returned; for image formats (GIF/APNG) you can then view that file to inspect the frame(s). TIP: to calibrate camera framing before a full render, call `makerchip_get_viz_image` (default `response: \"both\"`) to see the current view and get it as an absolute keyframe in one step, then derive your keyframes from that (with `mode: 'absolute'`) instead of rendering a throwaway clip. The user can also position the view for you to capture.",
         "tags": [
           "makerchip",
           "viz",
@@ -567,15 +584,15 @@
             },
             "keyframes": {
               "type": "array",
-              "description": "Camera keyframes for pan/zoom motion across the cycle range. A single keyframe = static camera; multiple keyframes animate the camera (Catmull-Rom interpolated). In relative mode (default) `scale` is a multiplier on the current VIZ scale (2 = 2x zoom in, 0.5 = zoom out) and `focus` is an {x,y} offset as a fraction of the visible area (+x right, +y down); here keyframes may be OMITTED for no camera motion (records the current view). In absolute mode (see `absolute`) `scale`/`focus` are absolute VIZ scale/coordinates, the current view is not used, and keyframes are REQUIRED (at least one entry) — `default` only fills in properties an entry omits, it does not replace the array.",
+              "description": "Camera keyframes for pan/zoom motion across the cycle range. A single keyframe = static camera; multiple keyframes animate the camera (Catmull-Rom interpolated). Interpretation depends on `mode`: in the relative modes ('viz-relative' default, or 'fit-relative') `scale` is a multiplier on the base scale (2 = 2x zoom in, 0.5 = zoom out) and `focus` is an {x,y} offset as a fraction of the base's visible area (+x right, +y down), and keyframes may be OMITTED (records the current view, or the whole-design fit for 'fit-relative'); in 'absolute' mode `scale`/`focus` are absolute VIZ scale/coordinates, the current view is not used, and keyframes are REQUIRED (at least one entry) — `default` only fills in properties an entry omits, it does not replace the array.",
               "items": {
                 "type": "object",
                 "properties": {
                   "cycle": { "type": "number", "description": "Cycle at which this keyframe applies. First/last default to startCyc/endCyc when omitted." },
-                  "scale": { "type": "number", "description": "Camera zoom (relative multiplier, or absolute pixels to canvas units when `absolute` is true)." },
+                  "scale": { "type": "number", "description": "Camera zoom (relative multiplier in the relative modes, or absolute pixels to canvas units in 'absolute' mode)." },
                   "focus": {
                     "type": "object",
-                    "description": "Camera center (relative fractional offset, or absolute VIZ coordinate when `absolute` is true).",
+                    "description": "Camera center (relative fractional offset in the relative modes, or absolute VIZ coordinate in 'absolute' mode).",
                     "properties": { "x": { "type": "number" }, "y": { "type": "number" } }
                   },
                   "width": { "type": "number", "description": "Absolute mode only. Canvas width (px) that this keyframe's absolute `scale` was measured against — i.e. the `width` from `getKeyframe`. The recorder rescales `scale` by min(recordingWidth/width, recordingHeight/height) so the same framing holds when recording at a different resolution. Omit to assume the recording width (or `default.width`). Does not affect `focus`, which is a size-independent absolute coordinate." },
@@ -583,9 +600,10 @@
                 }
               }
             },
-            "absolute": {
-              "type": "boolean",
-              "description": "When true, keyframe `scale`/`focus` are absolute VIZ scale/coordinates rather than relative to the current view (good for reproducibility); get the current view as an absolute keyframe from `makerchip_get_viz_image`. Defaults to `false`, where keyframes are relative to the current view (good for building on a view the user has positioned)."
+            "mode": {
+              "type": "string",
+              "enum": ["viz-relative", "fit-relative", "absolute"],
+              "description": "Keyframe reference frame. 'viz-relative' (default): `scale` is a multiplier on the current VIZ scale and `focus` is a fraction of the current view's visible area; keyframes may be omitted to record the current view. 'fit-relative': same relative math but the base is the whole-design contain-fit AT THE RECORDING SIZE rather than the current pane view — the reliable way to frame a capture without hand-tuning scale (scale 1 / focus 0 = whole design framed; keyframes may be omitted for the whole-design fit). 'absolute': `scale`/`focus` are absolute VIZ scale/coordinates (as returned by getKeyframe / makerchip_get_viz_image) and keyframes are REQUIRED."
             },
             "default": {
               "type": "object",
@@ -602,7 +620,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(layout)",
         "userDescription": "Get the current IDE pane layout configuration.",
-        "modelDescription": "Retrieves the current Makerchip IDE layout state as a serializable object from an open IDE panel. The returned data structure refects the recursive binary tree of splits and the tabbed panes at leaf splits, identified by their mnemonics.\n\nUse this to: capture current layout for later restoration, understand current IDE configuration, or create modified layouts based on the current state. The returned object can be passed directly to makerchip_set_layout_state or modified before restoration.\n\nSEE: `.vscode-makerchip/.vscode/skills/makerchip-api-features.md` for details about working with layouts and panes",
+        "modelDescription": "Retrieves the current Makerchip IDE layout state as a serializable object from an open Makerchip panel. The returned data structure refects the recursive binary tree of splits and the tabbed panes at leaf splits, identified by their mnemonics.\n\nUse this to: capture current layout for later restoration, understand current IDE configuration, or create modified layouts based on the current state. The returned object can be passed directly to makerchip_set_layout_state or modified before restoration.\n\nSEE: `.vscode-makerchip/.vscode/skills/makerchip-api-features.md` for details about working with layouts and panes",
         "tags": [
           "makerchip",
           "ide",
@@ -628,7 +646,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(layout-panel)",
         "userDescription": "Configure the IDE pane layout (create splits, arrange panes in tabs, set active pane).",
-        "modelDescription": "Sets the Makerchip IDE layout of an open IDE panel from a state object. You can restore a previously saved state OR craft a custom layout defining pane arrangement, splits, tabs, and active panes.\n\nThe state is either a TabbedView (single pane container with tabs) or FlexSplit (split layout with left/right or top/bottom sides). FlexSplit sides recursively contain TabbedView or nested FlexSplit states.\n\nAvailable pane mnemonics: Use makerchip_get_available_panes to get the complete list. Main panes: Log, Nav-TLV, Diagram, Viz, Waveform should typically be included. Other \"static panes\" and any third-party panes loaded using makerchip_open_third_party_pane are also available.\n\nEXAMPLES:\n\nSingle view with tabs: {\"panes\": [\"Diagram\", \"Waveform\", ...], \"activePane\": \"Diagram\"}\n\nHorizontal split (Log left, others right): {\"sides\": {\"left\": {\"panes\": [\"Log\"], \"activePane\": \"Log\"}, \"right\": {\"panes\": [\"Diagram\", \"Waveform\", ...], \"activePane\": \"Diagram\"}}, \"splitAt\": 0.3}\n\nNested 3-way (Log left, Diagram top-right, Waveform, etc. bottom-right): {\"sides\": {\"left\": {\"panes\": [\"Log\"], \"activePane\": \"Log\"}, \"right\": {\"sides\": {\"top\": {\"panes\": [\"Diagram\"], \"activePane\": \"Diagram\"}, \"bottom\": {\"panes\": [\"Waveform\", ...], \"activePane\": \"Waveform\"}}, \"splitAt\": 0.5}}, \"splitAt\": 0.3}\n\nSEE: `.vscode-makerchip/.vscode/skills/makerchip-api-features.md` for details about working with layouts and panes",
+        "modelDescription": "Sets the Makerchip IDE layout of an open Makerchip panel from a state object. You can restore a previously saved state OR craft a custom layout defining pane arrangement, splits, tabs, and active panes.\n\nThe state is either a TabbedView (single pane container with tabs) or FlexSplit (split layout with left/right or top/bottom sides). FlexSplit sides recursively contain TabbedView or nested FlexSplit states.\n\nAvailable pane mnemonics: Use makerchip_get_available_panes to get the complete list. Main panes: Log, Nav-TLV, Diagram, Viz, Waveform should typically be included. Other \"static panes\" and any third-party panes loaded using makerchip_open_third_party_pane are also available.\n\nEXAMPLES:\n\nSingle view with tabs: {\"panes\": [\"Diagram\", \"Waveform\", ...], \"activePane\": \"Diagram\"}\n\nHorizontal split (Log left, others right): {\"sides\": {\"left\": {\"panes\": [\"Log\"], \"activePane\": \"Log\"}, \"right\": {\"panes\": [\"Diagram\", \"Waveform\", ...], \"activePane\": \"Diagram\"}}, \"splitAt\": 0.3}\n\nNested 3-way (Log left, Diagram top-right, Waveform, etc. bottom-right): {\"sides\": {\"left\": {\"panes\": [\"Log\"], \"activePane\": \"Log\"}, \"right\": {\"sides\": {\"top\": {\"panes\": [\"Diagram\"], \"activePane\": \"Diagram\"}, \"bottom\": {\"panes\": [\"Waveform\", ...], \"activePane\": \"Waveform\"}}, \"splitAt\": 0.5}}, \"splitAt\": 0.3}\n\nSEE: `.vscode-makerchip/.vscode/skills/makerchip-api-features.md` for details about working with layouts and panes",
         "tags": [
           "makerchip",
           "ide",
@@ -749,7 +767,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(open-preview)",
         "userDescription": "Open or activate a specific IDE pane by mnemonic.",
-        "modelDescription": "Opens and/or activates a pane by mnemonic in an open IDE panel. Works with static panes (Tutorials, Examples, opened on demand), main panes (Log, Diagram, etc.), and third-party panes. Use makerchip_get_available_panes for valid mnemonics. For complex layouts use makerchip_set_layout_state.",
+        "modelDescription": "Opens and/or activates a pane by mnemonic in an open Makerchip panel. Works with static panes (Tutorials, Examples, opened on demand), main panes (Log, Diagram, etc.), and third-party panes. Use makerchip_get_available_panes for valid mnemonics. For complex layouts use makerchip_set_layout_state.",
         "tags": [
           "makerchip",
           "ide",

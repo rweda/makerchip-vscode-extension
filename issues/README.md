@@ -24,3 +24,4 @@ with plain file edits (AI-friendly).
 
 - [001 — LM tool to open/restore a webview from the compile cache](001-restore-webview-from-compile-cache.md)
 - [002 — Restore/waveform VCD parser rejects valid batch (non-monotonic) VCDs](002-vcd-parser-nonmonotonic-batch.md)
+- [003 — Associate a compiled file with its Makerchip panel and reuse it](003-associate-file-with-makerchip-panel.md)

@@ -4,7 +4,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { log, showOutputChannel } from './logger';
 import * as compileCache from './compileCache';
-import { MAKERCHIP_DIR } from './populateResources';
+import { MAKERCHIP_DIR, RESOURCES_DIR } from './populateResources';
 
 interface MakerchipToolInput {
   /**
@@ -12,8 +12,20 @@ interface MakerchipToolInput {
    * so be sure to save the editor buffer to disk first). If not provided, uses the active editor buffer.
    */
   filePath?: string;
-  /** Optional TL-Verilog code to compile. If provided, creates a new unsaved file with this code. */
-  code?: string;
+  /**
+   * Inline TL-Verilog code to compile (or `true` for default code). If a string is provided,
+   * creates a new unsaved document with this code. Pass `true` to instead open the bundled
+   * minimal scratch design (`~/.vscode-makerchip/minimal.tlv`) — the easy way to just open a
+   * panel (e.g. to work with custom panes, the layout, or IDE tooling) without creating a
+   * throwaway `.tlv` file.
+   */
+  code?: string | boolean;
+  /**
+   * One-shot mode: compile the given `code`/`filePath` directly into the panel WITHOUT opening
+   * an editor (so there is nothing to edit). Use it to open a panel for pane/layout/IDE-tooling
+   * work, or to run a design once, without leaving an editor tab behind.
+   */
+  oneShot?: boolean;
   /**
    * Optional paths to additional TL-Verilog source files to compile alongside the top file
    * (e.g. files pulled in via `m4_include_lib`). Each is read from disk (so be sure to save first)
@@ -305,6 +317,26 @@ async function formatCompileStatus(compileId: string, timedOut: boolean, waitedF
   return lines.join('\n');
 }
 
+/** Path to the bundled minimal scratch design deployed by `populateResources`. */
+const MINIMAL_SCRATCH_PATH = path.join(RESOURCES_DIR, 'minimal.tlv');
+
+/**
+ * Read the bundled minimal scratch design (loaded when `makerchip_compile` is
+ * called with `code: true`). Throws a clear, actionable error if the reference
+ * data has not been populated yet.
+ */
+async function readMinimalScratchDesign(): Promise<string> {
+  try {
+    const bytes = await vscode.workspace.fs.readFile(vscode.Uri.file(MINIMAL_SCRATCH_PATH));
+    return Buffer.from(bytes).toString('utf-8');
+  } catch {
+    throw new Error(
+      `Minimal scratch design not found at ${MINIMAL_SCRATCH_PATH}. ` +
+      `Run "Makerchip: Update Reference Data" to populate it, or pass explicit code/filePath.`
+    );
+  }
+}
+
 /**
  * Language Model tool that allows Copilot to launch Makerchip IDE
  * and compile TL-Verilog code.
@@ -315,12 +347,15 @@ export class MakerchipTool implements vscode.LanguageModelTool<MakerchipToolInpu
     options: vscode.LanguageModelToolInvocationPrepareOptions<MakerchipToolInput>,
     _token: vscode.CancellationToken
   ): Promise<vscode.PreparedToolInvocation> {
-    const { filePath, code } = options.input;
+    const { filePath, code, oneShot } = options.input;
+    const suffix = oneShot ? ' (one-shot, no editor)' : '';
     
-    if (code) {
-      return { invocationMessage: 'Opening example code in Makerchip IDE...' };
+    if (code === true) {
+      return { invocationMessage: `Opening minimal scratch design in Makerchip IDE${suffix}...` };
+    } else if (code) {
+      return { invocationMessage: `Opening example code in Makerchip IDE${suffix}...` };
     } else if (filePath) {
-      return { invocationMessage: `Opening Makerchip IDE for ${filePath}...` };
+      return { invocationMessage: `Opening Makerchip IDE for ${filePath}${suffix}...` };
     } else {
       return { invocationMessage: 'Opening Makerchip IDE with current file...' };
     }
@@ -331,7 +366,7 @@ export class MakerchipTool implements vscode.LanguageModelTool<MakerchipToolInpu
     token: vscode.CancellationToken
   ): Promise<vscode.LanguageModelToolResult> {
     try {
-      const { filePath, code, panelName, additionalFiles } = options.input;
+      const { filePath, code, panelName, additionalFiles, oneShot } = options.input;
       
       // Determine if we should create a new panel (only if code/filePath/files provided)
       const createIfNeeded = !!(code || filePath || (additionalFiles && additionalFiles.length > 0));
@@ -340,15 +375,19 @@ export class MakerchipTool implements vscode.LanguageModelTool<MakerchipToolInpu
       let fileName: string;
       let staleBufferWarning = '';
       
-      // If code is provided, create a new unsaved document with it
+      // If code is provided as a string, use it as the source. `code: true` loads the bundled minimal
+      // scratch design. Unless one-shot, also open it in a new unsaved document so the user can view/edit it.
       if (code) {
-        const doc = await vscode.workspace.openTextDocument({
-          content: code,
-          language: 'tlverilog'
-        });
-        await vscode.window.showTextDocument(doc);
-        sourceCode = code;
-        fileName = 'example code';
+        const wantMinimal = code === true;
+        sourceCode = wantMinimal ? await readMinimalScratchDesign() : (code as string);
+        fileName = wantMinimal ? 'minimal scratch design' : 'example code';
+        if (!oneShot) {
+          const doc = await vscode.workspace.openTextDocument({
+            content: sourceCode,
+            language: 'tlverilog'
+          });
+          await vscode.window.showTextDocument(doc);
+        }
       }
       // If a specific file was requested, read it from disk. Reading directly from
       // disk (rather than the editor buffer) avoids compiling a stale in-memory
@@ -360,28 +399,31 @@ export class MakerchipTool implements vscode.LanguageModelTool<MakerchipToolInpu
         sourceCode = Buffer.from(bytes).toString('utf-8');
         fileName = path.basename(filePath);
         
-        // Keep the editor display consistent with what we compile. If the file is
-        // already open with a stale but UNMODIFIED buffer, revert it to sync with
-        // disk. Never revert a dirty document (that would discard unsaved edits) —
-        // instead warn that the compiled disk content differs from the buffer.
-        const openDoc = vscode.workspace.textDocuments.find(
-          d => d.uri.toString() === uri.toString()
-        );
-        if (openDoc && openDoc.isDirty && openDoc.getText() !== sourceCode) {
-          staleBufferWarning =
-            `\n\n⚠️ Compiled the on-disk content of ${fileName}, but the open editor ` +
-            `has unsaved changes that were NOT compiled. Save the file to compile your edits.`;
-          await vscode.window.showTextDocument(openDoc);
-        } else if (openDoc && !openDoc.isDirty && openDoc.getText() !== sourceCode) {
-          await vscode.window.showTextDocument(openDoc);
-          try {
-            await vscode.commands.executeCommand('workbench.action.files.revert');
-          } catch {
-            // Best-effort display sync; compilation already uses fresh disk content.
+        // One-shot mode compiles the on-disk content without opening/showing an editor.
+        // Otherwise keep the editor display consistent with what we compile: if the file
+        // is already open with a stale but UNMODIFIED buffer, revert it to sync with disk.
+        // Never revert a dirty document (that would discard unsaved edits) — instead warn
+        // that the compiled disk content differs from the buffer.
+        if (!oneShot) {
+          const openDoc = vscode.workspace.textDocuments.find(
+            d => d.uri.toString() === uri.toString()
+          );
+          if (openDoc && openDoc.isDirty && openDoc.getText() !== sourceCode) {
+            staleBufferWarning =
+              `\n\n⚠️ Compiled the on-disk content of ${fileName}, but the open editor ` +
+              `has unsaved changes that were NOT compiled. Save the file to compile your edits.`;
+            await vscode.window.showTextDocument(openDoc);
+          } else if (openDoc && !openDoc.isDirty && openDoc.getText() !== sourceCode) {
+            await vscode.window.showTextDocument(openDoc);
+            try {
+              await vscode.commands.executeCommand('workbench.action.files.revert');
+            } catch {
+              // Best-effort display sync; compilation already uses fresh disk content.
+            }
+          } else {
+            const doc = await vscode.workspace.openTextDocument(uri);
+            await vscode.window.showTextDocument(doc);
           }
-        } else {
-          const doc = await vscode.workspace.openTextDocument(uri);
-          await vscode.window.showTextDocument(doc);
         }
       }
       // Otherwise compile the active editor's current content.
@@ -599,7 +641,7 @@ export class GetVizImageTool implements vscode.LanguageModelTool<GetVizImageInpu
           'makerchip.callIdeMethodWithResult', 'getKeyframe', [], panelName
         );
         keyframeText = kf && typeof kf === 'object'
-          ? `Current view as an absolute keyframe (drop into makerchip_capture_video \`keyframes\` with \`absolute: true\`):\n${JSON.stringify(kf)}`
+          ? `Current view as an absolute keyframe (drop into makerchip_capture_video \`keyframes\` with \`mode: 'absolute'\`):\n${JSON.stringify(kf)}`
           : 'Keyframe unavailable (no VIZ view).';
       }
       // Fold the keyframe into an image result's text (when both are requested).
@@ -923,17 +965,20 @@ interface CaptureVideoInput {
   /**
    * Camera keyframes for pan/zoom motion over the cycle range. Each keyframe is
    * {cycle?, scale?, focus?: {x, y}, width?, height?}. With a single keyframe the camera is
-   * static; multiple keyframes animate the camera (Catmull-Rom interpolated). In relative mode
-   * (default) keyframes may be omitted for no camera motion (records the current view); in absolute
-   * mode the current view is not used, so keyframes are REQUIRED (at least one entry) and `default`
-   * only fills in omitted per-keyframe properties. See VizPane.captureVideo for the
-   * relative-vs-absolute model: relative (default) scale is a multiplier on the current VIZ scale
-   * and focus is a fraction of the visible area; absolute (see `absolute`) uses absolute VIZ
-   * scale/coordinates.
+   * static; multiple keyframes animate the camera (Catmull-Rom interpolated). In the relative
+   * modes (see `mode`) keyframes may be omitted for no camera motion (records the current view, or
+   * the whole-design fit for 'fit-relative'); in 'absolute' mode the current view is not used, so
+   * keyframes are REQUIRED (at least one entry) and `default` only fills in omitted per-keyframe
+   * properties. See VizPane.captureVideo for the full model.
    */
   keyframes?: Array<{ cycle?: number; scale?: number; focus?: { x: number; y: number }; width?: number; height?: number }>;
-  /** When true, keyframe `scale`/`focus` are absolute VIZ scale/coordinates rather than relative to the current view. */
-  absolute?: boolean;
+  /**
+   * Keyframe reference frame: 'viz-relative' (default; scale/focus relative to the current VIZ
+   * view), 'fit-relative' (relative to the whole-design contain-fit at the recording size — the
+   * reliable way to frame a capture without hand-tuning scale; scale 1 / focus 0 = whole design),
+   * or 'absolute' (absolute VIZ scale/coordinates, as returned by getKeyframe / get_viz_image).
+   */
+  mode?: 'viz-relative' | 'fit-relative' | 'absolute';
   /** Default keyframe values (scale/focus/width/height) applied to any keyframe that omits them. */
   default?: { scale?: number; focus?: { x: number; y: number }; width?: number; height?: number };
 }
@@ -975,7 +1020,7 @@ export class CaptureVideoTool implements vscode.LanguageModelTool<CaptureVideoIn
         panelName,
         filename,
         keyframes,
-        absolute,
+        mode,
         default: keyframeDefault
       } = options.input;
 
@@ -985,7 +1030,7 @@ export class CaptureVideoTool implements vscode.LanguageModelTool<CaptureVideoIn
       
       log('[CaptureVideoTool] Invoked with:', { 
         startCyc, endCyc, format, fps, cyclesPerSecond, framesPerCycle, Mbps, width, height, backgroundColor, timeout, panelName, filename,
-        keyframes: Array.isArray(keyframes) ? `${keyframes.length} keyframe(s)` : keyframes, absolute, default: keyframeDefault
+        keyframes: Array.isArray(keyframes) ? `${keyframes.length} keyframe(s)` : keyframes, mode, default: keyframeDefault
       });
       
       // Validate cycle range
@@ -1010,10 +1055,10 @@ export class CaptureVideoTool implements vscode.LanguageModelTool<CaptureVideoIn
       if (typeof width === 'number') videoOptions.width = width;
       if (typeof height === 'number') videoOptions.height = height;
       if (typeof backgroundColor === 'string') videoOptions.backgroundColor = backgroundColor;
-      // Camera motion: forward keyframes / absolute / default to the IDE method. Without this the
+      // Camera motion: forward keyframes / mode / default to the IDE method. Without this the
       // camera options are dropped and captureVideo renders a static, auto-fit view.
       if (Array.isArray(keyframes)) videoOptions.keyframes = keyframes;
-      if (typeof absolute === 'boolean') videoOptions.absolute = absolute;
+      if (typeof mode === 'string') videoOptions.mode = mode;
       if (keyframeDefault && typeof keyframeDefault === 'object') videoOptions.default = keyframeDefault;
       
       log('[CaptureVideoTool] Calling captureVideo with options:', videoOptions);

@@ -37,6 +37,7 @@ const REPOSITORIES: Repository[] = [
 
 const EXPECTED_RESOURCES = [
   '.version.json',
+  'minimal.tlv',  // Bundled scratch design (copied below); not a repo, but expected here.
 ];
 
 interface PopulateResult {
@@ -78,10 +79,13 @@ export async function populateResources(context: vscode.ExtensionContext, output
   const result = await updateRepositories(log);
 
   // Copy READMEs
-  await copyReadmeFile(context, 'README.md', MAKERCHIP_DIR, log);
-  await copyReadmeFile(context, 'compile-cache-README.md', CACHE_DIR, log);
-  await copyReadmeFile(context, '.copilot-instructions.md', MAKERCHIP_DIR, log);
-  await copyReadmeFile(context, 'tmp-README.md', TMP_DIR, log);
+  await copyResourceFile(context, 'README.md', MAKERCHIP_DIR, log);
+  await copyResourceFile(context, 'compile-cache-README.md', CACHE_DIR, log);
+  await copyResourceFile(context, '.copilot-instructions.md', MAKERCHIP_DIR, log);
+  await copyResourceFile(context, 'tmp-README.md', TMP_DIR, log);
+
+  // Copy the minimal scratch design used to open panels without creating clutter.
+  await copyResourceFile(context, 'minimal.tlv', RESOURCES_DIR, log);
 
   // Create version metadata
   await createVersionMetadata();
@@ -409,9 +413,10 @@ async function updateRepositories(log: (message: string) => void): Promise<Popul
 }
 
 /**
- * Copy a README file from extension resources to a target directory
+ * Copy a file from extension resources to a target directory.
+ * (Used for the workspace READMEs and the `minimal.tlv` scratch design.)
  */
-async function copyReadmeFile(
+async function copyResourceFile(
   context: vscode.ExtensionContext,
   sourceFilename: string,
   targetDir: string,
