@@ -389,6 +389,74 @@
         }
       },
       {
+        "name": "makerchip_ce_compile",
+        "displayName": "Compile via Compiler Explorer (headless)",
+        "toolReferenceName": "makerchipCeCompile",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(server-process)",
+        "userDescription": "Compile source through the Compiler Explorer API and return the assembly.",
+        "modelDescription": "Headlessly compile a program through the Compiler Explorer (CE) HTTP API — no CE pane required. Returns the compile outcome: exit code, the detected entry-point label (e.g. 'main', Fortran's 'MAIN__'), the compiler name, the number of asm lines, stderr, and (on success) the produced assembly text. The assembly is exactly what WARP-V's ~assemble consumes. Defaults target RISC-V for WARP-V (compiler 'rv32-cgcc1430', lang 'c', options '-O2 -march=rv32i -mabi=ilp32'). Set deliverToWarpV:true to also deliver a successful compile into a WARP-V pane and request a build — the equivalent of CE's 'Run on WARP-V' button; a WARP-V pane is opened if one named by warpvPane is not already open. Delivery drives the build via a direct host↔pane RPC: WARP-V compiles the generated TL-Verilog in the host Makerchip panel and relays back the host compile id, which this tool returns so you can poll compilation/simulation results with makerchip_wait_compile. Set waitForCompileId:false for fire-and-forget delivery (faster; no id returned).",
+        "tags": [
+          "makerchip",
+          "compiler-explorer",
+          "compile",
+          "riscv",
+          "warp-v"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "required": [
+            "source"
+          ],
+          "properties": {
+            "source": {
+              "type": "string",
+              "description": "The program source to compile."
+            },
+            "compilerId": {
+              "type": "string",
+              "description": "CE compiler id. Default 'rv32-cgcc1430' (RISC-V rv32 gcc, for WARP-V)."
+            },
+            "lang": {
+              "type": "string",
+              "description": "CE language id (e.g. 'c', 'c++', 'rust', 'fortran'). Drives entry-symbol detection. Default 'c'."
+            },
+            "options": {
+              "type": "string",
+              "description": "Compiler flags. Default '-O2 -march=rv32i -mabi=ilp32'."
+            },
+            "filters": {
+              "type": "string",
+              "description": "Comma-separated CE asm filter names. Default 'directives,labels,commentOnly'."
+            },
+            "ceOrigin": {
+              "type": "string",
+              "description": "CE origin override (e.g. 'http://localhost:10240' for local dev). Default 'https://ce.makerchip.com'."
+            },
+            "deliverToWarpV": {
+              "type": "boolean",
+              "description": "When true, deliver a successful compile into a WARP-V pane and request a build (like CE's 'Run on WARP-V' button). Default false (compile and return only)."
+            },
+            "waitForCompileId": {
+              "type": "boolean",
+              "description": "When delivering to WARP-V, whether to wait for and return the host compile id (poll it with makerchip_wait_compile). Default true. Set false for fire-and-forget delivery (faster; skips the host compile round-trip)."
+            },
+            "warpvPane": {
+              "type": "string",
+              "description": "Target WARP-V pane mnemonic. Reused if already open; a new WARP-V pane is opened if it does not exist. Default 'WARP-V'."
+            },
+            "warpvUrl": {
+              "type": "string",
+              "description": "WARP-V pane URL override. Default 'https://warp-v.org' (production; frames fine over HTTPS). MUST be HTTPS: the IDE is itself framed over an HTTPS tunnel, so an http://localhost dev server (e.g. the WARP-V configurator on :3009) is blocked as mixed content and the pane never loads. To target a local dev WARP-V, expose it over HTTPS first (e.g. `cloudflared tunnel --url http://localhost:3009 --http-host-header localhost:3009`) and pass that https URL (with a fresh warpvPane mnemonic)."
+            },
+            "panelName": {
+              "type": "string",
+              "description": "Optional panel name to target when delivering to WARP-V. Default: `default`."
+            }
+          }
+        }
+      },
+      {
         "name": "makerchip_get_viz_image",
         "displayName": "Get VIZ Image",
         "toolReferenceName": "makerchipGetVizImage",
@@ -513,7 +581,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(device-camera-video)",
         "userDescription": "Capture the VIZ simulation across a cycle range as a GIF, MP4, WebM, or APNG video.",
-        "modelDescription": "Captures the Makerchip VIZ (Visual Debug) canvas across a range of simulation cycles and encodes it as a video, from an open Makerchip panel with compiled/simulated code. Use this to produce an animation of a design's behavior over time. Beyond the plain cycle range, it can capture intra-cycle animation, set playback speed, animate a camera pan/zoom, record at a fixed resolution/aspect, and emit GIF, MP4, WebM, or APNG. The result is always written to a file (auto-named in the temp dir unless you pass `filename`) and the path is returned; for image formats (GIF/APNG) you can then view that file to inspect the frame(s). TIP: to calibrate camera framing before a full render, call `makerchip_get_viz_image` (default `response: \"both\"`) to see the current view and get it as an absolute keyframe in one step, then derive your keyframes from that (with `mode: 'absolute'`) instead of rendering a throwaway clip. The user can also position the view for you to capture.",
+        "modelDescription": "Captures the Makerchip VIZ (Visual Debug) canvas across a range of simulation cycles and encodes it as a video, from an open Makerchip panel with compiled/simulated code. Use this to produce an animation of a design's behavior over time. Beyond the plain cycle range, it can capture intra-cycle animation, set playback speed, animate a camera pan/zoom, record at a fixed resolution/aspect, and emit GIF, MP4, WebM, or APNG. The result is always written to a file (auto-named in the temp dir unless you pass `filename`) and the path is returned; for image formats (GIF/APNG) you can then view that file to inspect the frame(s). TIP: to calibrate framing before a full render, either (a) for fit-relative framing: do a quick single low-res single-frame render at the target width/height (same aspect ⇒ identical framing) and view it; or (b) for viz-relative framing: call makerchip_get_viz_image (response: 'both') to see the current VIZ view (as an image) and get its absolute keyframe, and reuse it with mode: 'absolute'. The user can also position the view for you to capture.",
         "tags": [
           "makerchip",
           "viz",

@@ -5,6 +5,7 @@ import * as os from 'os';
 import { log, showOutputChannel } from './logger';
 import * as compileCache from './compileCache';
 import { MAKERCHIP_DIR, RESOURCES_DIR } from './populateResources';
+import { CeCompileTool } from './ceCompile';
 
 interface MakerchipToolInput {
   /**
@@ -80,13 +81,13 @@ export async function invokeIdeMethod(method: string, args: any[] = []): Promise
  * Generic Language Model tool for invoking any IDE method
  */
 export class IdeFunctionCallTool implements vscode.LanguageModelTool<IdeFunctionCallInput> {
-  
+
   async prepareInvocation(
     options: vscode.LanguageModelToolInvocationPrepareOptions<IdeFunctionCallInput>,
     _token: vscode.CancellationToken
   ): Promise<vscode.PreparedToolInvocation> {
     const { method, args = [] } = options.input;
-    
+
     return {
       invocationMessage: `Calling IDE method '${method}' with ${args.length} argument(s)...`
     };
@@ -342,14 +343,14 @@ async function readMinimalScratchDesign(): Promise<string> {
  * and compile TL-Verilog code.
  */
 export class MakerchipTool implements vscode.LanguageModelTool<MakerchipToolInput> {
-  
+
   async prepareInvocation(
     options: vscode.LanguageModelToolInvocationPrepareOptions<MakerchipToolInput>,
     _token: vscode.CancellationToken
   ): Promise<vscode.PreparedToolInvocation> {
     const { filePath, code, oneShot } = options.input;
     const suffix = oneShot ? ' (one-shot, no editor)' : '';
-    
+
     if (code === true) {
       return { invocationMessage: `Opening minimal scratch design in Makerchip IDE${suffix}...` };
     } else if (code) {
@@ -367,14 +368,14 @@ export class MakerchipTool implements vscode.LanguageModelTool<MakerchipToolInpu
   ): Promise<vscode.LanguageModelToolResult> {
     try {
       const { filePath, code, panelName, additionalFiles, oneShot } = options.input;
-      
+
       // Determine if we should create a new panel (only if code/filePath/files provided)
       const createIfNeeded = !!(code || filePath || (additionalFiles && additionalFiles.length > 0));
-      
+
       let sourceCode: string;
       let fileName: string;
       let staleBufferWarning = '';
-      
+
       // If code is provided as a string, use it as the source. `code: true` loads the bundled minimal
       // scratch design. Unless one-shot, also open it in a new unsaved document so the user can view/edit it.
       if (code) {
@@ -398,7 +399,7 @@ export class MakerchipTool implements vscode.LanguageModelTool<MakerchipToolInpu
         const bytes = await vscode.workspace.fs.readFile(uri);
         sourceCode = Buffer.from(bytes).toString('utf-8');
         fileName = path.basename(filePath);
-        
+
         // One-shot mode compiles the on-disk content without opening/showing an editor.
         // Otherwise keep the editor display consistent with what we compile: if the file
         // is already open with a stale but UNMODIFIED buffer, revert it to sync with disk.
@@ -437,7 +438,7 @@ export class MakerchipTool implements vscode.LanguageModelTool<MakerchipToolInpu
         sourceCode = editor.document.getText();
         fileName = path.basename(editor.document.fileName);
       }
-      
+
       // Assemble the compile argument. With additionalFiles, build a multi-file
       // {files, top} payload keyed by basename; the top file is keyed 'top.tlv'
       // for inline code, otherwise by its own basename. Otherwise pass the single
@@ -461,7 +462,7 @@ export class MakerchipTool implements vscode.LanguageModelTool<MakerchipToolInpu
         compileArg = { files, top: topKey };
         multiFileInfo = ` (+${additionalFiles.length} additional file(s))`;
       }
-      
+
       const compileId = await vscode.commands.executeCommand<string>(
         'makerchip.callIdeMethodWithResult',
         'compile',
@@ -469,13 +470,13 @@ export class MakerchipTool implements vscode.LanguageModelTool<MakerchipToolInpu
         panelName,
         createIfNeeded
       );
-      
+
       if (!compileId) {
         return new vscode.LanguageModelToolResult([
           new vscode.LanguageModelTextPart('Failed to start compilation - no compile ID returned')
         ]);
       }
-      
+
       // Build non-blocking response message with compile ID and log path
       const panelInfo = panelName ? ` in panel '${panelName}'` : '';
       const cacheDir = path.join(MAKERCHIP_DIR, 'compile-cache', compileId);
@@ -512,11 +513,11 @@ export class MakerchipTool implements vscode.LanguageModelTool<MakerchipToolInpu
       }
       resultMessage += `\n\nThe Makerchip IDE panel shows live compilation results and visualizations.`;
       resultMessage += staleBufferWarning;
-      
+
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(resultMessage)
       ]);
-      
+
     } catch (error: any) {
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
@@ -609,7 +610,7 @@ interface GetVizImageInput {
  * Language Model tool to capture the current VIZ visualization as an image
  */
 export class GetVizImageTool implements vscode.LanguageModelTool<GetVizImageInput> {
-  
+
   async prepareInvocation(
     options: vscode.LanguageModelToolInvocationPrepareOptions<GetVizImageInput>,
     _token: vscode.CancellationToken
@@ -658,16 +659,16 @@ export class GetVizImageTool implements vscode.LanguageModelTool<GetVizImageInpu
       // Call the IDE method to get the image
       const imageOptions = { format, quality };
       log('[GetVizImageTool] Calling getVizImage with options:', imageOptions);
-      
+
       const result = await vscode.commands.executeCommand(
-        'makerchip.callIdeMethodWithResult', 
-        'getVizImage', 
-        [imageOptions], 
+        'makerchip.callIdeMethodWithResult',
+        'getVizImage',
+        [imageOptions],
         panelName
       ) as string | null;
-      
+
       log('[GetVizImageTool] Result received:', result ? `data URL (${result.length} chars)` : 'null');
-      
+
       if (!result) {
         log('[GetVizImageTool] No result - VIZ canvas not available');
         return new vscode.LanguageModelToolResult([
@@ -676,7 +677,7 @@ export class GetVizImageTool implements vscode.LanguageModelTool<GetVizImageInpu
           )
         ]);
       }
-      
+
       // Extract base64 data from data URL (format: data:image/png;base64,...)
       const base64Match = result.match(/^data:image\/\w+;base64,(.+)$/);
       if (!base64Match) {
@@ -685,11 +686,11 @@ export class GetVizImageTool implements vscode.LanguageModelTool<GetVizImageInpu
           new vscode.LanguageModelTextPart('Failed to extract image data from result')
         ]);
       }
-      
+
       const base64Data = base64Match[1];
       const imageBuffer = Buffer.from(base64Data, 'base64');
       const imageBytes = new Uint8Array(imageBuffer);
-      
+
       // Determine MIME type
       const mimeType = `image/${format}`;
 
@@ -745,12 +746,12 @@ export class GetVizImageTool implements vscode.LanguageModelTool<GetVizImageInpu
               : 'The image file is available for viewing.'))
         )
       ]);
-      
+
     } catch (error: any) {
       log('[GetVizImageTool] ERROR:', error);
       log('[GetVizImageTool] Error message:', error?.message);
       log('[GetVizImageTool] Error stack:', error?.stack);
-      
+
       // Check for specific error cases
       if (error?.message?.includes('Method getVizImage not found')) {
         return new vscode.LanguageModelToolResult([
@@ -763,7 +764,7 @@ export class GetVizImageTool implements vscode.LanguageModelTool<GetVizImageInpu
           )
         ]);
       }
-      
+
       if (error?.message?.includes('Panel') && error?.message?.includes('not found')) {
         return new vscode.LanguageModelToolResult([
           new vscode.LanguageModelTextPart(
@@ -772,7 +773,7 @@ export class GetVizImageTool implements vscode.LanguageModelTool<GetVizImageInpu
           )
         ]);
       }
-      
+
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
           `Failed to capture VIZ image: ${error?.message || 'Unknown error'}`
@@ -966,17 +967,18 @@ interface CaptureVideoInput {
    * Camera keyframes for pan/zoom motion over the cycle range. Each keyframe is
    * {cycle?, scale?, focus?: {x, y}, width?, height?}. With a single keyframe the camera is
    * static; multiple keyframes animate the camera (Catmull-Rom interpolated). In the relative
-   * modes (see `mode`) keyframes may be omitted for no camera motion (records the current view, or
+   * modes (see `mode`) keyframes may be omitted for no camera motion (records the current view for 'viz-relative' or
    * the whole-design fit for 'fit-relative'); in 'absolute' mode the current view is not used, so
    * keyframes are REQUIRED (at least one entry) and `default` only fills in omitted per-keyframe
    * properties. See VizPane.captureVideo for the full model.
    */
   keyframes?: Array<{ cycle?: number; scale?: number; focus?: { x: number; y: number }; width?: number; height?: number }>;
   /**
-   * Keyframe reference frame: 'viz-relative' (default; scale/focus relative to the current VIZ
-   * view), 'fit-relative' (relative to the whole-design contain-fit at the recording size — the
-   * reliable way to frame a capture without hand-tuning scale; scale 1 / focus 0 = whole design),
-   * or 'absolute' (absolute VIZ scale/coordinates, as returned by getKeyframe / get_viz_image).
+   * Keyframe reference frame:
+   * - 'viz-relative': (default; scale/focus relative to the current VIZ view)
+   * - 'fit-relative' (relative to the whole-design contain-fit at the recording size — the
+   *   reliable way to frame a capture without hand-tuning scale; scale 1 / focus 0 = whole design)
+   * - 'absolute' (absolute VIZ scale/coordinates, as returned by getKeyframe / get_viz_image).
    */
   mode?: 'viz-relative' | 'fit-relative' | 'absolute';
   /** Default keyframe values (scale/focus/width/height) applied to any keyframe that omits them. */
@@ -987,7 +989,7 @@ interface CaptureVideoInput {
  * Language Model tool to capture VIZ simulation as video (GIF or MP4)
  */
 export class CaptureVideoTool implements vscode.LanguageModelTool<CaptureVideoInput> {
-  
+
   async prepareInvocation(
     options: vscode.LanguageModelToolInvocationPrepareOptions<CaptureVideoInput>,
     _token: vscode.CancellationToken
@@ -1006,9 +1008,9 @@ export class CaptureVideoTool implements vscode.LanguageModelTool<CaptureVideoIn
   ): Promise<vscode.LanguageModelToolResult> {
     log('[CaptureVideoTool] ========== TOOL INVOKED ==========');
     try {
-      const { 
-        startCyc, 
-        endCyc, 
+      const {
+        startCyc,
+        endCyc,
         format = 'auto',
         fps,
         cyclesPerSecond = 1,
@@ -1027,19 +1029,19 @@ export class CaptureVideoTool implements vscode.LanguageModelTool<CaptureVideoIn
       // Mirror the IDE's derivation (framesPerCycle = ceil(fps / cyclesPerSecond), else 1) so our
       // local frame-count / format-selection / timeout math matches what the IDE actually renders.
       const framesPerCycle = fps != null ? Math.ceil(fps / cyclesPerSecond) : 1;
-      
-      log('[CaptureVideoTool] Invoked with:', { 
+
+      log('[CaptureVideoTool] Invoked with:', {
         startCyc, endCyc, format, fps, cyclesPerSecond, framesPerCycle, Mbps, width, height, backgroundColor, timeout, panelName, filename,
         keyframes: Array.isArray(keyframes) ? `${keyframes.length} keyframe(s)` : keyframes, mode, default: keyframeDefault
       });
-      
+
       // Validate cycle range
       if (typeof startCyc !== 'number' || typeof endCyc !== 'number' || startCyc > endCyc) {
         return new vscode.LanguageModelToolResult([
           new vscode.LanguageModelTextPart('Invalid cycle range. startCyc must be less than or equal to endCyc.')
         ]);
       }
-      
+
       // Build options for IDE method (exclude panelName and filename).
       const videoOptions: any = {
         cyclesPerSecond,
@@ -1060,9 +1062,9 @@ export class CaptureVideoTool implements vscode.LanguageModelTool<CaptureVideoIn
       if (Array.isArray(keyframes)) videoOptions.keyframes = keyframes;
       if (typeof mode === 'string') videoOptions.mode = mode;
       if (keyframeDefault && typeof keyframeDefault === 'object') videoOptions.default = keyframeDefault;
-      
+
       log('[CaptureVideoTool] Calling captureVideo with options:', videoOptions);
-      
+
       // captureVideo can exceed the default 10s IDE-method RPC timeout.
       // Estimate the render/encode: a per-frame budget that scales with the frame's resolution (megapixels), plus a
       // setup/encoding floor. The RPC timeout is that estimate times a generous safety margin plus a
@@ -1126,19 +1128,19 @@ export class CaptureVideoTool implements vscode.LanguageModelTool<CaptureVideoIn
           'MP'
         );
       }
-      
+
       // Call the IDE method to get the video blob
       const result = await vscode.commands.executeCommand(
-        'makerchip.callIdeMethodWithResult', 
-        'captureVideo', 
-        [startCyc, endCyc, videoOptions], 
+        'makerchip.callIdeMethodWithResult',
+        'captureVideo',
+        [startCyc, endCyc, videoOptions],
         panelName,
         false,
         captureTimeoutMs
       ) as { __makerchipBlob?: true; base64?: string; mimeType?: string } | null;
-      
+
       log('[CaptureVideoTool] Result received:', result ? `SerializedBlob (${result.base64?.length ?? 0} base64 chars, type: ${result.mimeType})` : 'null');
-      
+
       if (!result || !result.__makerchipBlob || typeof result.base64 !== 'string') {
         log('[CaptureVideoTool] No result - VIZ canvas not available');
         return new vscode.LanguageModelToolResult([
@@ -1147,7 +1149,7 @@ export class CaptureVideoTool implements vscode.LanguageModelTool<CaptureVideoIn
           )
         ]);
       }
-      
+
       // The IDE encodes with the requested `format`, else it chooses the codec (GIF for one
       // frame/cycle, H.264 MP4 otherwise). Trust the returned MIME type for the real format, and
       // fall back to `format`/frame-count only when the blob didn't report a type.
@@ -1165,11 +1167,11 @@ export class CaptureVideoTool implements vscode.LanguageModelTool<CaptureVideoIn
 
       // Decode the base64 envelope produced by the webview into a buffer.
       const videoBuffer = Buffer.from(result.base64, 'base64');
-      
+
       // Panel info for logging
       const panelInfo = panelName ? ` from panel '${panelName}'` : '';
       const cycles = endCyc - startCyc + 1;
-      
+
       // Always persist to a file. Video bytes are never inlined into the conversation: models
       // can't consume a video, and a multi-MB data part would only bloat the context. Use the
       // caller's `filename` when given, else a timestamped file in the OS temp dir.
@@ -1193,12 +1195,12 @@ export class CaptureVideoTool implements vscode.LanguageModelTool<CaptureVideoIn
           (isImageFormat ? `\n\nThis is an image format — view ${savedPath} to inspect the frame(s).` : '')
         )
       ]);
-      
+
     } catch (error: any) {
       log('[CaptureVideoTool] ERROR:', error);
       log('[CaptureVideoTool] Error message:', error?.message);
       log('[CaptureVideoTool] Error stack:', error?.stack);
-      
+
       // Check for specific error cases
       if (error?.message?.includes('Method captureVideo not found')) {
         return new vscode.LanguageModelToolResult([
@@ -1211,7 +1213,7 @@ export class CaptureVideoTool implements vscode.LanguageModelTool<CaptureVideoIn
           )
         ]);
       }
-      
+
       if (error?.message?.includes('Panel') && error?.message?.includes('not found')) {
         return new vscode.LanguageModelToolResult([
           new vscode.LanguageModelTextPart(
@@ -1220,7 +1222,7 @@ export class CaptureVideoTool implements vscode.LanguageModelTool<CaptureVideoIn
           )
         ]);
       }
-      
+
       if (error?.message?.includes('No simulation data available')) {
         return new vscode.LanguageModelToolResult([
           new vscode.LanguageModelTextPart(
@@ -1231,7 +1233,7 @@ export class CaptureVideoTool implements vscode.LanguageModelTool<CaptureVideoIn
           )
         ]);
       }
-      
+
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
           `Failed to capture VIZ video: ${error?.message || 'Unknown error'}`
@@ -1250,7 +1252,7 @@ interface GetAvailablePanesInput {
  * Language Model tool to get all available pane mnemonics
  */
 export class GetAvailablePanesTool implements vscode.LanguageModelTool<GetAvailablePanesInput> {
-  
+
   async prepareInvocation(
     options: vscode.LanguageModelToolInvocationPrepareOptions<GetAvailablePanesInput>,
     _token: vscode.CancellationToken
@@ -1266,28 +1268,28 @@ export class GetAvailablePanesTool implements vscode.LanguageModelTool<GetAvaila
   ): Promise<vscode.LanguageModelToolResult> {
     try {
       const { panelName } = options.input;
-      
+
       // Call the IDE method to get available panes
       const panes = await vscode.commands.executeCommand(
-        'makerchip.callIdeMethodWithResult', 
-        'getAvailablePanes', 
-        [], 
+        'makerchip.callIdeMethodWithResult',
+        'getAvailablePanes',
+        [],
         panelName
       ) as Array<{mnemonic: string, displayName: string, description: string, isStatic: boolean, isThirdParty: boolean, available: boolean, contentType?: string}>;
-      
+
       if (!panes || panes.length === 0) {
         return new vscode.LanguageModelToolResult([
           new vscode.LanguageModelTextPart('No panes available')
         ]);
       }
-      
+
       // Format the output
       const mainPanes = panes.filter(p => !p.isStatic && !p.isThirdParty);
       const staticPanes = panes.filter(p => p.isStatic);
       const thirdPartyPanes = panes.filter(p => p.isThirdParty);
-      
+
       let result = '**Available Panes:**\n\n';
-      
+
       if (mainPanes.length > 0) {
         result += '**Main IDE Panes:**\n';
         for (const pane of mainPanes) {
@@ -1296,7 +1298,7 @@ export class GetAvailablePanesTool implements vscode.LanguageModelTool<GetAvaila
         }
         result += '\n';
       }
-      
+
       if (staticPanes.length > 0) {
         result += '**Static Panes (tutorials, docs, etc.):**\n';
         for (const pane of staticPanes) {
@@ -1304,7 +1306,7 @@ export class GetAvailablePanesTool implements vscode.LanguageModelTool<GetAvaila
         }
         result += '\n';
       }
-      
+
       if (thirdPartyPanes.length > 0) {
         result += '**Third-Party Panes:**\n';
         for (const pane of thirdPartyPanes) {
@@ -1312,11 +1314,11 @@ export class GetAvailablePanesTool implements vscode.LanguageModelTool<GetAvaila
           result += `- **${pane.mnemonic}**${contentInfo}: ${pane.description}\n`;
         }
       }
-      
+
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(result)
       ]);
-      
+
     } catch (error: any) {
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
@@ -1352,7 +1354,7 @@ interface LayoutState {
   panes?: Array<string | ThirdPartyPaneObject>;  // Mixed types preserve ordering
   activePane?: string | null;
   path?: string;  // Optional path for restoration
-  
+
   // FlexSplit state (container nodes)
   sides?: {
     left?: LayoutState;
@@ -1378,7 +1380,7 @@ interface GetLayoutStateInput {
  * Language Model tool to get the current IDE layout state
  */
 export class GetLayoutStateTool implements vscode.LanguageModelTool<GetLayoutStateInput> {
-  
+
   async prepareInvocation(
     options: vscode.LanguageModelToolInvocationPrepareOptions<GetLayoutStateInput>,
     _token: vscode.CancellationToken
@@ -1396,22 +1398,22 @@ export class GetLayoutStateTool implements vscode.LanguageModelTool<GetLayoutSta
   ): Promise<vscode.LanguageModelToolResult> {
     try {
       const { panelName, forTransfer } = options.input;
-      
+
       // Call the IDE method to get the layout state
       const state = await vscode.commands.executeCommand(
-        'makerchip.callIdeMethodWithResult', 
-        'getLayoutState', 
+        'makerchip.callIdeMethodWithResult',
+        'getLayoutState',
         [{ forTransfer: forTransfer ?? false }],  // Pass forTransfer option
         panelName
       ) as LayoutState;
-      
+
       const panelInfo = panelName ? ` from panel '${panelName}'` : '';
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
           `Successfully retrieved IDE layout state${panelInfo}:\n\`\`\`json\n${JSON.stringify(state, null, 2)}\n\`\`\``
         )
       ]);
-      
+
     } catch (error: any) {
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
@@ -1433,7 +1435,7 @@ interface SetLayoutStateInput {
  * Language Model tool to set/restore the IDE layout state
  */
 export class SetLayoutStateTool implements vscode.LanguageModelTool<SetLayoutStateInput> {
-  
+
   async prepareInvocation(
     options: vscode.LanguageModelToolInvocationPrepareOptions<SetLayoutStateInput>,
     _token: vscode.CancellationToken
@@ -1451,28 +1453,28 @@ export class SetLayoutStateTool implements vscode.LanguageModelTool<SetLayoutSta
   ): Promise<vscode.LanguageModelToolResult> {
     try {
       const { state, panelName } = options.input;
-      
+
       if (!state) {
         return new vscode.LanguageModelToolResult([
           new vscode.LanguageModelTextPart('No layout state provided')
         ]);
       }
-      
+
       // Call the IDE method to set the layout state
       await vscode.commands.executeCommand(
-        'makerchip.callIdeMethodWithResult', 
-        'setLayoutState', 
-        [state], 
+        'makerchip.callIdeMethodWithResult',
+        'setLayoutState',
+        [state],
         panelName
       );
-      
+
       const panelInfo = panelName ? ` in panel '${panelName}'` : '';
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
           `Successfully restored IDE layout${panelInfo}`
         )
       ]);
-      
+
     } catch (error: any) {
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
@@ -1541,7 +1543,7 @@ interface OpenThirdPartyPaneInput {
 }
 
 export class OpenPaneTool implements vscode.LanguageModelTool<OpenPaneInput> {
-  
+
   async prepareInvocation(
     options: vscode.LanguageModelToolInvocationPrepareOptions<OpenPaneInput>,
     _token: vscode.CancellationToken
@@ -1560,21 +1562,21 @@ export class OpenPaneTool implements vscode.LanguageModelTool<OpenPaneInput> {
   ): Promise<vscode.LanguageModelToolResult> {
     try {
       const { mnemonic, background = false, panelName } = options.input;
-      
+
       if (!mnemonic) {
         return new vscode.LanguageModelToolResult([
           new vscode.LanguageModelTextPart('No pane mnemonic provided')
         ]);
       }
-      
+
       // Call the IDE method to open the pane and get the result
       const result = await vscode.commands.executeCommand(
-        'makerchip.callIdeMethodWithResult', 
-        'openPane', 
-        [mnemonic, background], 
+        'makerchip.callIdeMethodWithResult',
+        'openPane',
+        [mnemonic, background],
         panelName
       ) as any;
-      
+
       // Check if the pane was actually opened (result should be a pane object, not null)
       if (!result) {
         // Get available panes to show in error message
@@ -1584,7 +1586,7 @@ export class OpenPaneTool implements vscode.LanguageModelTool<OpenPaneInput> {
           [],
           panelName
         ) as any[];
-        
+
         let errorMessage = `Pane '${mnemonic}' not found.\n\nAvailable panes:`;
         if (availablePanes && availablePanes.length > 0) {
           for (const pane of availablePanes) {
@@ -1595,12 +1597,12 @@ export class OpenPaneTool implements vscode.LanguageModelTool<OpenPaneInput> {
         } else {
           errorMessage += '\n  (No panes available)';
         }
-        
+
         return new vscode.LanguageModelToolResult([
           new vscode.LanguageModelTextPart(errorMessage)
         ]);
       }
-      
+
       const action = background ? 'opened' : 'opened and activated';
       const panelInfo = panelName ? ` in panel '${panelName}'` : '';
       return new vscode.LanguageModelToolResult([
@@ -1608,7 +1610,7 @@ export class OpenPaneTool implements vscode.LanguageModelTool<OpenPaneInput> {
           `Successfully ${action} pane '${mnemonic}'${panelInfo}`
         )
       ]);
-      
+
     } catch (error: any) {
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
@@ -1717,7 +1719,7 @@ function mimeTypeForFile(filePath: string): string {
  * Language Model tool to open third-party panes (PDFs, iframes) in the IDE
  */
 export class OpenThirdPartyPaneTool implements vscode.LanguageModelTool<OpenThirdPartyPaneInput> {
-  
+
   async prepareInvocation(
     options: vscode.LanguageModelToolInvocationPrepareOptions<OpenThirdPartyPaneInput>,
     _token: vscode.CancellationToken
@@ -1735,19 +1737,19 @@ export class OpenThirdPartyPaneTool implements vscode.LanguageModelTool<OpenThir
   ): Promise<vscode.LanguageModelToolResult> {
     try {
       const { mnemonic, contentType, contentParams, options: paneOptions, panelName } = options.input;
-      
+
       if (!mnemonic) {
         return new vscode.LanguageModelToolResult([
           new vscode.LanguageModelTextPart('No pane mnemonic provided')
         ]);
       }
-      
+
       if (!contentType || (contentType !== 'pdf' && contentType !== 'iframe')) {
         return new vscode.LanguageModelToolResult([
           new vscode.LanguageModelTextPart('Invalid contentType. Must be "pdf" or "iframe"')
         ]);
       }
-      
+
       if (!contentParams || (!contentParams.contentUrl && !contentParams.filePath)) {
         return new vscode.LanguageModelToolResult([
           new vscode.LanguageModelTextPart('contentParams must include either contentUrl or filePath')
@@ -1773,25 +1775,25 @@ export class OpenThirdPartyPaneTool implements vscode.LanguageModelTool<OpenThir
         const base64 = fs.readFileSync(filePath).toString('base64');
         resolvedParams.contentUrl = `data:${mimeType};base64,${base64}`;
       }
-      
+
       // Call the IDE method to open the third-party pane
       const actualMnemonic = await vscode.commands.executeCommand(
-        'makerchip.callIdeMethodWithResult', 
-        'openThirdPartyPane', 
-        [mnemonic, contentType, resolvedParams, paneOptions || {}], 
+        'makerchip.callIdeMethodWithResult',
+        'openThirdPartyPane',
+        [mnemonic, contentType, resolvedParams, paneOptions || {}],
         panelName
       ) as string;
-      
+
       const action = paneOptions?.background ? 'opened' : 'opened and activated';
       const panelInfo = panelName ? ` in panel '${panelName}'` : '';
       const uniquified = actualMnemonic !== mnemonic ? ` (uniquified to '${actualMnemonic}')` : '';
-      
+
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
           `Successfully ${action} ${contentType} pane '${mnemonic}'${uniquified}${panelInfo}`
         )
       ]);
-      
+
     } catch (error: any) {
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
@@ -1811,7 +1813,7 @@ interface GetCycleInput {
  * Language Model tool to get the active cycle/time step
  */
 export class GetCycleTool implements vscode.LanguageModelTool<GetCycleInput> {
-  
+
   async prepareInvocation(
     options: vscode.LanguageModelToolInvocationPrepareOptions<GetCycleInput>,
     _token: vscode.CancellationToken
@@ -1829,7 +1831,7 @@ export class GetCycleTool implements vscode.LanguageModelTool<GetCycleInput> {
   ): Promise<vscode.LanguageModelToolResult> {
     try {
       const { panelName } = options.input;
-      
+
       // Call the IDE method and get the result
       const cycle = await vscode.commands.executeCommand(
         'makerchip.callIdeMethodWithResult',
@@ -1837,15 +1839,15 @@ export class GetCycleTool implements vscode.LanguageModelTool<GetCycleInput> {
         [],
         panelName
       ) as number;
-      
+
       const panelInfo = panelName ? ` in panel '${panelName}'` : '';
-      
+
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
           `Active cycle${panelInfo}: ${cycle}`
         )
       ]);
-      
+
     } catch (error: any) {
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
@@ -1869,14 +1871,14 @@ interface SetCycleInput {
  * Language Model tool to set the active cycle/time step
  */
 export class SetCycleTool implements vscode.LanguageModelTool<SetCycleInput> {
-  
+
   async prepareInvocation(
     options: vscode.LanguageModelToolInvocationPrepareOptions<SetCycleInput>,
     _token: vscode.CancellationToken
   ): Promise<vscode.PreparedToolInvocation> {
     const { cycle, offset, panelName } = options.input;
     const panelInfo = panelName ? ` in panel '${panelName}'` : '';
-    const action = offset !== undefined 
+    const action = offset !== undefined
       ? `Advancing active cycle by ${offset}`
       : `Setting active cycle to ${cycle}`;
     return {
@@ -1890,9 +1892,9 @@ export class SetCycleTool implements vscode.LanguageModelTool<SetCycleInput> {
   ): Promise<vscode.LanguageModelToolResult> {
     try {
       const { cycle, offset, panelName } = options.input;
-      
+
       // Validate that exactly one of cycle or offset is provided
-      if ((cycle === undefined && offset === undefined) || 
+      if ((cycle === undefined && offset === undefined) ||
           (cycle !== undefined && offset !== undefined)) {
         return new vscode.LanguageModelToolResult([
           new vscode.LanguageModelTextPart(
@@ -1900,9 +1902,9 @@ export class SetCycleTool implements vscode.LanguageModelTool<SetCycleInput> {
           )
         ]);
       }
-      
+
       let targetCycle: number;
-      
+
       // If offset provided, get current cycle and add offset
       if (offset !== undefined) {
         const currentCycle = await vscode.commands.executeCommand(
@@ -1911,12 +1913,12 @@ export class SetCycleTool implements vscode.LanguageModelTool<SetCycleInput> {
           [],
           panelName
         ) as number;
-        
+
         targetCycle = currentCycle + offset;
       } else {
         targetCycle = cycle!;
       }
-      
+
       // Call the IDE method and wait for completion (setCycle returns Promise<void>)
       await vscode.commands.executeCommand(
         'makerchip.callIdeMethodWithResult',
@@ -1924,16 +1926,16 @@ export class SetCycleTool implements vscode.LanguageModelTool<SetCycleInput> {
         [targetCycle],
         panelName
       );
-      
+
       const panelInfo = panelName ? ` in panel '${panelName}'` : '';
       const message = offset !== undefined
         ? `Advanced active cycle by ${offset} to ${targetCycle}${panelInfo}`
         : `Set active cycle to ${cycle}${panelInfo}`;
-      
+
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(message)
       ]);
-      
+
     } catch (error: any) {
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
@@ -1961,31 +1963,31 @@ interface UpdatePlayStateInput {
  * Language Model tool to control waveform playback in the IDE
  */
 export class UpdatePlayStateTool implements vscode.LanguageModelTool<UpdatePlayStateInput> {
-  
+
   async prepareInvocation(
     options: vscode.LanguageModelToolInvocationPrepareOptions<UpdatePlayStateInput>,
     _token: vscode.CancellationToken
   ): Promise<vscode.PreparedToolInvocation> {
     const { isPlaying, cycleTimeout, startCyc, endCyc, panelName } = options.input;
-    
+
     let message = isPlaying ? 'Starting' : 'Stopping';
     message += ' waveform playback';
-    
+
     if (isPlaying && startCyc !== undefined) {
       message += ` from cycle ${startCyc}`;
     }
-    
+
     if (isPlaying && endCyc !== undefined) {
       message += ` to cycle ${endCyc}`;
     }
-    
+
     if (isPlaying && cycleTimeout !== undefined) {
       message += ` at ${cycleTimeout}ms per cycle`;
     }
-    
+
     const panelInfo = panelName ? ` in panel '${panelName}'` : '';
     message += panelInfo + '...';
-    
+
     return { invocationMessage: message };
   }
 
@@ -1995,7 +1997,7 @@ export class UpdatePlayStateTool implements vscode.LanguageModelTool<UpdatePlayS
   ): Promise<vscode.LanguageModelToolResult> {
     try {
       const { isPlaying, cycleTimeout, startCyc, endCyc, panelName } = options.input;
-      
+
       // Call the IDE method
       await vscode.commands.executeCommand(
         'makerchip.invokeIdeMethod',
@@ -2003,31 +2005,31 @@ export class UpdatePlayStateTool implements vscode.LanguageModelTool<UpdatePlayS
         [isPlaying, cycleTimeout, startCyc, endCyc],
         panelName
       );
-      
+
       // Build success message
       let message = isPlaying ? 'Started' : 'Stopped';
       message += ' waveform playback';
-      
+
       if (isPlaying && startCyc !== undefined) {
         message += ` from cycle ${startCyc}`;
       }
-      
+
       if (isPlaying && endCyc !== undefined) {
         message += ` to cycle ${endCyc}`;
       } else if (isPlaying) {
         message += ' to end of waveform';
       }
-      
+
       if (isPlaying && cycleTimeout !== undefined) {
         message += ` at ${cycleTimeout}ms per cycle`;
       }
-      
+
       const panelInfo = panelName ? ` in panel '${panelName}'` : '';
-      
+
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(message + panelInfo)
       ]);
-      
+
     } catch (error: any) {
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
@@ -2039,7 +2041,7 @@ export class UpdatePlayStateTool implements vscode.LanguageModelTool<UpdatePlayS
 }
 
 interface HighlightToolInput {
-  /** 
+  /**
    * The TL-Verilog path identifier to highlight.
    * Examples:
    * - Signal: '/cpu|my_pipe$data'
@@ -2047,7 +2049,7 @@ interface HighlightToolInput {
    * - Pipeline stage: '|my_pipe@2'
    */
   id: string;
-  /** 
+  /**
    * If true, adds to existing highlights (like Ctrl+click).
    * If false or omitted, replaces all existing highlights.
    */
@@ -2060,7 +2062,7 @@ interface HighlightToolInput {
  * Language Model tool for highlighting logical entities in the IDE
  */
 export class HighlightTool implements vscode.LanguageModelTool<HighlightToolInput> {
-  
+
   async prepareInvocation(
     options: vscode.LanguageModelToolInvocationPrepareOptions<HighlightToolInput>,
     _token: vscode.CancellationToken
@@ -2078,7 +2080,7 @@ export class HighlightTool implements vscode.LanguageModelTool<HighlightToolInpu
   ): Promise<vscode.LanguageModelToolResult> {
     try {
       const { id, accumulate = false, panelName } = options.input;
-      
+
       // Call the IDE highlight method and wait for result
       const result = await vscode.commands.executeCommand(
         'makerchip.callIdeMethodWithResult',
@@ -2086,7 +2088,7 @@ export class HighlightTool implements vscode.LanguageModelTool<HighlightToolInpu
         [id, accumulate],
         panelName
       );
-      
+
       // Check if highlight was successful (IDE returns boolean: true on success, false on failure)
       if (result === false) {
         return new vscode.LanguageModelToolResult([
@@ -2095,16 +2097,16 @@ export class HighlightTool implements vscode.LanguageModelTool<HighlightToolInpu
           )
         ]);
       }
-      
+
       const action = accumulate ? 'Added highlight for' : 'Highlighted';
       const panelInfo = panelName ? ` in panel '${panelName}'` : '';
-      
+
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
           `${action} ${id}${panelInfo}. The entity is now highlighted in all IDE views (Diagram, Waveform, Nav-TLV).`
         )
       ]);
-      
+
     } catch (error: any) {
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
@@ -2124,7 +2126,7 @@ interface ClearHighlightsToolInput {
  * Language Model tool for clearing all highlights in the IDE
  */
 export class ClearHighlightsTool implements vscode.LanguageModelTool<ClearHighlightsToolInput> {
-  
+
   async prepareInvocation(
     options: vscode.LanguageModelToolInvocationPrepareOptions<ClearHighlightsToolInput>,
     _token: vscode.CancellationToken
@@ -2140,7 +2142,7 @@ export class ClearHighlightsTool implements vscode.LanguageModelTool<ClearHighli
   ): Promise<vscode.LanguageModelToolResult> {
     try {
       const { panelName } = options.input;
-      
+
       // Call the IDE clearHighlights method
       await vscode.commands.executeCommand(
         'makerchip.invokeIdeMethod',
@@ -2148,15 +2150,15 @@ export class ClearHighlightsTool implements vscode.LanguageModelTool<ClearHighli
         [],
         panelName
       );
-      
+
       const panelInfo = panelName ? ` in panel '${panelName}'` : '';
-      
+
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
           `Cleared all highlights${panelInfo}. All highlighted entities have been removed from IDE views.`
         )
       ]);
-      
+
     } catch (error: any) {
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
@@ -2178,7 +2180,7 @@ interface SetDarkModeToolInput {
  * Language Model tool for setting dark mode in the Makerchip IDE
  */
 export class SetDarkModeTool implements vscode.LanguageModelTool<SetDarkModeToolInput> {
-  
+
   async prepareInvocation(
     options: vscode.LanguageModelToolInvocationPrepareOptions<SetDarkModeToolInput>,
     _token: vscode.CancellationToken
@@ -2196,7 +2198,7 @@ export class SetDarkModeTool implements vscode.LanguageModelTool<SetDarkModeTool
   ): Promise<vscode.LanguageModelToolResult> {
     try {
       const { enabled, panelName } = options.input;
-      
+
       // Call the IDE setDarkMode method
       await vscode.commands.executeCommand(
         'makerchip.invokeIdeMethod',
@@ -2204,16 +2206,16 @@ export class SetDarkModeTool implements vscode.LanguageModelTool<SetDarkModeTool
         [enabled],
         panelName
       );
-      
+
       const panelInfo = panelName ? ` in panel '${panelName}'` : '';
       const mode = enabled ? 'dark' : 'light';
-      
+
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
           `Successfully set IDE to ${mode} mode${panelInfo}. The editor, diagram, waveform, and all IDE views have been updated.`
         )
       ]);
-      
+
     } catch (error: any) {
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
@@ -2237,7 +2239,7 @@ interface SetLiveModeToolInput {
  * Language Model tool for setting live mode in specific Makerchip IDE panes
  */
 export class SetLiveModeTool implements vscode.LanguageModelTool<SetLiveModeToolInput> {
-  
+
   async prepareInvocation(
     options: vscode.LanguageModelToolInvocationPrepareOptions<SetLiveModeToolInput>,
     _token: vscode.CancellationToken
@@ -2255,7 +2257,7 @@ export class SetLiveModeTool implements vscode.LanguageModelTool<SetLiveModeTool
   ): Promise<vscode.LanguageModelToolResult> {
     try {
       const { mnemonic, enabled, panelName } = options.input;
-      
+
       // Call the IDE setLiveMode method with result to check success
       const success = await vscode.commands.executeCommand<boolean>(
         'makerchip.callIdeMethodWithResult',
@@ -2263,7 +2265,7 @@ export class SetLiveModeTool implements vscode.LanguageModelTool<SetLiveModeTool
         [mnemonic, enabled],
         panelName
       );
-      
+
       if (!success) {
         return new vscode.LanguageModelToolResult([
           new vscode.LanguageModelTextPart(
@@ -2271,16 +2273,16 @@ export class SetLiveModeTool implements vscode.LanguageModelTool<SetLiveModeTool
           )
         ]);
       }
-      
+
       const panelInfo = panelName ? ` in panel '${panelName}'` : '';
       const mode = enabled ? 'live' : 'dead (frozen)';
-      
+
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
           `Successfully set '${mnemonic}' pane to ${mode} mode${panelInfo}. ${enabled ? 'The pane will now update automatically as the cycle changes.' : 'The pane is frozen at the current cycle.'}`
         )
       ]);
-      
+
     } catch (error: any) {
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
@@ -2299,7 +2301,7 @@ interface ListPanelsToolInput {
  * Language Model tool for listing all open Makerchip panels
  */
 export class ListPanelsTool implements vscode.LanguageModelTool<ListPanelsToolInput> {
-  
+
   async prepareInvocation(
     options: vscode.LanguageModelToolInvocationPrepareOptions<ListPanelsToolInput>,
     _token: vscode.CancellationToken
@@ -2318,7 +2320,7 @@ export class ListPanelsTool implements vscode.LanguageModelTool<ListPanelsToolIn
       const panels = await vscode.commands.executeCommand<string[]>(
         'makerchip.getPanelNames'
       );
-      
+
       if (!panels || panels.length === 0) {
         return new vscode.LanguageModelToolResult([
           new vscode.LanguageModelTextPart(
@@ -2326,17 +2328,17 @@ export class ListPanelsTool implements vscode.LanguageModelTool<ListPanelsToolIn
           )
         ]);
       }
-      
+
       let result = `**Open Makerchip Panels (${panels.length}):**\n\n`;
       for (const panel of panels) {
         result += `- ${panel}\n`;
       }
       result += `\nUse the \`panelName\` parameter in other tools to target a specific panel.`;
-      
+
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(result)
       ]);
-      
+
     } catch (error: any) {
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
@@ -2521,17 +2523,17 @@ export function registerMakerchipTool(context: vscode.ExtensionContext): void {
   log('========== Registering Makerchip Tools ==========');
   log('vscode.lm available:', !!vscode.lm);
   log('vscode.lm.registerTool available:', !!vscode.lm?.registerTool);
-  
+
   // Register the basic compile/simulate tool
   const runTool = vscode.lm.registerTool('makerchip_compile', new MakerchipTool());
   log('Compile tool registered:', !!runTool);
   context.subscriptions.push(runTool);
-  
+
   // Register the wait-for-compile tool
   const waitCompileTool = vscode.lm.registerTool('makerchip_wait_compile', new WaitCompileTool());
   log('Wait compile tool registered:', !!waitCompileTool);
   context.subscriptions.push(waitCompileTool);
-  
+
   // Register the generic IDE method invocation tool
   const ideTool = vscode.lm.registerTool('makerchip_ide_call', new IdeFunctionCallTool());
   log('IDE call tool registered:', !!ideTool);
@@ -2541,92 +2543,92 @@ export function registerMakerchipTool(context: vscode.ExtensionContext): void {
   const lateReplyTool = vscode.lm.registerTool('makerchip_get_late_reply', new GetLateReplyTool());
   log('Late reply tool registered:', !!lateReplyTool);
   context.subscriptions.push(lateReplyTool);
-  
+
   // Register the VIZ image capture tool
   const vizImageTool = vscode.lm.registerTool('makerchip_get_viz_image', new GetVizImageTool());
   log('VIZ image tool registered:', !!vizImageTool);
   context.subscriptions.push(vizImageTool);
-  
+
   // Register the PDF figure extraction tool (Live Doc inspection)
   const extractPdfTool = vscode.lm.registerTool('makerchip_extract_pdf_figure', new ExtractPdfFigureTool());
   log('Extract PDF figure tool registered:', !!extractPdfTool);
   context.subscriptions.push(extractPdfTool);
-  
+
   // Register the VIZ video capture tool
   const captureVideoTool = vscode.lm.registerTool('makerchip_capture_video', new CaptureVideoTool());
   log('Capture video tool registered:', !!captureVideoTool);
   context.subscriptions.push(captureVideoTool);
-  
+
   // Register the get layout state tool
   const getLayoutTool = vscode.lm.registerTool('makerchip_get_layout_state', new GetLayoutStateTool());
   log('Get layout state tool registered:', !!getLayoutTool);
   context.subscriptions.push(getLayoutTool);
-  
+
   // Register the set layout state tool
   const setLayoutTool = vscode.lm.registerTool('makerchip_set_layout_state', new SetLayoutStateTool());
   log('Set layout state tool registered:', !!setLayoutTool);
   context.subscriptions.push(setLayoutTool);
-  
+
   // Register the get available panes tool
   const availablePanesTool = vscode.lm.registerTool('makerchip_get_available_panes', new GetAvailablePanesTool());
   log('Get available panes tool registered:', !!availablePanesTool);
   context.subscriptions.push(availablePanesTool);
-  
+
   // Register the open pane tool
   const openPaneTool = vscode.lm.registerTool('makerchip_open_pane', new OpenPaneTool());
   log('Open pane tool registered:', !!openPaneTool);
   context.subscriptions.push(openPaneTool);
-  
+
   // Register the fit pane tool
   const fitPaneTool = vscode.lm.registerTool('makerchip_fit_pane', new FitPaneTool());
   log('Fit pane tool registered:', !!fitPaneTool);
   context.subscriptions.push(fitPaneTool);
-  
+
   // Register the open third-party pane tool
   const openThirdPartyPaneTool = vscode.lm.registerTool('makerchip_open_third_party_pane', new OpenThirdPartyPaneTool());
   log('Open third-party pane tool registered:', !!openThirdPartyPaneTool);
   context.subscriptions.push(openThirdPartyPaneTool);
-  
+
   // Register the get cycle tool
   const getCycleTool = vscode.lm.registerTool('makerchip_get_cycle', new GetCycleTool());
   log('Get cycle tool registered:', !!getCycleTool);
   context.subscriptions.push(getCycleTool);
-  
+
   // Register the set cycle tool
   const setCycleTool = vscode.lm.registerTool('makerchip_set_cycle', new SetCycleTool());
   log('Set cycle tool registered:', !!setCycleTool);
   context.subscriptions.push(setCycleTool);
-  
+
   // Register the update play state tool
   const updatePlayStateTool = vscode.lm.registerTool('makerchip_update_play_state', new UpdatePlayStateTool());
   log('Update play state tool registered:', !!updatePlayStateTool);
   context.subscriptions.push(updatePlayStateTool);
-  
+
   // Register the highlight tool
   const highlightTool = vscode.lm.registerTool('makerchip_highlight', new HighlightTool());
   log('Highlight tool registered:', !!highlightTool);
   context.subscriptions.push(highlightTool);
-  
+
   // Register the clear highlights tool
   const clearHighlightsTool = vscode.lm.registerTool('makerchip_clear_highlights', new ClearHighlightsTool());
   log('Clear highlights tool registered:', !!clearHighlightsTool);
   context.subscriptions.push(clearHighlightsTool);
-  
+
   // Register the set dark mode tool
   const setDarkModeTool = vscode.lm.registerTool('makerchip_set_dark_mode', new SetDarkModeTool());
   log('Set dark mode tool registered:', !!setDarkModeTool);
   context.subscriptions.push(setDarkModeTool);
-  
+
   // Register the set live mode tool
   const setLiveModeTool = vscode.lm.registerTool('makerchip_set_live_mode', new SetLiveModeTool());
   log('Set live mode tool registered:', !!setLiveModeTool);
   context.subscriptions.push(setLiveModeTool);
-  
+
   // Register the list panels tool
   const listPanelsTool = vscode.lm.registerTool('makerchip_list_panels', new ListPanelsTool());
   log('List panels tool registered:', !!listPanelsTool);
   context.subscriptions.push(listPanelsTool);
-  
+
   // Register the reload panels tool
   const reloadPanelsTool = vscode.lm.registerTool('makerchip_reload_panels', new ReloadPanelsTool());
   log('Reload panels tool registered:', !!reloadPanelsTool);
@@ -2641,7 +2643,12 @@ export function registerMakerchipTool(context: vscode.ExtensionContext): void {
   const paneCallTool = vscode.lm.registerTool('makerchip_pane_call', new PaneCallTool());
   log('Pane call tool registered:', !!paneCallTool);
   context.subscriptions.push(paneCallTool);
-  
+
+  // Register the headless Compiler Explorer compile tool
+  const ceCompileTool = vscode.lm.registerTool('makerchip_ce_compile', new CeCompileTool());
+  log('CE compile tool registered:', !!ceCompileTool);
+  context.subscriptions.push(ceCompileTool);
+
   // Verify tools are in the list
   setTimeout(() => {
     log('All registered tools:', vscode.lm.tools.map(t => t.name));
@@ -2675,7 +2682,7 @@ export function registerMakerchipTool(context: vscode.ExtensionContext): void {
     log('Found our highlight tool:', !!ourHighlightTool);
     log('Found our clear highlights tool:', !!ourClearHighlightsTool);
     log('Found our list panels tool:', !!ourListPanelsTool);
-    
+
     showOutputChannel(); // Show output channel on startup
   }, 1000);
 }

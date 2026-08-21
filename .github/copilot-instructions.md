@@ -18,3 +18,7 @@ development workflow. Key constraints to preserve when making changes:
 - **Co-dev setup:** `./launch` and "Run Extension" (F5) load both extensions from source via
   two `--extensionDevelopmentPath` args. The `watch: all` task builds both. Reload the
   Extension Development Host window after `tsc` finishes to pick up changes.
+- **Issues are a live backlog, not a changelog** — `issues/NNN-slug.md` files track *current status
+  and remaining work only*. As work completes, remove it from the issue and fold durable outcomes
+  into code/docs/READMEs; rely on Git history for how things evolved (no dated "vN/shipped/verified"
+  narration). See [`issues/README.md`](../issues/README.md).

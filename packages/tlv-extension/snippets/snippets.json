@@ -224,9 +224,9 @@
 	"display":{
 		"prefix":"display",
 		"body":[
-			"$$display(\"${1}\"$2);$0"
+			"\\$display(\"${1}\"$2);$0"
 		],
-		"description":"$display(\"...\", params...)"
+		"description":"\\$display(\"...\", params...)"
 	},
 	"timescale":{
 		"prefix":"ts",
@@ -267,7 +267,7 @@
 	},
 	"queue":{
 		"prefix":"queue",
-		"body":"${1:data_type} ${2:queue_name}[$];",
+		"body":"${1:data_type} ${2:queue_name}[\\$];",
 		"description":"insert queue."
 	},
 	"mailbox":{
