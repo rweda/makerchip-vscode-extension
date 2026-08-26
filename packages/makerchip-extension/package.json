@@ -389,13 +389,112 @@
         }
       },
       {
+        "name": "makerchip_get_warpv_config",
+        "displayName": "Get WARP-V Configuration",
+        "toolReferenceName": "getWarpvConfig",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(settings-gear)",
+        "userDescription": "Read the WARP-V configurator's current configuration.",
+        "modelDescription": "Read the current configuration of the open WARP-V configurator pane (host-to-pane RPC). Returns { general, pipeline, programText }: `general` holds the top-of-form settings (warpVVersion, isa, isaExtensions, depth, formattingSettings, customProgramEnabled, customInstructionsEnabled, programEntry); `pipeline` maps each pipeline ConfigurationParameter's jsonKey to its value (e.g. next_pc_stage, decode_stage, branch_pred, ...); `programText` is the (assembly) program source. This returned shape doubles as the schema for makerchip_set_warpv_config. Requires the WARP-V pane to be open (see makerchip_open_third_party_pane).",
+        "tags": [
+          "makerchip",
+          "warp-v",
+          "configurator",
+          "rpc",
+          "pane"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "mnemonic": {
+              "type": "string",
+              "description": "Target WARP-V pane mnemonic. Default: `WARP-V`."
+            },
+            "panelName": {
+              "type": "string",
+              "description": "Optional panel name to target. Default: `default`."
+            }
+          }
+        }
+      },
+      {
+        "name": "makerchip_set_warpv_config",
+        "displayName": "Set WARP-V Configuration",
+        "toolReferenceName": "setWarpvConfig",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(settings)",
+        "userDescription": "Apply a partial configuration to the WARP-V configurator.",
+        "modelDescription": "Apply a partial configuration to the open WARP-V configurator pane (host-to-pane RPC). Provide any subset of `general`, `pipeline`, and `programText` (see makerchip_get_warpv_config for the full shape). Objects are shallow-merged over current state; arrays (e.g. isaExtensions, formattingSettings) and scalars replace. Pipeline values are validated with each parameter's own validator; unknown keys in either bucket are rejected and reported. Cross-field / general-value validity (e.g. pipeline stage ordering) is NOT enforced here — it is left to the WARP-V compile, exactly as in the UI; use makerchip_wait_compile to catch such errors. To set the assembly program: pass `programText` and `general: { customProgramEnabled: true }`. To point at a local WARP-V source: set `general: { warpVVersion: \"<url>/warp-v.tlv\" }`. NOTE: setting `general.depth` re-derives the default pipeline stages (as in the UI), so to customise individual stages either omit `depth` or set it in a separate, earlier call. Returns { applied, rejected }.",
+        "tags": [
+          "makerchip",
+          "warp-v",
+          "configurator",
+          "rpc",
+          "pane"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "general": {
+              "type": "object",
+              "description": "Top-of-form settings to merge: warpVVersion (WARP-V source URL), isa, isaExtensions (array, replaces), depth, formattingSettings (array, replaces), customProgramEnabled, customInstructionsEnabled, programEntry."
+            },
+            "pipeline": {
+              "type": "object",
+              "description": "Pipeline parameters to merge, keyed by ConfigurationParameter jsonKey (e.g. next_pc_stage, fetch_stage, decode_stage, branch_pred, ...). Each value is validated by its parameter's validator."
+            },
+            "programText": {
+              "type": "string",
+              "description": "The (assembly) program source to set. Pair with general.customProgramEnabled = true to use it."
+            },
+            "mnemonic": {
+              "type": "string",
+              "description": "Target WARP-V pane mnemonic. Default: `WARP-V`."
+            },
+            "panelName": {
+              "type": "string",
+              "description": "Optional panel name to target. Default: `default`."
+            }
+          }
+        }
+      },
+      {
+        "name": "makerchip_get_warpv_tlv",
+        "displayName": "Get WARP-V TL-Verilog",
+        "toolReferenceName": "getWarpvTlv",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(file-code)",
+        "userDescription": "Get the TL-Verilog the WARP-V configurator generates for its current configuration.",
+        "modelDescription": "Return the TL-Verilog the open WARP-V configurator pane generates for its current configuration (host-to-pane RPC) — the same source its preview and \"Open in Makerchip\" use. Reflects any prior makerchip_set_warpv_config edits (program, warpVVersion, pipeline, ...). Requires the WARP-V pane to be open. Errors if a pipeline value fails m4 translation.",
+        "tags": [
+          "makerchip",
+          "warp-v",
+          "configurator",
+          "rpc",
+          "pane"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "mnemonic": {
+              "type": "string",
+              "description": "Target WARP-V pane mnemonic. Default: `WARP-V`."
+            },
+            "panelName": {
+              "type": "string",
+              "description": "Optional panel name to target. Default: `default`."
+            }
+          }
+        }
+      },
+      {
         "name": "makerchip_ce_compile",
         "displayName": "Compile via Compiler Explorer (headless)",
         "toolReferenceName": "makerchipCeCompile",
         "canBeReferencedInPrompt": true,
         "icon": "$(server-process)",
         "userDescription": "Compile source through the Compiler Explorer API and return the assembly.",
-        "modelDescription": "Headlessly compile a program through the Compiler Explorer (CE) HTTP API — no CE pane required. Returns the compile outcome: exit code, the detected entry-point label (e.g. 'main', Fortran's 'MAIN__'), the compiler name, the number of asm lines, stderr, and (on success) the produced assembly text. The assembly is exactly what WARP-V's ~assemble consumes. Defaults target RISC-V for WARP-V (compiler 'rv32-cgcc1430', lang 'c', options '-O2 -march=rv32i -mabi=ilp32'). Set deliverToWarpV:true to also deliver a successful compile into a WARP-V pane and request a build — the equivalent of CE's 'Run on WARP-V' button; a WARP-V pane is opened if one named by warpvPane is not already open. Delivery drives the build via a direct host↔pane RPC: WARP-V compiles the generated TL-Verilog in the host Makerchip panel and relays back the host compile id, which this tool returns so you can poll compilation/simulation results with makerchip_wait_compile. Set waitForCompileId:false for fire-and-forget delivery (faster; no id returned).",
+        "modelDescription": "Headlessly compile a program through the Compiler Explorer (CE) HTTP API — no CE pane required. Returns the compile outcome: exit code, the detected entry-point label (e.g. 'main'), the compiler name, the number of asm lines, stderr, and (on success) the produced assembly text. The assembly is exactly what WARP-V's ~assemble consumes. In WARP-V a program \"passes\" by returning 0 from its entry (the reset preamble does `beqz a0, pass`; a non-zero return or a cycle-limit timeout fails). Pick a `lang` (c, c++, assembly) and the tool selects the right RISC-V rv32 compiler and rv32i flags automatically — normally you set only `source` and `lang`. `compilerId`/`options` are optional overrides (keep the target rv32i or WARP-V cannot run the result). Set deliverToWarpV:true to also deliver a successful compile into a WARP-V pane and request a build — the equivalent of CE's 'Run on WARP-V' button; a WARP-V pane is opened if one named by warpvPane is not already open. Delivery drives the build via a direct host↔pane RPC: WARP-V compiles the generated TL-Verilog in the host Makerchip panel and relays back the host compile id, which this tool returns so you can poll compilation/simulation results with makerchip_wait_compile. Set waitForCompileId:false for fire-and-forget delivery (faster; no id returned for tracking).",
         "tags": [
           "makerchip",
           "compiler-explorer",
@@ -415,15 +514,25 @@
             },
             "compilerId": {
               "type": "string",
-              "description": "CE compiler id. Default 'rv32-cgcc1430' (RISC-V rv32 gcc, for WARP-V)."
+              "description": "Optional CE compiler id override. Defaults to the curated rv32 compiler for `lang` (C: rv32-cgcc1430, C++: rv32-gcc1430, Fortran: friscvg1430, Assembly: gnuasriscv32gtrunk). Only override if you specifically need a different RISC-V rv32 compiler; non-rv32 compilers produce assembly WARP-V cannot run."
             },
             "lang": {
               "type": "string",
-              "description": "CE language id (e.g. 'c', 'c++', 'rust', 'fortran'). Drives entry-symbol detection. Default 'c'."
+              "enum": [
+                "c",
+                "c++",
+                "assembly",
+                "fortran"
+              ],
+              "description": "Source language. Selects the rv32 compiler and rv32i flags automatically (WARP-V runs bare-metal RISC-V rv32i), so you normally set only this and `source`. Default 'c'. Fortran runs a compute-only `program` via a WARP-V runtime shim (STOP n => pass/fail); any I/O fails to assemble. Rust is excluded (no CE rv32 target)."
+            },
+            "entry": {
+              "type": "string",
+              "description": "Optional entry-label override for WARP-V's crt0 preamble (`call <entry>; beqz a0, pass`). Omit to auto-detect ('main' for C/C++). Set it to run a specific non-`main` compute function whose integer return signals pass (0) / fail (non-0) without a language runtime — e.g. a gfortran `integer function chk()` compiles to the label `chk_`."
             },
             "options": {
               "type": "string",
-              "description": "Compiler flags. Default '-O2 -march=rv32i -mabi=ilp32'."
+              "description": "Optional compiler-flags override. Defaults to the rv32i flags for `lang` ('-O2 -march=rv32i -mabi=ilp32'; assembly omits -O2). Keep the target rv32i (WARP-V cannot run other ISAs)."
             },
             "filters": {
               "type": "string",

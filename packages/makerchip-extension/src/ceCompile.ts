@@ -17,6 +17,41 @@ import { log } from './logger';
 /** Deployed CE origin (dev override: http://localhost:10240). */
 export const DEFAULT_CE_ORIGIN = 'https://ce.makerchip.com';
 
+/**
+ * WARP-V runs bare-metal RISC-V rv32i (no OS, libc, or language runtime), so a target is only viable
+ * if CE has a freestanding rv32 compiler for it AND its output runs from just a `reset:` entry using
+ * the ISA WARP-V implements. That is a small, curated set — not a discovery problem. Each language maps
+ * to a known-good rv32 compiler + default flags, so callers pick a `lang` and need not know CE compiler
+ * ids; `compilerId`/`options` remain optional overrides. Fortran works via a WARP-V runtime shim that
+ * stubs gfortran's termination ABI (`STOP n` => pass/fail) onto the crt0 pass/fail labels — see
+ * `runtime_shim_fortran` in risc-v_defs.tlv — so a `program` unit runs bare-metal (compute-only; any
+ * I/O pulls unstubbed libgfortran symbols and fails to assemble). Excluded: Rust (CE has no rv32
+ * target, though no_std Rust could run). Compiler ids are pinned to gcc 14.3.0; a wrong/stale id fails
+ * loudly via CE.
+ */
+export const LANG_DEFAULTS: Record<string, { compilerId: string; options: string }> = {
+  c: { compilerId: 'rv32-cgcc1430', options: '-O2 -march=rv32i -mabi=ilp32' },
+  'c++': { compilerId: 'rv32-gcc1430', options: '-O2 -march=rv32i -mabi=ilp32' },
+  assembly: { compilerId: 'gnuasriscv32gtrunk', options: '-march=rv32i -mabi=ilp32' },
+  fortran: { compilerId: 'friscvg1430', options: '-O2 -march=rv32i -mabi=ilp32' },
+};
+
+/** Source languages the tool supports (WARP-V-runnable rv32 targets). */
+export const SUPPORTED_LANGS = Object.keys(LANG_DEFAULTS);
+
+/** Default source language when none is given. */
+export const DEFAULT_LANG = 'c';
+
+/** Resolve the effective compiler id + flags for a language, honouring explicit overrides. */
+export function resolveLangDefaults(
+  lang: string,
+  compilerId?: string,
+  options?: string,
+): { compilerId: string; options: string } {
+  const def = LANG_DEFAULTS[lang] ?? LANG_DEFAULTS[DEFAULT_LANG];
+  return { compilerId: compilerId ?? def.compilerId, options: options ?? def.options };
+}
+
 /** One line of produced assembly, tagged with the source line it came from. */
 export interface AsmRow {
   /** The assembly text of this line (instruction, label or directive). */
@@ -33,6 +68,14 @@ export interface CompileOnCeOptions {
   source: string;
   /** CE language id (e.g. 'c', 'fortran'). Drives entry-symbol detection. */
   lang?: string;
+  /**
+   * Explicit entry-label override. When given, it is used verbatim as the WARP-V crt0 entry
+   * (bypassing {@link detectEntry}); when omitted, the entry is auto-detected. Use it to name a
+   * non-`main` compute function whose integer return drives pass/fail — e.g. a gfortran
+   * `integer function chk()` compiles to the label `chk_` (0 => pass, non-0 => fail), avoiding the
+   * void `main`/`MAIN__` that can't return a status.
+   */
+  entry?: string;
   /** Compiler flags string (e.g. '-O2 -march=rv32i -mabi=ilp32'). */
   userArguments?: string;
   /** Comma-separated CE filter names, or a filters object. Default: directives,labels,commentOnly. */
@@ -81,11 +124,14 @@ function toAsmRows(asm: unknown): AsmRow[] {
   }));
 }
 
-// The entry label a program "starts" at is language-specific: C/C++/Rust use `main`, while gfortran
-// emits `MAIN__` (classic flang `MAIN_`, LLVM flang-new `_QQmain`). Detection rides on CE's parsed
-// `labelDefinitions`, so it is immune to directive/comment/formatting differences between compilers.
+// The entry label a program "starts" at is language-specific. C/C++/Rust use `main`. gfortran also
+// emits a C-ABI `main` wrapper (it calls the void `MAIN__` between `_gfortran_set_args`/`set_options`
+// and returns 0), and the fortran runtime shim (see risc-v_defs.tlv) stubs those calls — so `main` is
+// the right Fortran entry too: it returns 0 on normal completion (pass) and `STOP n` drives pass/fail
+// via the shim. `MAIN__` itself is void and never sets a0, so it must NOT be the entry. Detection rides
+// on CE's parsed `labelDefinitions`, so it is immune to directive/comment/formatting differences.
 const ENTRY_CANDIDATES: Record<string, string[]> = {
-  fortran: ['MAIN__', 'MAIN_', '_QQmain', 'main'],
+  fortran: ['main'],
 };
 const DEFAULT_ENTRY_CANDIDATES = ['main'];
 
@@ -141,14 +187,16 @@ export async function compileOnCe(options: CompileOnCeOptions): Promise<CeCompil
     compilerId,
     source,
     lang = 'c',
+    entry,
     userArguments = '',
     filters,
     ceOrigin = DEFAULT_CE_ORIGIN,
     signal,
   } = options;
 
+  // A trailing newline avoids a benign "newline inserted" assembler warning (harmless otherwise).
   const body = {
-    source,
+    source: source.endsWith('\n') ? source : `${source}\n`,
     lang,
     options: {
       userArguments,
@@ -181,7 +229,8 @@ export async function compileOnCe(options: CompileOnCeOptions): Promise<CeCompil
   const compilerName = await resolveCompilerName(ceOrigin, lang, compilerId, signal);
   return {
     code: typeof data.code === 'number' ? data.code : -1,
-    entry: detectEntry(lang, data.labelDefinitions),
+    // An explicit override wins over auto-detection (e.g. naming a non-`main` compute function).
+    entry: entry ?? detectEntry(lang, data.labelDefinitions),
     compilerId,
     compilerName,
     lang,
@@ -298,11 +347,17 @@ async function deliverToWarpV(
 interface CeCompileToolInput {
   /** Source to compile. */
   source: string;
-  /** CE compiler id. Default 'rv32-cgcc1430' (RISC-V rv32 gcc, for WARP-V). */
+  /** Optional CE compiler id override. Defaults to the rv32 compiler for `lang` (see LANG_DEFAULTS). */
   compilerId?: string;
-  /** CE language id. Default 'c'. */
+  /** Source language: one of SUPPORTED_LANGS ('c', 'c++', 'assembly', 'fortran'). Default 'c'. */
   lang?: string;
-  /** Compiler flags. Default '-O2 -march=rv32i -mabi=ilp32'. */
+  /**
+   * Optional entry-label override for WARP-V's crt0 preamble (`call <entry>; beqz a0, pass`).
+   * Omit to auto-detect (`main` for C/C++). Set it to run a non-`main` compute function whose
+   * integer return signals pass (0) / fail (non-0) without a language runtime.
+   */
+  entry?: string;
+  /** Optional compiler-flags override. Defaults to the rv32i flags for `lang` (see LANG_DEFAULTS). */
   options?: string;
   /** Comma-separated CE filter names. Default 'directives,labels,commentOnly'. */
   filters?: string;
@@ -333,7 +388,7 @@ export class CeCompileTool implements vscode.LanguageModelTool<CeCompileToolInpu
     options: vscode.LanguageModelToolInvocationPrepareOptions<CeCompileToolInput>,
     _token: vscode.CancellationToken,
   ): Promise<vscode.PreparedToolInvocation> {
-    const compilerId = options.input.compilerId ?? 'rv32-cgcc1430';
+    const { compilerId } = resolveLangDefaults(options.input.lang ?? DEFAULT_LANG, options.input.compilerId, options.input.options);
     return { invocationMessage: `Compiling via Compiler Explorer (${compilerId})...` };
   }
 
@@ -350,11 +405,14 @@ export class CeCompileTool implements vscode.LanguageModelTool<CeCompileToolInpu
     const ac = new AbortController();
     const sub = token.onCancellationRequested(() => ac.abort());
     try {
+      const lang = input.lang ?? DEFAULT_LANG;
+      const { compilerId, options: userArguments } = resolveLangDefaults(lang, input.compilerId, input.options);
       const result = await compileOnCe({
-        compilerId: input.compilerId ?? 'rv32-cgcc1430',
+        compilerId,
         source: input.source,
-        lang: input.lang ?? 'c',
-        userArguments: input.options ?? '-O2 -march=rv32i -mabi=ilp32',
+        lang,
+        entry: input.entry,
+        userArguments,
         filters: input.filters ?? 'directives,labels,commentOnly',
         ceOrigin: input.ceOrigin,
         signal: ac.signal,

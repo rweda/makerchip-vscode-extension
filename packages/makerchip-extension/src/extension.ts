@@ -24,7 +24,6 @@ import { registerMakerchipTool } from './makerchipTool';
 import { registerMakerchipParticipant } from './makerchipParticipant';
 import { log } from './logger';
 import * as compileCache from './compileCache';
-import type { CompileSource } from './compileCache';
 
 // Default Makerchip server URL
 const DEFAULT_SERVER_URL = 'https://beta.makerchip.com';
@@ -48,7 +47,6 @@ const panelReadyPromises = new Map<string, Promise<void>>();
 // these with guidance to run "Makerchip: Reload Panels" once the server is back.
 // Cleared when a render against a reachable server succeeds.
 const degradedPanels = new Set<string>();
-const pendingCompiles = new Map<string, CompileSource>(); // panelKey -> source (string or {files, top}) while awaiting an ID
 // In-flight callIdeMethodWithResult calls, keyed by requestId. Each entry holds the
 // resolve/reject of the promise handed back to the caller; the matching 'ideResult'/
 // 'ideError' message (or a timeout) settles and removes it. See callIdeMethodWithResult.
@@ -120,16 +118,6 @@ export async function callIDE(method: string, args?: any[], panelName?: string, 
   const panel = panels.get(name);
   if (!panel) {
     throw new Error(`Panel '${name}' not found`);
-  }
-  
-  // Track compile source for cache initialization. The compile argument is
-  // either a plain source string (single file) or a {files, top} payload
-  // (multi-file); capture whichever form was passed.
-  if (method === 'compile' && args && args.length > 0) {
-    const arg = args[0];
-    if (typeof arg === 'string' || (arg && typeof arg === 'object' && arg.files)) {
-      pendingCompiles.set(name, arg as CompileSource);
-    }
   }
   
   const message: Record<string, any> = { type: 'ide', method, args: args || [] };
@@ -762,13 +750,14 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string, isRestore: boo
 
       if (msg.type === 'compileStart') {
         // Server accepted a compile (newcompile). Initialize the cache entry with
-        // the source (captured when the compile was requested) and the expected
-        // output set (sim → waveform, dot → diagram).
+        // the source (announced by the webview, which captured it at the compile call
+        // site) and the expected output set (sim → waveform, dot → diagram).
         log(`Compile started: ${msg.id} (sim=${msg.sim}, dot=${msg.dot})`);
         try {
-          const sourceCode = pendingCompiles.get(panelKey);
-          await compileCache.initCompile(msg.id, sourceCode, { sim: msg.sim, dot: msg.dot });
-          pendingCompiles.delete(panelKey); // Clean up
+          await compileCache.initCompile(msg.id, msg.source, {
+            sim: msg.sim,
+            dot: msg.dot
+          });
         } catch (error) {
           console.error('Failed to initialize compile cache:', error);
         }
@@ -847,7 +836,6 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string, isRestore: boo
       panels.delete(panelKey);
       panelReadyPromises.delete(panelKey);
       degradedPanels.delete(panelKey);
-      pendingCompiles.delete(panelKey);
     });
   });
 }

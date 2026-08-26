@@ -139,15 +139,21 @@ interface CompileFileChunkMessage {
 }
 
 /**
- * Sent when the server accepts a compile (the 'newcompile' event). Carries the
- * compile id and which optional outputs are expected (sim → waveform/vlt_dump.vcd,
- * dot → diagram/graph.svg), so the extension can determine overall completion.
+ * Sent when the server accepts a compile (once it assigns the compile id, delivered
+ * via the platform's onCompilationStart hook). Carries the compile id and which
+ * optional outputs are expected (sim → waveform/vlt_dump.vcd, dot → diagram/graph.svg),
+ * so the extension can determine overall completion.
+ *
+ * Also carries the source that was compiled (captured at the compile call site, so
+ * this covers editor/delivery/extension-initiated compiles uniformly). `source` is a
+ * plain string for single-file compiles or a `{files, top}` payload for multi-file.
  */
 interface CompileStartMessage {
   type: 'compileStart';
   id: string;
   sim: boolean;
   dot: boolean;
+  source?: string | { files: Record<string, string>; top?: string };
 }
 
 interface CompileErrorMessage {
@@ -531,6 +537,25 @@ import(`${serverUrl}/dist/makerchip-plugin.js`).then((module: any) => {
       });
     }
     
+    // Override the platform's compile-start hook to announce each compile to the
+    // extension with the EXACT source that produced it, so the extension can cache
+    // it. Fires for every compile — editor / WARP-V delivery / extension-initiated
+    // alike — because the platform funnels them all through ServerCompile.compile,
+    // which invokes this once the server assigns the id. `source` is forwarded
+    // verbatim in whichever shape compile() received: a plain string (single top
+    // file) or a `{files, top}` multi-file payload (top plus m4_include'd siblings);
+    // the extension's initCompile() splits the latter into top.tlv + src/ siblings,
+    // so extra source files are cached too.
+    onCompilationStart(info: { id: string; source: string | { files: Record<string, string>; top?: string }; sim: boolean; dot: boolean }) {
+      vscode.postMessage({
+        type: 'compileStart',
+        id: info.id,
+        sim: info.sim,
+        dot: info.dot,
+        source: info.source
+      } as CompileStartMessage);
+    }
+
     // Override _setupCompilationListeners to handle all file streams uniformly
     // Note: This uses internal IdePlugin APIs that may change. Fails gracefully if not available.
     _setupCompilationListeners() {
@@ -547,18 +572,6 @@ import(`${serverUrl}/dist/makerchip-plugin.js`).then((module: any) => {
           console.warn('Socket not available - compilation results will not be cached');
           return;
         }
-
-        // The server accepts a compile and reports which outputs it will produce
-        // (sim → waveform, dot → diagram). Forward this first so the extension can
-        // initialize the cache entry and know the expected result set.
-        socket.on("newcompile", (data: { id: string; sim: boolean; dot: boolean }) => {
-          vscode.postMessage({
-            type: 'compileStart',
-            id: data.id,
-            sim: data.sim,
-            dot: data.dot
-          } as CompileStartMessage);
-        });
 
         // Set up listeners for all compilation result files
         this.setupFileStreamListener(socket, "stdall", 'stdall');        // SandPiper logs

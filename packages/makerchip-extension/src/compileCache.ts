@@ -83,8 +83,8 @@ interface FileErrorInfo {
 interface CompileMetadata {
   id: string;
   timestamp: string;
-  sim?: boolean;            // Simulation requested (default true) (from server 'newcompile'). Gates vlt_dump.vcd (waveform).
-  dot?: boolean;            // Diagram requested (default true) (from server 'newcompile'). Gates graph.svg (diagram).
+  sim?: boolean;            // Simulation requested (default true) (from the compile-start hook). Gates vlt_dump.vcd (waveform).
+  dot?: boolean;            // Diagram requested (default true) (from the compile-start hook). Gates graph.svg (diagram).
   fileComplete: Partial<Record<ResultFileName, boolean>>; // true = file fully received OK
   fileError?: Partial<Record<ResultFileName, FileErrorInfo>>; // Per-file error (streamed files may retain partial content; single-payload files have null content)
   fileSkipped?: Partial<Record<ResultFileName, boolean>>; // File won't be produced (upstream failure, or sim/dot disabled)
@@ -109,11 +109,12 @@ interface CompileMetadata {
 
 /**
  * A multi-file compile payload: `files` maps relative path -> contents, and `top`
- * names the entry file within `files`. Mirrors the server-side wire protocol.
+ * names the entry file within `files`. Mirrors the server-side wire protocol, where
+ * `top` is optional and defaults to "top.tlv" (ServerCompile.compile / IdePlugin.compile).
  */
 export interface MultiFileSource {
   files: Record<string, string>;
-  top: string;
+  top?: string;
 }
 
 /** Source of a compile: a single string (top only) or a multi-file payload. */
@@ -217,12 +218,27 @@ const METADATA_BASE_KEEP = 150;   // Keep source/metadata up to 150 entries
 /**
  * Initialize a new compilation in the cache.
  *
- * @param params - sim/dot flags from the server 'newcompile' event, determining
+ * @param params - sim/dot flags from the compile-start hook, determining
  *                 which result files are expected. When a flag is explicitly false,
  *                 the corresponding file is pre-marked skipped.
  */
 export async function initCompile(id: string, sourceCode?: CompileSource, params?: { sim?: boolean; dot?: boolean }): Promise<void> {
   const compileDir = path.join(CACHE_DIR, id);
+
+  // Defensive: a pre-existing entry for this id is an ID collision. This should be
+  // all-but-impossible now that each server's random ID is reflected in its compile IDs,
+  // so it indicates an anomaly (e.g. a counter reset, or two servers that happened to draw
+  // the same ID). Rather than silently merging two unrelated compiles into one directory,
+  // move the old entry aside to <id>_CONFLICT (replacing any prior conflict) for inspection,
+  // and log an error.
+  let exists = false;
+  try { await fs.access(compileDir); exists = true; } catch { /* normal: no prior entry */ }
+  if (exists) {
+    const conflictDir = `${compileDir}_CONFLICT`;
+    console.error(`[compileCache] Compile ID conflict for '${id}'; moving existing entry aside to '${path.basename(conflictDir)}'.`);
+    await fs.rm(conflictDir, { recursive: true, force: true });
+    await fs.rename(compileDir, conflictDir);
+  }
   await fs.mkdir(compileDir, { recursive: true });
 
   // Split the source into the top file contents (always stored as top.tlv at the
@@ -232,9 +248,12 @@ export async function initCompile(id: string, sourceCode?: CompileSource, params
   if (typeof sourceCode === 'string') {
     topContent = sourceCode;
   } else if (sourceCode) {
-    topContent = sourceCode.files[sourceCode.top];
+    // `top` is optional in the compile contract; default it to "top.tlv" exactly as
+    // the server does (ServerCompile.compile: `tlv.top or "top.tlv"`).
+    const top = sourceCode.top ?? 'top.tlv';
+    topContent = sourceCode.files[top];
     for (const [name, content] of Object.entries(sourceCode.files)) {
-      if (name !== sourceCode.top) { siblings[path.basename(name)] = content; }
+      if (name !== top) { siblings[path.basename(name)] = content; }
     }
   }
   const siblingNames = Object.keys(siblings);

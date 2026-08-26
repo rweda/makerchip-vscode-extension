@@ -630,6 +630,17 @@ export class GetVizImageTool implements vscode.LanguageModelTool<GetVizImageInpu
       const { format = 'png', quality = 1.0, panelName, saveToFile, blind, response = 'both' } = options.input;
       log('[GetVizImageTool] Invoked with:', { format, quality, panelName, saveToFile, blind, response });
 
+      // The string "true" is a stringified boolean (a recurring LLM slip), not a real path. Reject
+      // it rather than writing the capture to a file literally named "true"; use boolean true for
+      // an auto-named temp file, or a real path string.
+      if (saveToFile === 'true') {
+        return new vscode.LanguageModelToolResult([
+          new vscode.LanguageModelTextPart(
+            'saveToFile was the string "true"; pass the boolean true for an auto-named temp file, or a real file path string.'
+          )
+        ]);
+      }
+
       const wantImage = response !== 'keyframe';
       const wantKeyframe = response !== 'image';
       const panelInfo = panelName ? ` from panel '${panelName}'` : '';
@@ -2516,6 +2527,137 @@ export class PaneCallTool implements vscode.LanguageModelTool<PaneCallInput> {
   }
 }
 
+// Default mnemonic of the WARP-V configurator pane (opened via makerchip_open_third_party_pane).
+const WARPV_PANE_DEFAULT = 'WARP-V';
+
+// Shared host->pane RPC call to the WARP-V configurator pane. Returns the pane method's result.
+async function callWarpvPane(
+  method: string,
+  args: any[],
+  mnemonic: string | undefined,
+  panelName: string | undefined,
+  timeoutMs: number = 30000
+): Promise<any> {
+  const pane = mnemonic || WARPV_PANE_DEFAULT;
+  return vscode.commands.executeCommand(
+    'makerchip.callIdeMethodWithResult',
+    'callPane',
+    [pane, method, args, timeoutMs],
+    panelName,
+    false,
+    timeoutMs + 5000
+  );
+}
+
+interface WarpvPaneInput {
+  /** Target WARP-V pane mnemonic. Default: `WARP-V`. */
+  mnemonic?: string;
+  /** Optional panel name to target. Default: `default`. */
+  panelName?: string;
+}
+
+/**
+ * Read the WARP-V configurator's current configuration. The returned shape ({ general, pipeline,
+ * programText }) doubles as the schema for set_warpv_config.
+ */
+export class GetWarpvConfigTool implements vscode.LanguageModelTool<WarpvPaneInput> {
+  async prepareInvocation(
+    _options: vscode.LanguageModelToolInvocationPrepareOptions<WarpvPaneInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.PreparedToolInvocation> {
+    return { invocationMessage: 'Reading WARP-V configuration...' };
+  }
+
+  async invoke(
+    options: vscode.LanguageModelToolInvocationOptions<WarpvPaneInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.LanguageModelToolResult> {
+    try {
+      const { mnemonic, panelName } = options.input;
+      const result = await callWarpvPane('getConfig', [], mnemonic, panelName);
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(`WARP-V configuration:\n${JSON.stringify(result, null, 2)}`)
+      ]);
+    } catch (error: any) {
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(`Failed to read WARP-V configuration: ${error.message}`)
+      ]);
+    }
+  }
+}
+
+interface SetWarpvConfigInput extends WarpvPaneInput {
+  /** Top-of-form settings to merge (warpVVersion, isa, depth, custom-program flags, ...). */
+  general?: Record<string, any>;
+  /** Pipeline parameters to merge, keyed by ConfigurationParameter jsonKey. */
+  pipeline?: Record<string, any>;
+  /** The (assembly) program source to set. */
+  programText?: string;
+}
+
+/**
+ * Apply a partial configuration to the WARP-V configurator. Objects shallow-merge; arrays/scalars
+ * replace. Returns { applied, rejected }.
+ */
+export class SetWarpvConfigTool implements vscode.LanguageModelTool<SetWarpvConfigInput> {
+  async prepareInvocation(
+    _options: vscode.LanguageModelToolInvocationPrepareOptions<SetWarpvConfigInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.PreparedToolInvocation> {
+    return { invocationMessage: 'Updating WARP-V configuration...' };
+  }
+
+  async invoke(
+    options: vscode.LanguageModelToolInvocationOptions<SetWarpvConfigInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.LanguageModelToolResult> {
+    try {
+      const { mnemonic, panelName, general, pipeline, programText } = options.input;
+      const patch: Record<string, any> = {};
+      if (general !== undefined) patch.general = general;
+      if (pipeline !== undefined) patch.pipeline = pipeline;
+      if (programText !== undefined) patch.programText = programText;
+      const result = await callWarpvPane('setConfig', [patch], mnemonic, panelName);
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(`WARP-V setConfig result:\n${JSON.stringify(result, null, 2)}`)
+      ]);
+    } catch (error: any) {
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(`Failed to update WARP-V configuration: ${error.message}`)
+      ]);
+    }
+  }
+}
+
+/**
+ * Return the TL-Verilog the WARP-V configurator generates for its current configuration.
+ */
+export class GetWarpvTlvTool implements vscode.LanguageModelTool<WarpvPaneInput> {
+  async prepareInvocation(
+    _options: vscode.LanguageModelToolInvocationPrepareOptions<WarpvPaneInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.PreparedToolInvocation> {
+    return { invocationMessage: 'Generating WARP-V TL-Verilog...' };
+  }
+
+  async invoke(
+    options: vscode.LanguageModelToolInvocationOptions<WarpvPaneInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.LanguageModelToolResult> {
+    try {
+      const { mnemonic, panelName } = options.input;
+      const result = await callWarpvPane('getTlv', [], mnemonic, panelName);
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(typeof result === 'string' ? result : JSON.stringify(result, null, 2))
+      ]);
+    } catch (error: any) {
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(`Failed to generate WARP-V TL-Verilog: ${error.message}`)
+      ]);
+    }
+  }
+}
+
 /**
  * Register the Makerchip tools with the Language Model API
  */
@@ -2643,6 +2785,19 @@ export function registerMakerchipTool(context: vscode.ExtensionContext): void {
   const paneCallTool = vscode.lm.registerTool('makerchip_pane_call', new PaneCallTool());
   log('Pane call tool registered:', !!paneCallTool);
   context.subscriptions.push(paneCallTool);
+
+  // Register the WARP-V configurator get/set/get-TLV tools
+  const getWarpvConfigTool = vscode.lm.registerTool('makerchip_get_warpv_config', new GetWarpvConfigTool());
+  log('Get WARP-V config tool registered:', !!getWarpvConfigTool);
+  context.subscriptions.push(getWarpvConfigTool);
+
+  const setWarpvConfigTool = vscode.lm.registerTool('makerchip_set_warpv_config', new SetWarpvConfigTool());
+  log('Set WARP-V config tool registered:', !!setWarpvConfigTool);
+  context.subscriptions.push(setWarpvConfigTool);
+
+  const getWarpvTlvTool = vscode.lm.registerTool('makerchip_get_warpv_tlv', new GetWarpvTlvTool());
+  log('Get WARP-V TLV tool registered:', !!getWarpvTlvTool);
+  context.subscriptions.push(getWarpvTlvTool);
 
   // Register the headless Compiler Explorer compile tool
   const ceCompileTool = vscode.lm.registerTool('makerchip_ce_compile', new CeCompileTool());
