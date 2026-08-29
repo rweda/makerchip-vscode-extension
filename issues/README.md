@@ -39,4 +39,6 @@ with plain file edits (AI-friendly).
 Trailheads into Git history for removed issue files. Recover full text with
 `git log --follow -- issues/NNN-slug.md`.
 
-- _None yet._
+- 2026-08-28 — `006-tool-gating-and-activation.md` (shipped: activation-graph engine, env holders,
+  `makerchip_enable_tools`, `makerchip_invoke_tool`, and per-tool `when` gating on all 28 gated tools;
+  Phase B pane-awareness dropped. Durable design now lives in `packages/makerchip-extension/src/toolActivation.ts`).

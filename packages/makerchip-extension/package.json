@@ -63,6 +63,11 @@
         "command": "makerchip.reloadPanels",
         "title": "Makerchip: Reload Panels",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "makerchip.releaseAllTools",
+        "title": "Makerchip: Release All LM Tools",
+        "icon": "$(clear-all)"
       }
     ],
     "configuration": {
@@ -143,6 +148,7 @@
     "languageModelTools": [
       {
         "name": "makerchip_compile",
+        "when": "makerchip.enabled.makerchip_compile",
         "displayName": "Compile/Simulate",
         "toolReferenceName": "makerchipCompile",
         "canBeReferencedInPrompt": true,
@@ -189,6 +195,10 @@
               "type": "string",
               "description": "Optional panel name to target. Default: `default`. Use this to open multiple Makerchip panels for different designs or comparisons."
             },
+            "serverUrl": {
+              "type": "string",
+              "description": "Development hook: open the panel against this explicit Makerchip sandhost/server base URL (e.g. `https://beta.makerchip.com`), overriding the normal server resolution (clone tunnel / `makerchip.serverUrl` / default). Only applies when this call CREATES a new panel; the URL is pinned to that panel so reloads keep it. Must be an `https://` origin (webviews require TLS). Use a fresh `panelName` to force a new panel on the desired server. Omit for normal resolution."
+            },
             "waitSeconds": {
               "type": "number",
               "description": "Seconds to wait for the compile to complete before returning (default 30). The tool blocks up to this long and returns a status summary. If still running when the timeout elapses, call `makerchip_wait_compile` with the returned compile ID. Set to 0 to return immediately with just the compile ID."
@@ -202,6 +212,7 @@
       },
       {
         "name": "makerchip_wait_compile",
+        "when": "makerchip.enabled.makerchip_wait_compile",
         "displayName": "Wait for Compile",
         "toolReferenceName": "makerchipWaitCompile",
         "canBeReferencedInPrompt": true,
@@ -236,6 +247,7 @@
       },
       {
         "name": "makerchip_ide_call",
+        "when": "makerchip.enabled.makerchip_ide_call",
         "displayName": "Makerchip IDE Method Call",
         "toolReferenceName": "makerchipIdeCall",
         "canBeReferencedInPrompt": true,
@@ -282,6 +294,7 @@
       },
       {
         "name": "makerchip_emit",
+        "when": "makerchip.enabled.makerchip_emit",
         "displayName": "Emit Makerchip Bus Event",
         "toolReferenceName": "makerchipEmit",
         "canBeReferencedInPrompt": true,
@@ -335,6 +348,7 @@
       },
       {
         "name": "makerchip_pane_call",
+        "when": "makerchip.enabled.makerchip_pane_call",
         "displayName": "Call Makerchip Pane Method",
         "toolReferenceName": "makerchipPaneCall",
         "canBeReferencedInPrompt": true,
@@ -390,6 +404,7 @@
       },
       {
         "name": "makerchip_get_warpv_config",
+        "when": "makerchip.enabled.makerchip_get_warpv_config",
         "displayName": "Get WARP-V Configuration",
         "toolReferenceName": "getWarpvConfig",
         "canBeReferencedInPrompt": true,
@@ -419,6 +434,7 @@
       },
       {
         "name": "makerchip_set_warpv_config",
+        "when": "makerchip.enabled.makerchip_set_warpv_config",
         "displayName": "Set WARP-V Configuration",
         "toolReferenceName": "setWarpvConfig",
         "canBeReferencedInPrompt": true,
@@ -460,6 +476,7 @@
       },
       {
         "name": "makerchip_get_warpv_tlv",
+        "when": "makerchip.enabled.makerchip_get_warpv_tlv",
         "displayName": "Get WARP-V TL-Verilog",
         "toolReferenceName": "getWarpvTlv",
         "canBeReferencedInPrompt": true,
@@ -489,6 +506,7 @@
       },
       {
         "name": "makerchip_ce_compile",
+        "when": "makerchip.enabled.makerchip_ce_compile",
         "displayName": "Compile via Compiler Explorer (headless)",
         "toolReferenceName": "makerchipCeCompile",
         "canBeReferencedInPrompt": true,
@@ -567,6 +585,7 @@
       },
       {
         "name": "makerchip_get_viz_image",
+        "when": "makerchip.enabled.makerchip_get_viz_image",
         "displayName": "Get VIZ Image",
         "toolReferenceName": "makerchipGetVizImage",
         "canBeReferencedInPrompt": true,
@@ -622,6 +641,7 @@
       },
       {
         "name": "makerchip_extract_pdf_figure",
+        "when": "makerchip.enabled.makerchip_extract_pdf_figure",
         "displayName": "Extract PDF Figure (Live Doc)",
         "toolReferenceName": "makerchipExtractPdfFigure",
         "canBeReferencedInPrompt": true,
@@ -685,6 +705,7 @@
       },
       {
         "name": "makerchip_capture_video",
+        "when": "makerchip.enabled.makerchip_capture_video",
         "displayName": "Capture VIZ Video",
         "toolReferenceName": "makerchipCaptureVideo",
         "canBeReferencedInPrompt": true,
@@ -792,6 +813,7 @@
       },
       {
         "name": "makerchip_get_layout_state",
+        "when": "makerchip.enabled.makerchip_get_layout_state",
         "displayName": "Get IDE Layout State",
         "toolReferenceName": "makerchipGetLayoutState",
         "canBeReferencedInPrompt": true,
@@ -818,6 +840,7 @@
       },
       {
         "name": "makerchip_set_layout_state",
+        "when": "makerchip.enabled.makerchip_set_layout_state",
         "displayName": "Set IDE Layout State",
         "toolReferenceName": "makerchipSetLayoutState",
         "canBeReferencedInPrompt": true,
@@ -913,6 +936,7 @@
       },
       {
         "name": "makerchip_get_available_panes",
+        "when": "makerchip.enabled.makerchip_get_available_panes",
         "displayName": "Get Available Panes",
         "toolReferenceName": "makerchipGetAvailablePanes",
         "canBeReferencedInPrompt": true,
@@ -939,6 +963,7 @@
       },
       {
         "name": "makerchip_open_pane",
+        "when": "makerchip.enabled.makerchip_open_pane",
         "displayName": "Open/Activate Pane",
         "toolReferenceName": "makerchipOpenPane",
         "canBeReferencedInPrompt": true,
@@ -976,6 +1001,7 @@
       },
       {
         "name": "makerchip_fit_pane",
+        "when": "makerchip.enabled.makerchip_fit_pane",
         "displayName": "Fit Pane to Content",
         "toolReferenceName": "makerchipFitPane",
         "canBeReferencedInPrompt": true,
@@ -1009,6 +1035,7 @@
       },
       {
         "name": "makerchip_open_third_party_pane",
+        "when": "makerchip.enabled.makerchip_open_third_party_pane",
         "displayName": "Open Third-Party Pane",
         "toolReferenceName": "makerchipOpenThirdPartyPane",
         "canBeReferencedInPrompt": true,
@@ -1114,6 +1141,7 @@
       },
       {
         "name": "makerchip_get_late_reply",
+        "when": "makerchip.enabled.makerchip_get_late_reply",
         "displayName": "Get Late Reply",
         "toolReferenceName": "makerchipGetLateReply",
         "canBeReferencedInPrompt": true,
@@ -1131,6 +1159,7 @@
       },
       {
         "name": "makerchip_get_cycle",
+        "when": "makerchip.enabled.makerchip_get_cycle",
         "displayName": "Get Active Cycle",
         "toolReferenceName": "makerchipGetCycle",
         "canBeReferencedInPrompt": true,
@@ -1159,6 +1188,7 @@
       },
       {
         "name": "makerchip_set_cycle",
+        "when": "makerchip.enabled.makerchip_set_cycle",
         "displayName": "Set Active Cycle",
         "toolReferenceName": "makerchipSetCycle",
         "canBeReferencedInPrompt": true,
@@ -1200,6 +1230,7 @@
       },
       {
         "name": "makerchip_update_play_state",
+        "when": "makerchip.enabled.makerchip_update_play_state",
         "displayName": "Update Play State",
         "toolReferenceName": "makerchipUpdatePlayState",
         "canBeReferencedInPrompt": true,
@@ -1249,6 +1280,7 @@
       },
       {
         "name": "makerchip_highlight",
+        "when": "makerchip.enabled.makerchip_highlight",
         "displayName": "Highlight Entity",
         "toolReferenceName": "makerchipHighlight",
         "canBeReferencedInPrompt": true,
@@ -1289,6 +1321,7 @@
       },
       {
         "name": "makerchip_clear_highlights",
+        "when": "makerchip.enabled.makerchip_clear_highlights",
         "displayName": "Clear All Highlights",
         "toolReferenceName": "makerchipClearHighlights",
         "canBeReferencedInPrompt": true,
@@ -1314,6 +1347,7 @@
       },
       {
         "name": "makerchip_set_dark_mode",
+        "when": "makerchip.enabled.makerchip_set_dark_mode",
         "displayName": "Set Dark Mode",
         "toolReferenceName": "makerchipSetDarkMode",
         "canBeReferencedInPrompt": true,
@@ -1347,6 +1381,7 @@
       },
       {
         "name": "makerchip_set_live_mode",
+        "when": "makerchip.enabled.makerchip_set_live_mode",
         "displayName": "Set Live Mode",
         "toolReferenceName": "makerchipSetLiveMode",
         "canBeReferencedInPrompt": true,
@@ -1388,6 +1423,7 @@
       },
       {
         "name": "makerchip_list_panels",
+        "when": "makerchip.enabled.makerchip_list_panels",
         "displayName": "List Open Panels",
         "toolReferenceName": "makerchipListPanels",
         "canBeReferencedInPrompt": true,
@@ -1407,6 +1443,7 @@
       },
       {
         "name": "makerchip_reload_panels",
+        "when": "makerchip.enabled.makerchip_reload_panels",
         "displayName": "Reload Panels",
         "toolReferenceName": "makerchipReloadPanels",
         "canBeReferencedInPrompt": true,
@@ -1425,6 +1462,70 @@
         "inputSchema": {
           "type": "object",
           "properties": {}
+        }
+      },
+      {
+        "name": "makerchip_invoke_tool",
+        "displayName": "Invoke Makerchip Tool",
+        "toolReferenceName": "makerchipInvokeTool",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(tools)",
+        "userDescription": "Invoke any Makerchip tool by name (a fallback for tools not currently offered).",
+        "modelDescription": "Universal fallback: invoke (or describe) any registered tool by name — including Makerchip tools that are not currently offered to you because their feature set is gated off. Pass the target tool's arguments under `input`. Because this bypasses tool-availability gating, it keeps every Makerchip capability reachable even when it is hidden to save tool slots. Set `describe: true` (optionally with `name`) to fetch a tool's input schema — or, with no `name`, a catalog of all Makerchip tools — so you can construct a valid call first. Refuses to invoke itself. Prefer this for a one-off call to a gated (currently-hidden) tool; if you will use a capability repeatedly across a task, call `makerchip_enable_tools` to offer that whole set directly instead.",
+        "tags": [
+          "makerchip",
+          "meta",
+          "tools",
+          "invoke",
+          "fallback",
+          "advanced"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Name of the target Makerchip tool to invoke (or describe), e.g. 'makerchip_capture_video'. Omit with `describe: true` to list all Makerchip tools."
+            },
+            "input": {
+              "type": "object",
+              "description": "Arguments object forwarded to the target tool. Must match the target tool's own input schema (use `describe` to fetch it)."
+            },
+            "describe": {
+              "type": "boolean",
+              "description": "When true, do not invoke: return the named tool's contract (name, description, inputSchema, tags), or a catalog of all Makerchip tools if `name` is omitted."
+            }
+          }
+        }
+      },
+      {
+        "name": "makerchip_enable_tools",
+        "displayName": "Enable Makerchip Tools",
+        "toolReferenceName": "makerchipEnableTools",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(extensions)",
+        "userDescription": "Activate Makerchip capabilities by activity so only the relevant tools are offered.",
+        "modelDescription": "Activate (or release) Makerchip capabilities so the tools you need are offered without keeping the whole suite enabled (which pressures the request tool cap and can auto-disable tools). Pass a single `target` activity: `base` (compile, run, inspect panels/panes, view VIZ — the everyday essentials), `customize` (open custom third-party panes and wire pane/bus communication), `demo` (manipulate layout, playback, highlighting, dark mode), `video` (capture VIZ videos), `livedoc` (extract PDF figures), `cewarpv` (Compiler Explorer + WARP-V configurator), `dev` (extension-developer helpers). Finer-grained set and tool names are also accepted; pass any unrecognized `target` (e.g. `list`) to get the complete list back. Set `enabled: false` to release. Enables are sticky (they persist and expire after a few days). The always-on `makerchip_enable_tools` and `makerchip_invoke_tool` keep every capability reachable regardless of what is enabled. Rule of thumb: enable an activity when you will use its tools repeatedly (they then appear directly and cheaply for the rest of the conversation); for a single one-off call of an otherwise-hidden tool, prefer `makerchip_invoke_tool` (no lasting tool-set change, so no prompt-cache churn).",
+        "tags": [
+          "makerchip",
+          "meta",
+          "tools",
+          "enable",
+          "activate",
+          "advanced"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "type": "string",
+              "description": "An activity to (de)activate: base, customize, demo, video, livedoc, cewarpv, dev. (Individual set and tool names are also accepted; pass any unrecognized value such as `list` to get the complete accepted list.)"
+            },
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable (default) or release/disable one holder for the target."
+            }
+          }
         }
       }
     ],

@@ -2,10 +2,11 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { log, showOutputChannel } from './logger';
+import { log } from './logger';
 import * as compileCache from './compileCache';
 import { MAKERCHIP_DIR, RESOURCES_DIR } from './populateResources';
 import { CeCompileTool } from './ceCompile';
+import { EnableToolsTool, getToolActivation } from './toolActivation';
 
 interface MakerchipToolInput {
   /**
@@ -37,6 +38,14 @@ interface MakerchipToolInput {
   additionalFiles?: string[];
   /** Optional panel name to target. If not provided, uses the default panel. */
   panelName?: string;
+  /**
+   * Development hook: open the panel against this explicit sandhost/server base URL
+   * (e.g. `https://beta.makerchip.com`), overriding the normal resolution (clone tunnel /
+   * `makerchip.serverUrl` / default). Only applies when a NEW panel is created for this
+   * call; the URL is pinned to the panel so reloads keep it. Must be an `https://` origin
+   * (webviews require TLS). Omit to use the normal server resolution.
+   */
+  serverUrl?: string;
   /**
    * Seconds to wait (in-process) for the compilation to complete before returning.
    * When > 0 (default 30), the tool blocks up to this long and returns a status
@@ -367,7 +376,7 @@ export class MakerchipTool implements vscode.LanguageModelTool<MakerchipToolInpu
     token: vscode.CancellationToken
   ): Promise<vscode.LanguageModelToolResult> {
     try {
-      const { filePath, code, panelName, additionalFiles, oneShot } = options.input;
+      const { filePath, code, panelName, additionalFiles, oneShot, serverUrl } = options.input;
 
       // Determine if we should create a new panel (only if code/filePath/files provided)
       const createIfNeeded = !!(code || filePath || (additionalFiles && additionalFiles.length > 0));
@@ -468,7 +477,9 @@ export class MakerchipTool implements vscode.LanguageModelTool<MakerchipToolInpu
         'compile',
         [compileArg],
         panelName,
-        createIfNeeded
+        createIfNeeded,
+        undefined, // timeoutMs — use the command's default
+        serverUrl
       );
 
       if (!compileId) {
@@ -2661,183 +2672,163 @@ export class GetWarpvTlvTool implements vscode.LanguageModelTool<WarpvPaneInput>
 /**
  * Register the Makerchip tools with the Language Model API
  */
+interface InvokeToolInput {
+  /** Name of the target tool to invoke (or to describe). Omit with `describe` to list all Makerchip tools. */
+  name?: string;
+  /** Arguments object forwarded to the target tool (must match its inputSchema). */
+  input?: any;
+  /**
+   * When true, do not invoke: return the target tool's contract
+   * ({name, description, inputSchema, tags}), or — with no `name` — a catalog of every
+   * Makerchip tool. Use this to discover a gated tool's schema before calling it.
+   */
+  describe?: boolean;
+}
+
+/**
+ * Universal fallback tool: invoke (or describe) any registered Language Model tool by name —
+ * including Makerchip tools that are not currently offered to the model because their activation
+ * set is gated off. `vscode.lm.invokeTool` is not gated by picker/`when` state, so this keeps every
+ * capability reachable even when tool-cap pressure hides it. It can also `describe` a tool (return
+ * its inputSchema) so the model can construct a valid call before invoking.
+ */
+export class InvokeToolTool implements vscode.LanguageModelTool<InvokeToolInput> {
+
+  private makerchipTools(): readonly vscode.LanguageModelToolInformation[] {
+    return vscode.lm.tools.filter(t => t.name.startsWith('makerchip_'));
+  }
+
+  private catalogText(): string {
+    const lines = this.makerchipTools().map(t => `- ${t.name}: ${t.description}`).join('\n');
+    return `Available Makerchip tools:\n${lines}`;
+  }
+
+  async prepareInvocation(
+    options: vscode.LanguageModelToolInvocationPrepareOptions<InvokeToolInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.PreparedToolInvocation> {
+    const { name, describe } = options.input;
+    const target = name ?? 'Makerchip tools';
+    return {
+      invocationMessage: describe ? `Describing '${target}'...` : `Invoking tool '${target}'...`
+    };
+  }
+
+  async invoke(
+    options: vscode.LanguageModelToolInvocationOptions<InvokeToolInput>,
+    token: vscode.CancellationToken
+  ): Promise<vscode.LanguageModelToolResult> {
+    const { name, input, describe } = options.input;
+    const text = (s: string) =>
+      new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(s)]);
+
+    // Describe mode (or a bare call with no name): return schema(s) instead of invoking.
+    if (describe || !name) {
+      if (!name) {
+        return text(
+          (describe ? '' : 'Provide `name` to invoke a tool, or `describe: true` to fetch a schema.\n\n') +
+          this.catalogText()
+        );
+      }
+      const info = vscode.lm.tools.find(t => t.name === name);
+      if (!info) {
+        return text(`Unknown tool '${name}'.\n\n${this.catalogText()}`);
+      }
+      return text(JSON.stringify({
+        name: info.name,
+        description: info.description,
+        inputSchema: info.inputSchema ?? null,
+        tags: info.tags
+      }, null, 2));
+    }
+
+    // Invoke mode.
+    if (name === 'makerchip_invoke_tool') {
+      return text('makerchip_invoke_tool cannot invoke itself. Pass the name of the tool you want to run.');
+    }
+
+    const target = vscode.lm.tools.find(t => t.name === name);
+    if (!target) {
+      return text(`Unknown tool '${name}'.\n\n${this.catalogText()}`);
+    }
+
+    const args = input ?? {};
+
+    // Minimal validation: surface missing required fields (with the schema) before forwarding, so
+    // the model gets an actionable error rather than a cryptic downstream failure.
+    const schema = target.inputSchema as any;
+    const required: string[] = Array.isArray(schema?.required) ? schema.required : [];
+    const missing = required.filter(k => !(args && typeof args === 'object' && k in args));
+    if (missing.length > 0) {
+      return text(
+        `Invalid input for '${name}': missing required field(s): ${missing.join(', ')}.\n` +
+        `Expected input schema:\n${JSON.stringify(target.inputSchema ?? {}, null, 2)}`
+      );
+    }
+
+    try {
+      // invokeTool is not gated by picker/`when` state, so gated tools remain reachable here.
+      return await vscode.lm.invokeTool(
+        name,
+        { input: args, toolInvocationToken: options.toolInvocationToken },
+        token
+      );
+    } catch (error: any) {
+      return text(
+        `Failed to invoke '${name}': ${error?.message ?? String(error)}\n` +
+        `Expected input schema:\n${JSON.stringify(target.inputSchema ?? {}, null, 2)}`
+      );
+    }
+  }
+}
+
 export function registerMakerchipTool(context: vscode.ExtensionContext): void {
-  log('========== Registering Makerchip Tools ==========');
-  log('vscode.lm available:', !!vscode.lm);
-  log('vscode.lm.registerTool available:', !!vscode.lm?.registerTool);
+  // Register each tool through a wrapper that (a) bumps the activity clock on every invocation so
+  // active use keeps enabled tools alive (see toolActivation.ts), and (b) disposes with the
+  // extension. Proxied makerchip_invoke_tool calls dispatch through the same wrapped impl, so they
+  // touch too.
+  let count = 0;
+  const reg = (name: string, tool: vscode.LanguageModelTool<any>): void => {
+    const invoke = tool.invoke.bind(tool);
+    tool.invoke = (options, token) => { getToolActivation()?.touch(); return invoke(options, token); };
+    context.subscriptions.push(vscode.lm.registerTool(name, tool));
+    count++;
+  };
 
-  // Register the basic compile/simulate tool
-  const runTool = vscode.lm.registerTool('makerchip_compile', new MakerchipTool());
-  log('Compile tool registered:', !!runTool);
-  context.subscriptions.push(runTool);
+  reg('makerchip_compile', new MakerchipTool());
+  reg('makerchip_wait_compile', new WaitCompileTool());
+  reg('makerchip_ide_call', new IdeFunctionCallTool());
 
-  // Register the wait-for-compile tool
-  const waitCompileTool = vscode.lm.registerTool('makerchip_wait_compile', new WaitCompileTool());
-  log('Wait compile tool registered:', !!waitCompileTool);
-  context.subscriptions.push(waitCompileTool);
+  reg('makerchip_get_late_reply', new GetLateReplyTool());
+  reg('makerchip_get_viz_image', new GetVizImageTool());
+  reg('makerchip_extract_pdf_figure', new ExtractPdfFigureTool());
+  reg('makerchip_capture_video', new CaptureVideoTool());
 
-  // Register the generic IDE method invocation tool
-  const ideTool = vscode.lm.registerTool('makerchip_ide_call', new IdeFunctionCallTool());
-  log('IDE call tool registered:', !!ideTool);
-  context.subscriptions.push(ideTool);
+  reg('makerchip_get_layout_state', new GetLayoutStateTool());
+  reg('makerchip_set_layout_state', new SetLayoutStateTool());
+  reg('makerchip_get_available_panes', new GetAvailablePanesTool());
+  reg('makerchip_open_pane', new OpenPaneTool());
+  reg('makerchip_fit_pane', new FitPaneTool());
+  reg('makerchip_open_third_party_pane', new OpenThirdPartyPaneTool());
 
-  // Register the late-reply retrieval tool
-  const lateReplyTool = vscode.lm.registerTool('makerchip_get_late_reply', new GetLateReplyTool());
-  log('Late reply tool registered:', !!lateReplyTool);
-  context.subscriptions.push(lateReplyTool);
+  reg('makerchip_get_cycle', new GetCycleTool());
+  reg('makerchip_set_cycle', new SetCycleTool());
+  reg('makerchip_update_play_state', new UpdatePlayStateTool());
+  reg('makerchip_highlight', new HighlightTool());
+  reg('makerchip_clear_highlights', new ClearHighlightsTool());
+  reg('makerchip_set_dark_mode', new SetDarkModeTool());
+  reg('makerchip_set_live_mode', new SetLiveModeTool());
 
-  // Register the VIZ image capture tool
-  const vizImageTool = vscode.lm.registerTool('makerchip_get_viz_image', new GetVizImageTool());
-  log('VIZ image tool registered:', !!vizImageTool);
-  context.subscriptions.push(vizImageTool);
+  reg('makerchip_list_panels', new ListPanelsTool());
+  reg('makerchip_reload_panels', new ReloadPanelsTool());
+  reg('makerchip_emit', new BusEmitTool());
+  reg('makerchip_pane_call', new PaneCallTool());
+  reg('makerchip_get_warpv_config', new GetWarpvConfigTool());
+  reg('makerchip_set_warpv_config', new SetWarpvConfigTool());
+  reg('makerchip_get_warpv_tlv', new GetWarpvTlvTool());
+  reg('makerchip_ce_compile', new CeCompileTool());
+  reg('makerchip_invoke_tool', new InvokeToolTool());
+  reg('makerchip_enable_tools', new EnableToolsTool());
 
-  // Register the PDF figure extraction tool (Live Doc inspection)
-  const extractPdfTool = vscode.lm.registerTool('makerchip_extract_pdf_figure', new ExtractPdfFigureTool());
-  log('Extract PDF figure tool registered:', !!extractPdfTool);
-  context.subscriptions.push(extractPdfTool);
-
-  // Register the VIZ video capture tool
-  const captureVideoTool = vscode.lm.registerTool('makerchip_capture_video', new CaptureVideoTool());
-  log('Capture video tool registered:', !!captureVideoTool);
-  context.subscriptions.push(captureVideoTool);
-
-  // Register the get layout state tool
-  const getLayoutTool = vscode.lm.registerTool('makerchip_get_layout_state', new GetLayoutStateTool());
-  log('Get layout state tool registered:', !!getLayoutTool);
-  context.subscriptions.push(getLayoutTool);
-
-  // Register the set layout state tool
-  const setLayoutTool = vscode.lm.registerTool('makerchip_set_layout_state', new SetLayoutStateTool());
-  log('Set layout state tool registered:', !!setLayoutTool);
-  context.subscriptions.push(setLayoutTool);
-
-  // Register the get available panes tool
-  const availablePanesTool = vscode.lm.registerTool('makerchip_get_available_panes', new GetAvailablePanesTool());
-  log('Get available panes tool registered:', !!availablePanesTool);
-  context.subscriptions.push(availablePanesTool);
-
-  // Register the open pane tool
-  const openPaneTool = vscode.lm.registerTool('makerchip_open_pane', new OpenPaneTool());
-  log('Open pane tool registered:', !!openPaneTool);
-  context.subscriptions.push(openPaneTool);
-
-  // Register the fit pane tool
-  const fitPaneTool = vscode.lm.registerTool('makerchip_fit_pane', new FitPaneTool());
-  log('Fit pane tool registered:', !!fitPaneTool);
-  context.subscriptions.push(fitPaneTool);
-
-  // Register the open third-party pane tool
-  const openThirdPartyPaneTool = vscode.lm.registerTool('makerchip_open_third_party_pane', new OpenThirdPartyPaneTool());
-  log('Open third-party pane tool registered:', !!openThirdPartyPaneTool);
-  context.subscriptions.push(openThirdPartyPaneTool);
-
-  // Register the get cycle tool
-  const getCycleTool = vscode.lm.registerTool('makerchip_get_cycle', new GetCycleTool());
-  log('Get cycle tool registered:', !!getCycleTool);
-  context.subscriptions.push(getCycleTool);
-
-  // Register the set cycle tool
-  const setCycleTool = vscode.lm.registerTool('makerchip_set_cycle', new SetCycleTool());
-  log('Set cycle tool registered:', !!setCycleTool);
-  context.subscriptions.push(setCycleTool);
-
-  // Register the update play state tool
-  const updatePlayStateTool = vscode.lm.registerTool('makerchip_update_play_state', new UpdatePlayStateTool());
-  log('Update play state tool registered:', !!updatePlayStateTool);
-  context.subscriptions.push(updatePlayStateTool);
-
-  // Register the highlight tool
-  const highlightTool = vscode.lm.registerTool('makerchip_highlight', new HighlightTool());
-  log('Highlight tool registered:', !!highlightTool);
-  context.subscriptions.push(highlightTool);
-
-  // Register the clear highlights tool
-  const clearHighlightsTool = vscode.lm.registerTool('makerchip_clear_highlights', new ClearHighlightsTool());
-  log('Clear highlights tool registered:', !!clearHighlightsTool);
-  context.subscriptions.push(clearHighlightsTool);
-
-  // Register the set dark mode tool
-  const setDarkModeTool = vscode.lm.registerTool('makerchip_set_dark_mode', new SetDarkModeTool());
-  log('Set dark mode tool registered:', !!setDarkModeTool);
-  context.subscriptions.push(setDarkModeTool);
-
-  // Register the set live mode tool
-  const setLiveModeTool = vscode.lm.registerTool('makerchip_set_live_mode', new SetLiveModeTool());
-  log('Set live mode tool registered:', !!setLiveModeTool);
-  context.subscriptions.push(setLiveModeTool);
-
-  // Register the list panels tool
-  const listPanelsTool = vscode.lm.registerTool('makerchip_list_panels', new ListPanelsTool());
-  log('List panels tool registered:', !!listPanelsTool);
-  context.subscriptions.push(listPanelsTool);
-
-  // Register the reload panels tool
-  const reloadPanelsTool = vscode.lm.registerTool('makerchip_reload_panels', new ReloadPanelsTool());
-  log('Reload panels tool registered:', !!reloadPanelsTool);
-  context.subscriptions.push(reloadPanelsTool);
-
-  // Register the application-bus emit tool
-  const busEmitTool = vscode.lm.registerTool('makerchip_emit', new BusEmitTool());
-  log('Bus emit tool registered:', !!busEmitTool);
-  context.subscriptions.push(busEmitTool);
-
-  // Register the pane-call (host->pane RPC) tool
-  const paneCallTool = vscode.lm.registerTool('makerchip_pane_call', new PaneCallTool());
-  log('Pane call tool registered:', !!paneCallTool);
-  context.subscriptions.push(paneCallTool);
-
-  // Register the WARP-V configurator get/set/get-TLV tools
-  const getWarpvConfigTool = vscode.lm.registerTool('makerchip_get_warpv_config', new GetWarpvConfigTool());
-  log('Get WARP-V config tool registered:', !!getWarpvConfigTool);
-  context.subscriptions.push(getWarpvConfigTool);
-
-  const setWarpvConfigTool = vscode.lm.registerTool('makerchip_set_warpv_config', new SetWarpvConfigTool());
-  log('Set WARP-V config tool registered:', !!setWarpvConfigTool);
-  context.subscriptions.push(setWarpvConfigTool);
-
-  const getWarpvTlvTool = vscode.lm.registerTool('makerchip_get_warpv_tlv', new GetWarpvTlvTool());
-  log('Get WARP-V TLV tool registered:', !!getWarpvTlvTool);
-  context.subscriptions.push(getWarpvTlvTool);
-
-  // Register the headless Compiler Explorer compile tool
-  const ceCompileTool = vscode.lm.registerTool('makerchip_ce_compile', new CeCompileTool());
-  log('CE compile tool registered:', !!ceCompileTool);
-  context.subscriptions.push(ceCompileTool);
-
-  // Verify tools are in the list
-  setTimeout(() => {
-    log('All registered tools:', vscode.lm.tools.map(t => t.name));
-    const ourRunTool = vscode.lm.tools.find(t => t.name === 'makerchip_compile');
-    const ourIdeTool = vscode.lm.tools.find(t => t.name === 'makerchip_ide_call');
-    const ourVizImageTool = vscode.lm.tools.find(t => t.name === 'makerchip_get_viz_image');
-    const ourCaptureVideoTool = vscode.lm.tools.find(t => t.name === 'makerchip_capture_video');
-    const ourGetLayoutTool = vscode.lm.tools.find(t => t.name === 'makerchip_get_layout_state');
-    const ourSetLayoutTool = vscode.lm.tools.find(t => t.name === 'makerchip_set_layout_state');
-    const ourAvailablePanesTool = vscode.lm.tools.find(t => t.name === 'makerchip_get_available_panes');
-    const ourOpenPaneTool = vscode.lm.tools.find(t => t.name === 'makerchip_open_pane');
-    const ourOpenThirdPartyPaneTool = vscode.lm.tools.find(t => t.name === 'makerchip_open_third_party_pane');
-    const ourGetCycleTool = vscode.lm.tools.find(t => t.name === 'makerchip_get_cycle');
-    const ourSetCycleTool = vscode.lm.tools.find(t => t.name === 'makerchip_set_cycle');
-    const ourUpdatePlayStateTool = vscode.lm.tools.find(t => t.name === 'makerchip_update_play_state');
-    const ourHighlightTool = vscode.lm.tools.find(t => t.name === 'makerchip_highlight');
-    const ourClearHighlightsTool = vscode.lm.tools.find(t => t.name === 'makerchip_clear_highlights');
-    const ourListPanelsTool = vscode.lm.tools.find(t => t.name === 'makerchip_list_panels');
-    log('Found our compile tool:', !!ourRunTool);
-    log('Found our IDE tool:', !!ourIdeTool);
-    log('Found our VIZ image tool:', !!ourVizImageTool);
-    log('Found our capture video tool:', !!ourCaptureVideoTool);
-    log('Found our get layout state tool:', !!ourGetLayoutTool);
-    log('Found our set layout state tool:', !!ourSetLayoutTool);
-    log('Found our get available panes tool:', !!ourAvailablePanesTool);
-    log('Found our open pane tool:', !!ourOpenPaneTool);
-    log('Found our open third-party pane tool:', !!ourOpenThirdPartyPaneTool);
-    log('Found our get cycle tool:', !!ourGetCycleTool);
-    log('Found our set cycle tool:', !!ourSetCycleTool);
-    log('Found our update play state tool:', !!ourUpdatePlayStateTool);
-    log('Found our highlight tool:', !!ourHighlightTool);
-    log('Found our clear highlights tool:', !!ourClearHighlightsTool);
-    log('Found our list panels tool:', !!ourListPanelsTool);
-
-    showOutputChannel(); // Show output channel on startup
-  }, 1000);
+  log(`All ${count} Makerchip extension tools registered.`);
 }

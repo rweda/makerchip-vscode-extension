@@ -21,6 +21,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { initializeResources, updateResources } from './resourceManager';
 import { registerMakerchipTool } from './makerchipTool';
+import { initToolActivation, getToolActivation } from './toolActivation';
 import { registerMakerchipParticipant } from './makerchipParticipant';
 import { log } from './logger';
 import * as compileCache from './compileCache';
@@ -41,6 +42,12 @@ const SERVER_PROBE_TIMEOUT_MS = 5_000;
 // Track multiple panels by name
 const panels = new Map<string, vscode.WebviewPanel>();
 const panelReadyPromises = new Map<string, Promise<void>>();
+// Explicit server/sandhost URL pinned to a panel when it was opened (the
+// imperative "open this panel against this server" hook, e.g. makerchip_compile's
+// `serverUrl`). Consulted first by getServerUrl() so the panel — and any later
+// reloadPanels of it — stays on the URL it was opened with, overriding tunnel /
+// config resolution. Set on open, removed on dispose.
+const panelServerUrlOverrides = new Map<string, string>();
 // Panels whose server was unreachable at their last render attempt. Such a panel
 // stays open (as a placeholder on restore, or on its stale content after a
 // failed reloadPanels) but cannot serve IDE calls; ensurePanelReady rejects for
@@ -65,9 +72,12 @@ let context: vscode.ExtensionContext;
  * Ensure a Makerchip panel is open and ready to receive messages.
  * @param name Optional panel name. If not provided, uses 'default' for single-panel usage.
  * @param createIfNeeded If true, creates a new panel if it doesn't exist. If false, throws error.
+ * @param serverUrl Optional explicit server/sandhost URL to open a NEW panel against
+ *   (the imperative open-time hook). Ignored when the panel already exists; pin it
+ *   at creation and reloadPanels keeps it. No effect unless createIfNeeded.
  * @returns Promise that resolves when panel is ready
  */
-async function ensurePanelReady(name?: string, createIfNeeded: boolean = false): Promise<void> {
+async function ensurePanelReady(name?: string, createIfNeeded: boolean = false, serverUrl?: string): Promise<void> {
   const panelKey = name || 'default';
 
   if (degradedPanels.has(panelKey)) {
@@ -99,7 +109,7 @@ async function ensurePanelReady(name?: string, createIfNeeded: boolean = false):
   }
   
   // Open new panel and track the ready promise
-  const readyPromise = openMakerchipPanel(panelKey);
+  const readyPromise = openMakerchipPanel(panelKey, serverUrl);
   panelReadyPromises.set(panelKey, readyPromise);
   return readyPromise;
 }
@@ -111,10 +121,12 @@ async function ensurePanelReady(name?: string, createIfNeeded: boolean = false):
  * @param panelName Optional panel name to target. Defaults to 'default'.
  * @param createIfNeeded If true, creates panel if it doesn't exist. Default false.
  * @param requestId Optional request ID; when provided, the IDE will echo it back in its reply.
+ * @param serverUrl Optional explicit server/sandhost URL to open a NEW panel against
+ *   (open-time hook; ignored if the panel already exists).
  */
-export async function callIDE(method: string, args?: any[], panelName?: string, createIfNeeded: boolean = false, requestId?: string): Promise<void> {
+export async function callIDE(method: string, args?: any[], panelName?: string, createIfNeeded: boolean = false, requestId?: string, serverUrl?: string): Promise<void> {
   const name = panelName || 'default';
-  await ensurePanelReady(name, createIfNeeded);
+  await ensurePanelReady(name, createIfNeeded, serverUrl);
   const panel = panels.get(name);
   if (!panel) {
     throw new Error(`Panel '${name}' not found`);
@@ -133,6 +145,29 @@ export async function callIDE(method: string, args?: any[], panelName?: string, 
 export function activate(ctx: vscode.ExtensionContext) {
   context = ctx;  // Store context globally
   log('Makerchip extension activating...');
+
+  // Activation graph (see toolActivation.ts): gates tool availability so the Makerchip suite doesn't
+  // pressure the request tool cap. Must init before any env signal or the enable tool is used.
+  initToolActivation(context);
+
+  // Environmental holder: base tools auto-activate when the workspace contains any .tlv file.
+  const refreshTlvSignal = async () => {
+    const found = await vscode.workspace.findFiles('**/*.tlv', undefined, 1);
+    getToolActivation()?.setEnv('base', 'tlvFileExists', found.length > 0);
+  };
+  refreshTlvSignal();
+  const tlvWatcher = vscode.workspace.createFileSystemWatcher('**/*.tlv');
+  tlvWatcher.onDidCreate(refreshTlvSignal);
+  tlvWatcher.onDidDelete(refreshTlvSignal);
+  context.subscriptions.push(tlvWatcher);
+
+  // Explicit escape hatch: release everything the agent activated (env holders stay live).
+  context.subscriptions.push(
+    vscode.commands.registerCommand('makerchip.releaseAllTools', () => {
+      getToolActivation()?.releaseAll();
+      vscode.window.showInformationMessage('Makerchip: released all activated tool sets.');
+    })
+  );
   
   // Log server configuration on startup
   getServerUrl().then(url => {
@@ -324,7 +359,7 @@ export function activate(ctx: vscode.ExtensionContext) {
   //   4. A timeout rejects and removes the entry if no reply arrives, so a lost or hung
   //      reply neither leaks a map entry nor hangs the caller forever.
   context.subscriptions.push(
-    vscode.commands.registerCommand('makerchip.callIdeMethodWithResult', async (method: string, args: any[] = [], panelName?: string, createIfNeeded: boolean = false, timeoutMs: number = 10000): Promise<any> => {
+    vscode.commands.registerCommand('makerchip.callIdeMethodWithResult', async (method: string, args: any[] = [], panelName?: string, createIfNeeded: boolean = false, timeoutMs: number = 10000, serverUrl?: string): Promise<any> => {
       const requestId = `req_${++requestCounter}`;
       const resultPromise = new Promise<any>((resolve, reject) => {
         // Step 1: register the callbacks before the call is posted (step 2 below) so the
@@ -344,7 +379,7 @@ export function activate(ctx: vscode.ExtensionContext) {
 
       // Step 2: post the call. callIDE is the single posting site (it also tracks compile
       // source); the requestId travels with the message for the webview to echo back.
-      await callIDE(method, args, panelName, createIfNeeded, requestId);
+      await callIDE(method, args, panelName, createIfNeeded, requestId, serverUrl);
 
       // Settled later by the 'ideResult'/'ideError' handler (step 3) or the timeout (step 4).
       return resultPromise;
@@ -457,9 +492,15 @@ export function activate(ctx: vscode.ExtensionContext) {
 /**
  * Open a new Makerchip webview panel and initialize it with the IDE.
  * @param panelKey Unique identifier for this panel instance
+ * @param serverUrl Optional explicit server/sandhost URL to pin this panel to
+ *   (the open-time hook). When given, it is recorded so getServerUrl() — and any
+ *   later reloadPanels of this panel — resolve to it, overriding tunnel/config.
  * @returns Promise that resolves when the IDE is ready
  */
-async function openMakerchipPanel(panelKey: string): Promise<void> {
+async function openMakerchipPanel(panelKey: string, serverUrl?: string): Promise<void> {
+  if (serverUrl) {
+    panelServerUrlOverrides.set(panelKey, serverUrl);
+  }
   const displayName = panelKey === 'default' ? 'Makerchip IDE' : `Makerchip: ${panelKey}`;
   const panel = vscode.window.createWebviewPanel(
     'makerchip', displayName,
@@ -622,6 +663,8 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string, isRestore: boo
 
     // Store panel in map
     panels.set(panelKey, panel);
+    // Environmental holder: base tools auto-activate while any Makerchip panel is open.
+    getToolActivation()?.setEnv('base', 'panelOpen', panels.size > 0);
 
     // Get server URL - required, no default fallback. Pass panelKey so a
     // per-panel dev override (makerchip.devServerUrls) can apply.
@@ -834,8 +877,10 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string, isRestore: boo
         reject(new Error(`Makerchip panel '${panelKey}' was closed before it became ready.`));
       }
       panels.delete(panelKey);
+      getToolActivation()?.setEnv('base', 'panelOpen', panels.size > 0);
       panelReadyPromises.delete(panelKey);
       degradedPanels.delete(panelKey);
+      panelServerUrlOverrides.delete(panelKey);
     });
   });
 }
@@ -894,7 +939,18 @@ function readTunnelUrl(file: string): string | undefined {
  * @param panelKey Panel name whose dev override (priority 0) should apply, if any.
  */
 async function getServerUrl(panelKey?: string): Promise<string> {
-  // 0. Per-panel dev override (highest priority), keyed by panel name.
+  // 0. Imperative per-panel server pinned at open time (makerchip_compile's
+  //    `serverUrl` hook). Highest priority so the panel and its reloads stay on
+  //    the URL it was opened with.
+  if (panelKey) {
+    const pinned = panelServerUrlOverrides.get(panelKey);
+    if (pinned) {
+      log(`Using server URL pinned to panel '${panelKey}' at open: ${pinned}`);
+      return pinned;
+    }
+  }
+
+  // 0b. Per-panel dev override from configuration (makerchip.devServerUrls), keyed by panel name.
   if (panelKey) {
     const overrides = vscode.workspace.getConfiguration('makerchip').get<Record<string, string>>('devServerUrls') ?? {};
     const override = overrides[panelKey];
