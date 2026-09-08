@@ -1541,7 +1541,7 @@
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./ && tsc -p src/tsconfig.webview.json && npm run copy-webview",
-    "copy-webview": "cp src/webview.html out/webview.html",
+    "copy-webview": "shx mkdir -p out && shx cp src/webview.html out/webview.html",
     "watch": "npm run copy-webview && (npm run watch:main & npm run watch:webview & npm run watch:html & wait)",
     "watch:main": "tsc -watch -p ./",
     "watch:webview": "tsc -watch -p src/tsconfig.webview.json",

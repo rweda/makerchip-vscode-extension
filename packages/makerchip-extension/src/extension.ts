@@ -132,7 +132,25 @@ export async function callIDE(method: string, args?: any[], panelName?: string, 
     throw new Error(`Panel '${name}' not found`);
   }
   
-  const message: Record<string, any> = { type: 'ide', method, args: args || [] };
+  const compileArgs = args || [];
+  if (method === 'compile' && compileArgs.length > 0) {
+    const source = compileArgs[0];
+    if (typeof source === 'string') {
+      compileArgs[0] = source.replace(/\r\n?/g, '\n');
+    } else if (source && typeof source === 'object' && source.files) {
+      compileArgs[0] = {
+        ...source,
+        files: Object.fromEntries(
+          Object.entries(source.files).map(([name, content]) => [
+            name,
+            typeof content === 'string' ? content.replace(/\r\n?/g, '\n') : content
+          ])
+        )
+      };
+    }
+  }
+
+  const message: Record<string, any> = { type: 'ide', method, args: compileArgs };
   if (requestId !== undefined) { message.requestId = requestId; }
   panel.webview.postMessage(message);
 }
