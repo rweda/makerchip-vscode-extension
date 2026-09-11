@@ -1,13 +1,13 @@
 /**
  * Makerchip VS Code Extension - Main activation module
- * 
+ *
  * Provides TL-Verilog development support with:
  *   - Makerchip IDE integration via webview panel(s)
  *   - GitHub Copilot Language Model tools (makerchip_compile, makerchip_ide_call)
  *   - Chat participant (@makerchip)
  *   - Reference data management (clones docs/examples to ~/.vscode-makerchip/resources/)
  *   - Compilation cache (stores results in ~/.vscode-makerchip/compile-cache/)
- * 
+ *
  * Architecture:
  *   - Global context/panel state for clean API
  *   - Multiple named panels supported
@@ -65,7 +65,6 @@ const pendingIdeResults = new Map<string, {resolve: (result: any) => void, rejec
 let lastLateReply: {requestId: string, method: string, kind: 'result' | 'error', value: any, timestamp: number} | null = null;
 let panelCounter = 1;
 let requestCounter = 0;
-let statusBarItem: vscode.StatusBarItem;
 let context: vscode.ExtensionContext;
 
 /**
@@ -94,20 +93,20 @@ async function ensurePanelReady(name?: string, createIfNeeded: boolean = false, 
     // Panel is already open or opening - wait for it
     return panelReadyPromises.get(panelKey)!;
   }
-  
+
   if (panels.has(panelKey)) {
     // Panel exists but ready promise was cleared - just reveal it
     panels.get(panelKey)!.reveal(vscode.ViewColumn.Beside, true);
     return Promise.resolve();
   }
-  
+
   // Panel doesn't exist
   if (!createIfNeeded) {
     const availablePanels = Array.from(panels.keys());
     const panelList = availablePanels.length > 0 ? availablePanels.join(', ') : 'none';
     throw new Error(`Makerchip panel '${panelKey}' is not open. Available panels: ${panelList}. Use makerchip_compile to open a new panel.`);
   }
-  
+
   // Open new panel and track the ready promise
   const readyPromise = openMakerchipPanel(panelKey, serverUrl);
   panelReadyPromises.set(panelKey, readyPromise);
@@ -131,7 +130,7 @@ export async function callIDE(method: string, args?: any[], panelName?: string, 
   if (!panel) {
     throw new Error(`Panel '${name}' not found`);
   }
-  
+
   const message: Record<string, any> = { type: 'ide', method, args: args || [] };
   if (requestId !== undefined) { message.requestId = requestId; }
   panel.webview.postMessage(message);
@@ -168,14 +167,14 @@ export function activate(ctx: vscode.ExtensionContext) {
       vscode.window.showInformationMessage('Makerchip: released all activated tool sets.');
     })
   );
-  
+
   // Log server configuration on startup
   getServerUrl().then(url => {
     log(`Makerchip Server: ${url}`);
   }).catch(error => {
     log(`⚠ Makerchip server not configured. Panels will not open.`);
   });
-  
+
   // Register Language Model tool for Copilot (automatic invocation)
   // Both declarative (package.json) and programmatic registration are required
   try {
@@ -225,14 +224,6 @@ export function activate(ctx: vscode.ExtensionContext) {
       }
     })
   );
-
-  // STATUS BAR BUTTON
-  statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-  statusBarItem.text = "$(circuit-board) Compile/Simulate";
-  statusBarItem.command = 'makerchip.compile';
-  statusBarItem.tooltip = 'Compile and simulate current file in Makerchip';
-  statusBarItem.show();
-  context.subscriptions.push(statusBarItem);
 
   // COMPILE/SIMULATE COMMAND (uses default panel)
   context.subscriptions.push(
@@ -427,7 +418,7 @@ export function activate(ctx: vscode.ExtensionContext) {
           return null;
         }
       });
-      
+
       if (id) {
         await callIDE('highlight', [id.trim(), false]);
         vscode.window.showInformationMessage(`Highlighted: ${id.trim()}`);
@@ -483,6 +474,24 @@ export function activate(ctx: vscode.ExtensionContext) {
       const serverUrl = await getServerUrl();
       log(`Reloaded ${reloaded.length} panel(s)${failed.length ? `, skipped ${failed.length} unreachable` : ''}`);
       return { serverUrl, panels: reloaded };
+    })
+  );
+
+  // FETCH INTERMEDIATE FILES COMMAND
+  //
+  // Pull a compile's announced SandPiper intermediate/output files (top.m4.pre, top.m4,
+  // top.sv, top_gen.sv) from the server's results route into the compile's cache dir, so
+  // agents can read the emitted (System)Verilog locally. Kept here (not in compileCache)
+  // so the server URL resolves via getServerUrl(), honoring any per-panel override.
+  // Backs the makerchip_compile / makerchip_wait_compile `fetchIntermediateFiles` option.
+  context.subscriptions.push(
+    vscode.commands.registerCommand('makerchip.fetchIntermediateFiles', async (compileId: string, panelName?: string) => {
+      // Resolve the server the compile ran on. When the caller doesn't name a panel, fall back to
+      // the panel recorded in the compile's metadata (initCompile), so intermediate files can be
+      // fetched for any prior compile without a caller-supplied panel argument.
+      const key = panelName ?? (await compileCache.loadMetadata(compileId))?.panelName ?? undefined;
+      const url = await getServerUrl(key);
+      return await compileCache.fetchIntermediateFiles(compileId, url);
     })
   );
 
@@ -734,7 +743,7 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string, isRestore: boo
       if (msg.type !== 'compileFileChunk') {
         log(`[webview → extension] ${msg.type}`);
       }
-      
+
       if (msg.type === 'ready') {
         log(`✓ Connected to ${serverUrl}`);
         settleResolve();   // 🔹 resolve when IDE is ready
@@ -745,11 +754,11 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string, isRestore: boo
         // waiting for the ready timeout.
         settleReject(new Error(`Makerchip webview failed to initialize: ${msg.error}`));
       }
-      
+
       if (msg.type === 'notification') {
         // Generic notification message (info/warning/error)
         log(`[${msg.severity.toUpperCase()}] ${msg.message}`);
-        
+
         if (msg.severity === 'error') {
           vscode.window.showErrorMessage(msg.message);
         } else if (msg.severity === 'warning') {
@@ -758,7 +767,7 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string, isRestore: boo
           vscode.window.showInformationMessage(msg.message);
         }
       }
-      
+
       if (msg.type === 'ideResult') {
         // Step 3 of callIdeMethodWithResult (success): match this reply to the promise registered by
         // callIdeMethodWithResult via its requestId, then resolve and unregister it.
@@ -775,7 +784,7 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string, isRestore: boo
         // Note: the cache entry for a compile is initialized from the server's
         // 'compileStart' (newcompile) event, which also reports sim/dot.
       }
-      
+
       if (msg.type === 'ideError') {
         console.error(`[ideError] ${msg.method}: ${msg.error}`);
         // Step 3 of callIdeMethodWithResult (failure): mirror the ideResult path — match by requestId and reject.
@@ -799,7 +808,8 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string, isRestore: boo
         try {
           await compileCache.initCompile(msg.id, msg.source, {
             sim: msg.sim,
-            dot: msg.dot
+            dot: msg.dot,
+            panelName: panelKey
           });
         } catch (error) {
           console.error('Failed to initialize compile cache:', error);
@@ -818,7 +828,7 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string, isRestore: boo
           console.error(`Failed to cache ${msg.fileName} chunk:`, error);
         }
       }
-      
+
       if (msg.type === 'compileError') {
         // Record compilation error against the specific file (or compilation level
         // for a SandPiper-stage failure).
@@ -829,7 +839,7 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string, isRestore: boo
           console.error('Failed to record compile error:', error);
         }
       }
-      
+
       if (msg.type === 'compileExitStatus') {
         // Record exit status from compilation stage
         log(`${msg.stage} exit: ${msg.exitCode}`);
@@ -839,7 +849,7 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string, isRestore: boo
           console.error('Failed to record exit status:', error);
         }
       }
-      
+
       if (msg.type === 'compileDenied') {
         // Show denial message to user
         log(`Compilation denied: ${msg.reason}`);
@@ -859,6 +869,7 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string, isRestore: boo
             available: data.available,
             files: data.files,
             exitStatus: data.exitStatus,
+            sandpiperFailed: data.sandpiperFailed,
             source: data.source
           });
         } catch (error) {
@@ -868,7 +879,7 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string, isRestore: boo
       }
     });
 
-    panel.onDidDispose(() => { 
+    panel.onDidDispose(() => {
       clearReadyTimeout();
       // If the panel is closed before it ever became ready, reject any pending
       // waiter so it doesn't hang.
@@ -985,7 +996,7 @@ async function getServerUrl(panelKey?: string): Promise<string> {
     log(`Using server URL from configuration: ${configUrl}`);
     return configUrl;
   }
-  
+
   // 4. Use default
   log(`Using default server URL: ${DEFAULT_SERVER_URL}`);
   return DEFAULT_SERVER_URL;

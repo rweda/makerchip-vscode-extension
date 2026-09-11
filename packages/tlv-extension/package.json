@@ -47,8 +47,8 @@
 				},
 				"tlverilog.experimentalFeatures": {
 					"type": "boolean",
-					"default": true,
-					"description": "Enable experimental TL-Verilog toolbar buttons (SandPiper SaaS compile, Diagram, Nav-TLV, and Waveform). These call the Makerchip SandPiper SaaS service and/or require local tools (Verilator, GTKWave). Intended for testing; may be disabled for shipped builds."
+					"default": false,
+					"description": "Enable the experimental TL-Verilog Waveform toolbar button. It requires local tools (Verilator, GTKWave). Intended for testing; may be disabled for shipped builds."
 				}
 			}
 		},

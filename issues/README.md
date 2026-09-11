@@ -33,6 +33,7 @@ with plain file edits (AI-friendly).
 - [003 — Associate a compiled file with its Makerchip panel and reuse it](003-associate-file-with-makerchip-panel.md)
 - [004 — Transfer programs/settings into the CE UI pane (in-place, no reload)](004-ce-ui-config-transfer.md)
 - [005 — Headless CE-API compile path (no CE pane)](005-headless-ce-api-compile.md)
+- [007 — Serve and announce compile include files](007-serve-announce-include-files.md)
 
 ## Closed
 

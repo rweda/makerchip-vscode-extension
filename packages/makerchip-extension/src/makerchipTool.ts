@@ -62,6 +62,29 @@ interface MakerchipToolInput {
    * the diagram (e.g. before capturing it or ensuring IDE shows it).
    */
   waitForDiagram?: boolean;
+  /**
+   * A `compile` option, forwarded in the plugin's `compile(code, opts, settings)` `opts` object:
+   * whether to run the Verilator simulation after Verilog generation (default true). Pass false
+   * for a faster Verilog-only (model) run — the diagram and emitted (System)Verilog are still
+   * produced, but no waveform (vlt_dump.vcd) is generated.
+   */
+  sim?: boolean;
+  /**
+   * A `compile` option, forwarded in the plugin's `compile(code, opts, settings)` `opts` object:
+   * whether to generate the diagram/SVG (default true). No other results are affected.
+   * The IDE's diagram pane shows no-result status.
+   * Note: If more options are added to `opts`, consider exposing `opts` (with `sim`/`dot` inside).
+   */
+  dot?: boolean;
+  /**
+   * After the compile settles, fetch its SandPiper intermediate/output files (top.m4.pre,
+   * top.m4, top.sv, top_gen.sv) from the server into the compile's cache dir so the emitted
+   * M5 output and (System)Verilog can be read locally, and report their paths. Only fetched
+   * when the compile completes within this call's wait (`waitSeconds` > 0 and not timed out);
+   * otherwise use `makerchip_wait_compile` with the same option once it finishes. The files
+   * are always announced (with cache paths and descriptions) in metadata.json regardless.
+   */
+  fetchIntermediateFiles?: boolean;
 }
 
 interface IdeFunctionCallInput {
@@ -327,6 +350,39 @@ async function formatCompileStatus(compileId: string, timedOut: boolean, waitedF
   return lines.join('\n');
 }
 
+/**
+ * Fetch a compile's announced SandPiper intermediate/output files into its cache dir (via the
+ * `makerchip.fetchIntermediateFiles` command, which resolves the server URL) and return a short
+ * markdown summary listing each file's local cache path (or that it was absent). Optional files
+ * (e.g. top_gen.sv when generation is inlined) that 404 are reported as not produced.
+ */
+async function fetchAndSummarizeIntermediateFiles(compileId: string, panelName?: string): Promise<string> {
+  type Info = { description: string; url: string; optional?: boolean; cached?: boolean };
+  let files: Record<string, Info> | undefined;
+  try {
+    files = await vscode.commands.executeCommand<Record<string, Info> | undefined>(
+      'makerchip.fetchIntermediateFiles',
+      compileId,
+      panelName
+    );
+  } catch (error: any) {
+    return `\n\n**Intermediate files:** fetch failed: ${error?.message ?? error}`;
+  }
+  if (!files || Object.keys(files).length === 0) {
+    return `\n\n**Intermediate files:** none announced for this compile.`;
+  }
+  const cacheDir = compileCache.getCompileDir(compileId);
+  const lines = ['\n\n**Intermediate files** (fetched into the cache dir):'];
+  for (const [name, info] of Object.entries(files)) {
+    if (info.cached) {
+      lines.push(`- \`${path.join(cacheDir, name)}\` — ${info.description}`);
+    } else {
+      lines.push(`- ${name} — not produced${info.optional ? ' (optional)' : ''}. ${info.description}`);
+    }
+  }
+  return lines.join('\n');
+}
+
 /** Path to the bundled minimal scratch design deployed by `populateResources`. */
 const MINIMAL_SCRATCH_PATH = path.join(RESOURCES_DIR, 'minimal.tlv');
 
@@ -472,10 +528,18 @@ export class MakerchipTool implements vscode.LanguageModelTool<MakerchipToolInpu
         multiFileInfo = ` (+${additionalFiles.length} additional file(s))`;
       }
 
+      // The plugin's `compile(code, opts, settings)` takes an `opts` object. Build it from the agent's
+      // compile options. Any future sanitization or verification (e.g. dropping unknown keys or clamping values)
+      // belongs here. `settings` (the user's session
+      // settings) is not currently supplied by the agent, so it is left to the plugin's default.
+      const opts: { sim?: boolean; dot?: boolean } = {};
+      if (options.input.sim !== undefined) opts.sim = options.input.sim;
+      if (options.input.dot !== undefined) opts.dot = options.input.dot;
+
       const compileId = await vscode.commands.executeCommand<string>(
         'makerchip.callIdeMethodWithResult',
         'compile',
-        [compileArg],
+        [compileArg, opts],
         panelName,
         createIfNeeded,
         undefined, // timeoutMs — use the command's default
@@ -511,6 +575,17 @@ export class MakerchipTool implements vscode.LanguageModelTool<MakerchipToolInpu
         );
         resultMessage = `Compilation of ${fileName}${multiFileInfo}${panelInfo}\n\n`;
         resultMessage += await formatCompileStatus(compileId, timedOut, waitForDiagram);
+        // Intermediate files only exist once the compile has settled; skip the fetch (with a
+        // pointer to makerchip_wait_compile) if it's still running. panelName is the compile
+        // target, so the fetch resolves the same server.
+        if (options.input.fetchIntermediateFiles) {
+          if (timedOut) {
+            resultMessage += `\n\n**Intermediate files:** not yet available (compile still running). ` +
+              `Call \`makerchip_wait_compile\` with \`fetchIntermediateFiles: true\` once it completes.`;
+          } else {
+            resultMessage += await fetchAndSummarizeIntermediateFiles(compileId, panelName);
+          }
+        }
       } else {
         // Immediate return (waitSeconds: 0): report the compile ID and cache paths.
         resultMessage = `Compilation started for ${fileName}${multiFileInfo}${panelInfo}\n\n`;
@@ -521,6 +596,10 @@ export class MakerchipTool implements vscode.LanguageModelTool<MakerchipToolInpu
         resultMessage += `2. Open metadata: ${metadataPath}\n`;
         resultMessage += `3. Check for errors in stdall: ${stdallPath}\n`;
         resultMessage += `\nLook for \`"complete": true\` and \`"passed": true/false\` in metadata.`;
+        if (options.input.fetchIntermediateFiles) {
+          resultMessage += `\n\n**Intermediate files:** not fetched (no in-process wait). Call ` +
+            `\`makerchip_wait_compile\` with \`fetchIntermediateFiles: true\` once the compile completes.`;
+        }
       }
       resultMessage += `\n\nThe Makerchip IDE panel shows live compilation results and visualizations.`;
       resultMessage += staleBufferWarning;
@@ -554,6 +633,15 @@ interface WaitCompileInput {
    * diagram (e.g. before capturing it).
    */
   waitForDiagram?: boolean;
+  /**
+   * When the compile/simulation has completed, fetch its SandPiper intermediate/output files (top.m4.pre,
+   * top.m4, top.sv, top_gen.sv) from the server into the compile's cache dir so the emitted M5
+   * output and (System)Verilog can be read locally. Works independent of `waitForDiagram`. This is the
+   * way to obtain the intermediate files for debugging. Skipped if the wait times out (compile/simulation
+   * still running) — call again once it finishes. The files are always announced
+   * (with cache paths and descriptions) in metadata.json regardless.
+   */
+  fetchIntermediateFiles?: boolean;
 }
 
 /**
@@ -591,8 +679,19 @@ export class WaitCompileTool implements vscode.LanguageModelTool<WaitCompileInpu
         token,
         waitForDiagram
       );
+      let message = await formatCompileStatus(compileId, timedOut, waitForDiagram);
+      if (options.input.fetchIntermediateFiles) {
+        // Intermediate files exist on the server only once the compile has settled. If the wait
+        // timed out, skip the fetch and prompt to retry rather than reporting them all absent.
+        if (timedOut) {
+          message += `\n\n**Intermediate files:** not yet available (compile still running). ` +
+            `Call this tool again with \`fetchIntermediateFiles: true\` once it completes.`;
+        } else {
+          message += await fetchAndSummarizeIntermediateFiles(compileId);
+        }
+      }
       return new vscode.LanguageModelToolResult([
-        new vscode.LanguageModelTextPart(await formatCompileStatus(compileId, timedOut, waitForDiagram))
+        new vscode.LanguageModelTextPart(message)
       ]);
     } catch (error: any) {
       return new vscode.LanguageModelToolResult([

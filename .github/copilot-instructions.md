@@ -22,3 +22,10 @@ development workflow. Key constraints to preserve when making changes:
   and remaining work only*. As work completes, remove it from the issue and fold durable outcomes
   into code/docs/READMEs; rely on Git history for how things evolved (no dated "vN/shipped/verified"
   narration). See [`issues/README.md`](../issues/README.md).
+- **LM tool docs — describe the tool capabilities in `modelDescription`, arguments details in `inputSchema`:** the model
+  receives both, so don't restate per-argument detail in `modelDescription` (redundant tokens, two
+  places to keep in sync). Keep `modelDescription` to what the tool does, when to use it, and
+  genuinely cross-argument behavior (how options interact, ordering, gating); document each argument
+  once in its `inputSchema` property `description`. The mirror TypeScript input interface (e.g.
+  `MakerchipToolInput`) is the source the property descriptions track.
+

@@ -27,7 +27,7 @@
       {
         "command": "makerchip.compile",
         "title": "Makerchip: Compile/Simulate",
-        "icon": "$(circuit-board)"
+        "icon": "resources/icons/makerchip-themed.svg"
       },
       {
         "command": "makerchip.compileNew",
@@ -206,6 +206,18 @@
             "waitForDiagram": {
               "type": "boolean",
               "description": "When false (default), returns as soon as the compile and simulation results are ready, without waiting for the diagram (SVG) render (which can lag or time out well after the compile finishes). Set true to also wait for the diagram, e.g. before capturing it."
+            },
+            "sim": {
+              "type": "boolean",
+              "description": "Whether to run the Verilator simulation after Verilog generation (default true). Pass false for a faster Verilog-only (model) run — the diagram and emitted (System)Verilog are still produced, but no waveform is generated."
+            },
+            "dot": {
+              "type": "boolean",
+              "description": "Whether to generate the diagram (SVG) (default true). Pass false to save unnecessary processing. Other results are unaffected. The IDE's diagram pane shows no-result status."
+            },
+            "fetchIntermediateFiles": {
+              "type": "boolean",
+              "description": "After the compile settles, fetch its SandPiper intermediate/output files (e.g., `top.m4.pre`, `top.m4`, `top.sv`, `top_gen.sv`) from the server into the compile's cache dir so the emitted (System)Verilog can be read locally, and report their paths. Only fetched when the compile completes within this call's wait (`waitSeconds` > 0 and not timed out); otherwise use `makerchip_wait_compile` with this option once it finishes. Always announced in `metadata.json` regardless."
             }
           }
         }
@@ -218,7 +230,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(watch)",
         "userDescription": "Wait for a Makerchip compilation to finish.",
-        "modelDescription": "Waits for a compilation (started by makerchip_compile) to complete, then returns its status summary (SandPiper/Verilator exit codes, pass/fail, and a log excerpt on failure). By default returns as soon as the compile and simulation results are ready without blocking on the diagram (SVG) render; set `waitForDiagram: true` to also wait for the diagram. Use this to resume waiting when makerchip_compile reported the compile was still running. Blocks up to `waitSeconds` (default 30); if it is still running, call again with the same compile ID.",
+        "modelDescription": "Waits for a compilation (started by makerchip_compile) to complete, then returns its status summary (SandPiper/Verilator exit codes, pass/fail, and a log excerpt on failure). Also returns SandPiper intermediate files (M5 output and (System)Verilog files(s)) if requested via `fetchIntermediateFiles`. By default, does not wait for the diagram (SVG) data; set `waitForDiagram: true` to also wait for the diagram. Waits up to `waitSeconds` (default 30). Use this to resume waiting when makerchip_compile or this tool reported the compile was still running. Also use it to get intermediate files for debugging (often for a compilation already completed/failed); call with the same compile ID.",
         "tags": [
           "makerchip",
           "tlv",
@@ -240,6 +252,10 @@
             "waitForDiagram": {
               "type": "boolean",
               "description": "When false (default), returns once the compile and simulation results are ready, without waiting for the diagram (SVG). Set true to also wait for the diagram, e.g. before capturing it."
+            },
+            "fetchIntermediateFiles": {
+              "type": "boolean",
+              "description": "When the compile completes or has already completed, fetch its SandPiper intermediate/output files (e.g., `top.m4.pre`, `top.m4`, `top.sv`, `top_gen.sv`) from the server into the compile's cache dir so the emitted M5 output and (System)Verilog can be read locally, and report their paths. Skipped if the wait times out (compile still running) — can call again to continue waiting."
             }
           },
           "required": ["compileId"]
