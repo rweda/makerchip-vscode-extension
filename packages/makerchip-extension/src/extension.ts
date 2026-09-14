@@ -90,14 +90,30 @@ async function ensurePanelReady(name?: string, createIfNeeded: boolean = false, 
   }
 
   if (panelReadyPromises.has(panelKey)) {
-    // Panel is already open or opening - wait for it
+    // Panel is already open or opening - wait for it. This promise is always
+    // bounded: setupPanel arms an overall deadline before any await, so it can
+    // never sit pending forever (an interrupted setup rejects and clears itself).
     return panelReadyPromises.get(panelKey)!;
   }
 
   if (panels.has(panelKey)) {
-    // Panel exists but ready promise was cleared - just reveal it
-    panels.get(panelKey)!.reveal(vscode.ViewColumn.Beside, true);
-    return Promise.resolve();
+    // Panel exists but ready promise was cleared - just reveal it. If the panel
+    // was disposed without its onDidDispose cleanup completing (e.g. an
+    // interrupted setup left a stale entry), reveal() throws "Webview is
+    // disposed"; drop the stale tracking and fall through to recreate a fresh
+    // panel instead of surfacing the error to the caller.
+    try {
+      panels.get(panelKey)!.reveal(vscode.ViewColumn.Beside, true);
+      return Promise.resolve();
+    } catch (err) {
+      log(`Makerchip panel '${panelKey}' is stale (${err instanceof Error ? err.message : String(err)}); ` +
+          `discarding tracking and recreating.`);
+      panels.delete(panelKey);
+      panelReadyPromises.delete(panelKey);
+      degradedPanels.delete(panelKey);
+      panelServerUrlOverrides.delete(panelKey);
+      // fall through to (re)create below
+    }
   }
 
   // Panel doesn't exist
@@ -647,20 +663,37 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string, isRestore: boo
       resolve();
     };
 
-    // Reject the ready promise and tear down the panel so a later call can
-    // retry with a clean slate. Disposing triggers onDidDispose, which cleans
-    // up the tracking maps.
+    // Reject the ready promise and tear down the panel this invocation created,
+    // so a later call can retry with a clean slate. We only evict tracking that
+    // still refers to THIS panel: a newer open for the same key may have already
+    // replaced us in the maps, and disposing/evicting its state would re-corrupt
+    // exactly the way an interrupted setup used to. Disposing our own panel is
+    // idempotent and triggers onDidDispose (also identity-guarded).
     const settleReject = (err: Error) => {
       if (settled) { return; }
       settled = true;
       clearReadyTimeout();
-      panelReadyPromises.delete(panelKey);
-      const existing = panels.get(panelKey);
-      if (existing) {
-        existing.dispose();
+      if (panels.get(panelKey) === panel) {
+        panels.delete(panelKey);
+        getToolActivation()?.setEnv('base', 'panelOpen', panels.size > 0);
+        panelReadyPromises.delete(panelKey);
+        degradedPanels.delete(panelKey);
+        panelServerUrlOverrides.delete(panelKey);
       }
+      panel.dispose();
       reject(err);
     };
+
+    // Arm an overall readiness deadline UP FRONT, before any await (server-URL
+    // resolution, the reachability probe, or waiting for the webview 'ready').
+    // Whatever phase stalls, the promise can never sit pending forever;
+    // settleResolve/settleReject clear it. (The reachable branch below used to
+    // arm this only after the probe, leaving a pre-probe stall unguarded.)
+    readyTimeout = setTimeout(() => {
+      settleReject(new Error(
+        `Makerchip panel '${panelKey}' did not become ready within ${READY_TIMEOUT_MS / 1000}s.`
+      ));
+    }, READY_TIMEOUT_MS);
 
     // Create display name
     const displayName = panelKey === 'default' ? 'Makerchip IDE' : `Makerchip: ${panelKey}`;
@@ -708,19 +741,11 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string, isRestore: boo
     }
 
     if (reachable) {
-      // Server is up: render the real IDE and wait for it to signal 'ready'.
+      // Server is up: render the real IDE and wait for it to signal 'ready'. The
+      // overall readiness deadline was already armed at the top of setupPanel, so
+      // a webview that never posts 'ready' still rejects instead of hanging.
       degradedPanels.delete(panelKey);
       panel.webview.html = buildWebviewHtml(panel, panelKey, serverUrl);
-
-      // Arm the readiness timeout. If the webview never posts 'ready' (e.g. the
-      // plugin failed to load, or activation raced VS Code startup), reject so
-      // callers surface an error instead of hanging indefinitely.
-      readyTimeout = setTimeout(() => {
-        settleReject(new Error(
-          `Makerchip panel '${panelKey}' did not become ready within ${READY_TIMEOUT_MS / 1000}s. ` +
-          `Check the server connection (${serverUrl}) and try again.`
-        ));
-      }, READY_TIMEOUT_MS);
     } else {
       // Restoring a panel after a VS Code reload while the server is down: keep
       // the panel as a recoverable placeholder instead of disposing it, so
@@ -887,11 +912,16 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string, isRestore: boo
         settled = true;
         reject(new Error(`Makerchip panel '${panelKey}' was closed before it became ready.`));
       }
-      panels.delete(panelKey);
-      getToolActivation()?.setEnv('base', 'panelOpen', panels.size > 0);
-      panelReadyPromises.delete(panelKey);
-      degradedPanels.delete(panelKey);
-      panelServerUrlOverrides.delete(panelKey);
+      // Only clear tracking that still points at THIS panel. Disposing an old,
+      // interrupted panel must not evict a newer panel that has already reclaimed
+      // the key (that cross-eviction is what corrupted the 'default' panel state).
+      if (panels.get(panelKey) === panel) {
+        panels.delete(panelKey);
+        getToolActivation()?.setEnv('base', 'panelOpen', panels.size > 0);
+        panelReadyPromises.delete(panelKey);
+        degradedPanels.delete(panelKey);
+        panelServerUrlOverrides.delete(panelKey);
+      }
     });
   });
 }
