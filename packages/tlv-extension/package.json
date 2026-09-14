@@ -303,7 +303,7 @@
 		"copy-grammar": "node ./scripts/copy-grammar.mjs",
 		"compile": "npm run copy-grammar && tsc -p ./ && npm run compile-web",
 		"compile-web": "node ./esbuild.mjs",
-		"watch": "npm run copy-grammar && tsc -watch -p ./",
+		"watch": "npm run copy-grammar && exec tsc -watch -p ./",
 		"watch-web": "node ./esbuild.mjs --watch",
 		"vscode:prepublish": "npm run copy-grammar && tsc -p ./ && node ./esbuild.mjs --production",
 		"package": "npm run compile && vsce package",
