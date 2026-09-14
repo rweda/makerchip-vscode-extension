@@ -130,7 +130,7 @@ async function maybeAddResourcesToWorkspace(context: vscode.ExtensionContext): P
   
   // Ask user (first time only)
   const response = await vscode.window.showInformationMessage(
-    'Add Makerchip data folder (docs, examples, compile cache) to workspace for Copilot context?',
+    'Add Makerchip data folder (docs, examples, compile cache) to workspace for AI assistant context?',
     'Yes',
     'No',
     'Never'

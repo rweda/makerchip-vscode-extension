@@ -3,7 +3,7 @@
  *
  * Stores compilation results in ~/.vscode-makerchip/compile-cache/ organized by compile ID.
  * This is dual purpose. It enables restoration of webviews on VS Code reload, and it provides
- * reference data for LLM agents (Copilot). Note that navtlv.html and graph.svg are not very
+ * reference data for LLM agents. Note that navtlv.html and graph.svg are not very
  * useful to agents. They are just for restoration. Alternatively, we could omit caching them
  * locally and restore them instead from the server's compile cache (via /compile/<id>/...).
  *

@@ -3,7 +3,7 @@
  *
  * Provides TL-Verilog development support with:
  *   - Makerchip IDE integration via webview panel(s)
- *   - GitHub Copilot Language Model tools (makerchip_compile, makerchip_ide_call)
+ *   - Language Model tools for AI agents (makerchip_compile, makerchip_ide_call)
  *   - Chat participant (@makerchip)
  *   - Reference data management (clones docs/examples to ~/.vscode-makerchip/resources/)
  *   - Compilation cache (stores results in ~/.vscode-makerchip/compile-cache/)
@@ -85,7 +85,7 @@ async function ensurePanelReady(name?: string, createIfNeeded: boolean = false, 
     // placeholder / stale webview where the call would be silently lost.
     throw new Error(
       `Makerchip panel '${panelKey}' is disconnected: its server was unreachable at its last (re)load. ` +
-      `Bring the server up and run "Makerchip: Reload Panels" (or ask Copilot to reload panels) to reconnect.`
+      `Bring the server up and run "Makerchip: Reload Panels" (or ask your AI assistant to reload panels) to reconnect.`
     );
   }
 
@@ -175,7 +175,7 @@ export function activate(ctx: vscode.ExtensionContext) {
     log(`⚠ Makerchip server not configured. Panels will not open.`);
   });
 
-  // Register Language Model tool for Copilot (automatic invocation)
+  // Register Language Model tool for AI agents (automatic invocation)
   // Both declarative (package.json) and programmatic registration are required
   try {
     registerMakerchipTool(context);
@@ -321,7 +321,7 @@ export function activate(ctx: vscode.ExtensionContext) {
     })
   );
 
-  // INVOKE IDE METHOD COMMAND (used by Copilot tools)
+  // INVOKE IDE METHOD COMMAND (used by the Language Model tools)
   context.subscriptions.push(
     vscode.commands.registerCommand('makerchip.invokeIdeMethod', async (method: string, args: any[] = [], panelName?: string, createIfNeeded: boolean = false) => {
       await callIDE(method, args, panelName, createIfNeeded);
@@ -441,7 +441,7 @@ export function activate(ctx: vscode.ExtensionContext) {
   // Recovers already-open panels without a full window reload in two cases:
   //   - the sandserv backend was restarted (same URL, dropped connections), or
   //   - the dev tunnel was recreated by ./launch (new URL after the old died).
-  // Also exposed to Copilot as the makerchip_reload_panels tool.
+  // Also exposed to AI agents as the makerchip_reload_panels tool.
   context.subscriptions.push(
     vscode.commands.registerCommand('makerchip.reloadPanels', async (): Promise<{ serverUrl: string; panels: string[] }> => {
       const reloaded: string[] = [];
@@ -576,7 +576,7 @@ function buildUnreachablePlaceholderHtml(serverUrl: string, reason: string): str
   <p>This panel could not reconnect to its server when it was restored:</p>
   <p><code>${esc(serverUrl)}</code></p>
   <p class="muted">${esc(reason)}</p>
-  <p>Start (or restore) the server, then run <b>“Makerchip: Reload Panels”</b> from the Command Palette (or ask Copilot to reload panels) to reconnect. Your last compilation and layout will be restored.</p>
+  <p>Start (or restore) the server, then run <b>“Makerchip: Reload Panels”</b> from the Command Palette (or ask your AI assistant to reload panels) to reconnect. Your last compilation and layout will be restored.</p>
 </body>
 </html>`;
 }

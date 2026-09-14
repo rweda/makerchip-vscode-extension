@@ -22,6 +22,13 @@
  * rather than as a top-level callable — expected, not a bug. Our gating is the *unconditional* lever
  * (it also trims the set below the threshold, where virtual tools does nothing); the two are
  * complementary, not redundant.
+ *
+ * Note on harnesses: the 128-tool cap and `when`-clause gating govern the shared VS Code
+ * `languageModelTools` layer, so they apply the same whether the consumer is GitHub Copilot or the
+ * Claude/agent harness (which surfaces these tools via the `mcp__client__*` bridge). The
+ * `github.copilot.*` setting id is Copilot-namespaced but the underlying limit is shared. The two
+ * always-on meta tools (`makerchip_enable_tools`, `makerchip_invoke_tool`) are ungated and keep
+ * everything reachable.
  */
 import * as vscode from 'vscode';
 import { log } from './logger';

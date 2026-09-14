@@ -1,6 +1,6 @@
 /*
  * For populating resources and skill(s) in ~/.vscode-makerchip/resources/.
- * This directory may be added to a workspace (by the Makerchip extension) as available RAG data for Copilot.
+ * This directory may be added to a workspace (by the Makerchip extension) as available RAG data for AI coding assistants.
  * Also creates ~/.vscode-makerchip/compile-cache/ for compilation results.
  */
 
@@ -81,8 +81,12 @@ export async function populateResources(context: vscode.ExtensionContext, output
   // Copy READMEs
   await copyResourceFile(context, 'README.md', MAKERCHIP_DIR, log);
   await copyResourceFile(context, 'compile-cache-README.md', CACHE_DIR, log);
-  await copyResourceFile(context, '.copilot-instructions.md', MAKERCHIP_DIR, log);
   await copyResourceFile(context, 'tmp-README.md', TMP_DIR, log);
+
+  // Copilot instruction file, installed at the path Copilot actually auto-loads
+  // (<workspace folder>/.github/copilot-instructions.md). The Claude-harness counterpart,
+  // CLAUDE.md, is generated later (generateClaudeMd) once the skills are installed.
+  await installCopilotInstructions(context, log);
 
   // Copy the minimal scratch design used to open panels without creating clutter.
   await copyResourceFile(context, 'minimal.tlv', RESOURCES_DIR, log);
@@ -95,6 +99,11 @@ export async function populateResources(context: vscode.ExtensionContext, output
 
   // Install skill
   await installSkill(context, log);
+
+  // CLAUDE.md for the Claude harness (which auto-loads CLAUDE.md, but NOT
+  // .github/copilot-instructions.md or .vscode/skills/*). Runs after installSkill so it
+  // can enumerate the installed skill files and point Claude at them. See generateClaudeMd.
+  await generateClaudeMd(context, log);
 
   // Summary
   log('=========================================');
@@ -547,4 +556,106 @@ applyTo:
     log(`  Warning: Could not generate makerchip-api-features.md: ${error}`);
     log('  (Makerchip-public repository may not be available or docs may not be built)');
   }
+}
+
+/**
+ * Install the Copilot instruction file at the path Copilot actually auto-loads:
+ * `<workspace folder>/.github/copilot-instructions.md`. The Makerchip data folder is added
+ * as a workspace folder, so Copilot picks it up. Earlier versions wrote it to the folder
+ * root (`.copilot-instructions.md`), which no tool auto-loads; that stale copy is removed here.
+ */
+async function installCopilotInstructions(context: vscode.ExtensionContext, log: (message: string) => void): Promise<void> {
+  const templatePath = path.join(context.extensionPath, 'resources', '.copilot-instructions.md');
+  const githubDir = path.join(MAKERCHIP_DIR, '.github');
+  const targetPath = path.join(githubDir, 'copilot-instructions.md');
+
+  try {
+    await fs.mkdir(githubDir, { recursive: true });
+    await fs.copyFile(templatePath, targetPath);
+    log('  ✓ Installed .github/copilot-instructions.md');
+  } catch (error) {
+    log(`  Warning: Failed to install copilot-instructions.md: ${error}`);
+  }
+
+  // Remove the stale root-level copy from earlier extension versions (wrong path).
+  try {
+    await fs.rm(path.join(MAKERCHIP_DIR, '.copilot-instructions.md'), { force: true });
+  } catch {
+    // Nothing to remove, which is fine.
+  }
+}
+
+/**
+ * Generate `CLAUDE.md` for the Claude harness. Unlike Copilot, the Claude harness auto-loads
+ * `CLAUDE.md` but NOT `.github/copilot-instructions.md` or `.vscode/skills/*`. So CLAUDE.md is a
+ * COPY of the shared instruction intro (not a link — Claude needs the real file) with a generated
+ * list of the installed skill files appended, telling Claude they exist and where to read them.
+ * Regenerated on every populate so the skill list stays accurate; must run after installSkill.
+ */
+async function generateClaudeMd(context: vscode.ExtensionContext, log: (message: string) => void): Promise<void> {
+  const introPath = path.join(context.extensionPath, 'resources', '.copilot-instructions.md');
+  const skillsDir = path.join(MAKERCHIP_DIR, '.vscode', 'skills');
+
+  try {
+    const intro = await fs.readFile(introPath, 'utf-8');
+    const skillLines = await listSkillFiles(skillsDir);
+    const skillSection = skillLines.length > 0
+      ? '\n## Skill Files (read as needed)\n\n' +
+        'The Claude harness does not auto-load `.vscode/skills/`. These files (relative to this ' +
+        'folder) provide detailed TL-Verilog guidance — read the relevant one when its topic comes up:\n\n' +
+        skillLines.join('\n') + '\n'
+      : '';
+    const content = intro.trimEnd() + '\n' + skillSection;
+
+    await fs.writeFile(path.join(MAKERCHIP_DIR, 'CLAUDE.md'), content, 'utf-8');
+    log('  ✓ Generated CLAUDE.md');
+  } catch (error) {
+    log(`  Warning: Failed to generate CLAUDE.md: ${error}`);
+  }
+}
+
+/**
+ * List installed skill files as Markdown bullets ("- `.vscode/skills/<file>` — <description>"),
+ * pulling each description from the file's YAML frontmatter. The meta index (README.md) is skipped.
+ */
+async function listSkillFiles(skillsDir: string): Promise<string[]> {
+  let files: string[];
+  try {
+    files = (await fs.readdir(skillsDir))
+      .filter(f => f.endsWith('.md') && f !== 'README.md')
+      .sort();
+  } catch {
+    return [];
+  }
+
+  const lines: string[] = [];
+  for (const file of files) {
+    let description = '';
+    try {
+      description = extractFrontmatterDescription(await fs.readFile(path.join(skillsDir, file), 'utf-8'));
+    } catch {
+      // Unreadable file: list it without a description rather than dropping it.
+    }
+    const rel = `.vscode/skills/${file}`;
+    lines.push(description ? `- \`${rel}\` — ${description}` : `- \`${rel}\``);
+  }
+  return lines;
+}
+
+/** Extract the `description:` value from leading YAML frontmatter (quoted or bare), or '' if absent. */
+function extractFrontmatterDescription(content: string): string {
+  if (!content.startsWith('---')) {
+    return '';
+  }
+  const end = content.indexOf('\n---', 3);
+  const frontmatter = end >= 0 ? content.slice(0, end) : content;
+  const match = frontmatter.match(/^description:\s*(.+)$/m);
+  if (!match) {
+    return '';
+  }
+  let value = match[1].trim();
+  if ((value.startsWith("'") && value.endsWith("'")) || (value.startsWith('"') && value.endsWith('"'))) {
+    value = value.slice(1, -1);
+  }
+  return value.trim();
 }

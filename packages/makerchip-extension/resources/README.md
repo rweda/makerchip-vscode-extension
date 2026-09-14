@@ -12,16 +12,18 @@ See **[.vscode/skills/tlv-ecosystem.md](.vscode/skills/tlv-ecosystem.md)** for c
 - Workflow patterns and best practices
 - Compilation and debugging guidance
 
-This skill file is the **primary source** of TL-Verilog knowledge for both Copilot and human developers.
+This skill file is the **primary source** of TL-Verilog knowledge for both AI assistants and human developers.
 
 ## Directory Structure
 
 ```
 ~/.vscode-makerchip/
-├── .copilot-instructions.md    # Workspace introduction for Copilot
+├── .github/
+│   └── copilot-instructions.md # Workspace intro auto-loaded by GitHub Copilot
+├── CLAUDE.md                   # Workspace intro + skill index, auto-loaded by the Claude harness
 ├── .vscode/skills/
 │   └── tlv-ecosystem.md        # Primary TL-Verilog documentation
-├── resources/                  # RAG resources for Copilot
+├── resources/                  # RAG resources for AI assistants
 │   ├── <repos>                 # Cloned Git repositories (see below)
 │   ├── .version.json           # Repo version data
 │   └── minimal.tlv             # Minimal scratch design for opening a panel
@@ -51,6 +53,6 @@ See [.vscode/skills/tlv-ecosystem.md](.vscode/skills/tlv-ecosystem.md#documentat
 **Add to Workspace**: Command Palette → "Makerchip: Update Reference Data" or right-click `~/.vscode-makerchip/` → "Add Folder to Workspace"
 
 Enables:
-- Copilot context for TL-Verilog assistance
+- AI assistant context for TL-Verilog assistance
 - Quick access to specs and examples
 - Direct browsing of compilation cache

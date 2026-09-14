@@ -404,7 +404,7 @@ async function readMinimalScratchDesign(): Promise<string> {
 }
 
 /**
- * Language Model tool that allows Copilot to launch Makerchip IDE
+ * Language Model tool that allows an AI agent to launch Makerchip IDE
  * and compile TL-Verilog code.
  */
 export class MakerchipTool implements vscode.LanguageModelTool<MakerchipToolInput> {

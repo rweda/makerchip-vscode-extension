@@ -1,13 +1,20 @@
 #!/bin/bash
 # Launch a VS Code Extension Development Host (EDH) for the Makerchip extension,
-# wired to the right SandHost. The single argument selects WHAT you develop
-# against; everything else (tunnel, workspace, VS Code profile) follows from it.
+# wired to the right SandHost. The single positional argument selects WHAT you
+# develop against; everything else (tunnel, workspace, VS Code profile) follows
+# from it. An optional --insiders flag selects WHICH VS Code binary runs the EDH.
 #
 # Usage:
 #   ./launch                     # Deployed default server (beta.makerchip.com).
 #   ./launch <url>               # Deployed server at <url>, e.g.
 #                                #   https://makerchip.com or https://makerchip.com/v123.
 #   ./launch <mono-clone>        # A local mono clone (see resolution below).
+#   ./launch --insiders [...]    # Any of the above, but run with 'code-insiders'
+#                                #   instead of 'code' -- for VS Code features not
+#                                #   yet in stable (e.g. newer Claude Code
+#                                #   integration points). May appear before or
+#                                #   after the target; requires 'code-insiders'
+#                                #   on PATH.
 #
 # A <mono-clone> reference is resolved, in order, as:
 #   1. a path (relative or absolute) to an existing clone directory,
@@ -52,8 +59,22 @@ set -e
 # (e.g. a top-level ./launch symlink pointing here).
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 
-# The sole positional is the target: empty, a URL, or a mono-clone reference.
-TARGET="${1:-}"
+# Pull --insiders out of the args wherever it appears; whatever's left is the
+# sole positional target: empty, a URL, or a mono-clone reference.
+CODE_BIN="code"
+POSITIONAL=()
+for arg in "$@"; do
+  case "$arg" in
+    --insiders) CODE_BIN="code-insiders" ;;
+    *) POSITIONAL+=("$arg") ;;
+  esac
+done
+TARGET="${POSITIONAL[0]:-}"
+
+if ! command -v "$CODE_BIN" &> /dev/null; then
+  echo "Error: '$CODE_BIN' is not installed or not on PATH." >&2
+  exit 1
+fi
 
 # Default deployed server when no target is given.
 DEFAULT_SERVER="https://beta.makerchip.com"
@@ -413,11 +434,11 @@ if [ "$MODE" = "clone" ] && [ -x "$CLONE_DIR/bin/reap" ]; then
 fi
 
 echo ""
-echo "Launching VS Code Extension Development Host..."
+echo "Launching VS Code Extension Development Host ($CODE_BIN)..."
 if [ "$MODE" = "url" ]; then
   export MAKERCHIP_SERVER_URL="$SERVER_URL"
 fi
-code "${CODE_ARGS[@]}"
+"$CODE_BIN" "${CODE_ARGS[@]}"
 
 if [ "$MODE" = "clone" ]; then
   echo "✓ Extension Development Host launched, and (re)connected to tunnel (port $PORT)."
