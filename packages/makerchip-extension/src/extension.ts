@@ -925,7 +925,13 @@ function readTunnelUrl(file: string): string | undefined {
     const url = content.match(/TUNNEL_URL=(.+)/)?.[1]?.trim();
     if (url && url.startsWith('http')) return url;
   } catch (err) {
-    log(`Warning: Failed to read tunnel state file ${file}: ${err}`);
+    // A missing file is the normal "no tunnel currently up for this clone" case
+    // (e.g. SandHost not started, or tunnel torn down); stay quiet and let the
+    // caller fall through. Warn only when the file exists but can't be read
+    // (present-but-broken), which is a real problem worth surfacing.
+    if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') {
+      log(`Warning: Failed to read tunnel state file ${file}: ${err}`);
+    }
   }
   return undefined;
 }
@@ -940,13 +946,22 @@ function readTunnelUrl(file: string): string | undefined {
  *    Only consulted when a `panelKey` is supplied.
  * 1. MAKERCHIP_SERVER_URL env (set by `./launch <url>`): an explicit, static
  *    server URL (e.g. production). Fine to freeze since it never changes.
- * 2. The clone's tunnel: `./launch <clone>` records the Cloudflare tunnel in
- *    <clone>/sandhost/TUNNEL_INFO and opens the clone as the workspace folder,
- *    so we resolve it via the workspace folder — unambiguous even with several
- *    clones running. Read FRESH each call, so Reload Panels picks up a tunnel
- *    that ./launch recreated (e.g. on a new URL) without a reopen.
- * 3. VS Code configuration (makerchip.serverUrl)
- * 4. Default: DEFAULT_SERVER_URL
+ * 2. The clone identified by `./launch <clone>` (clone mode), passed as its
+ *    absolute root in MAKERCHIP_MONO_CLONE. `./launch` records the Cloudflare
+ *    tunnel in <clone>/sandhost/TUNNEL_INFO, and we read that file directly. Read
+ *    FRESH each call, so Reload Panels picks up a tunnel that ./launch recreated
+ *    (e.g. on a new URL) without a reopen — the clone path is stable even though
+ *    the tunnel URL is not, which is why we key off the clone rather than freezing
+ *    a URL into the environment.
+ * 3. Discovery fallback for the F5 debug flow: scan the open workspace folders for
+ *    a clone's sandhost/TUNNEL_INFO and use the first live one. F5 ("Run Extension")
+ *    can't set env vars, so this is the only way to point a breakpoint-capable EDH
+ *    at a clone — the developer adds the clone as a workspace folder and reloads.
+ *    GATED on MAKERCHIP_LAUNCH being UNSET: when `./launch` opened this EDH it is
+ *    authoritative (priorities 1/2 above), so we never second-guess it by scanning
+ *    whatever folders happen to be open. Read FRESH each call, like priority 2.
+ * 4. VS Code configuration (makerchip.serverUrl)
+ * 5. Default: DEFAULT_SERVER_URL
  * @param panelKey Panel name whose dev override (priority 0) should apply, if any.
  */
 async function getServerUrl(panelKey?: string): Promise<string> {
@@ -978,18 +993,53 @@ async function getServerUrl(panelKey?: string): Promise<string> {
     return pinnedUrl;
   }
 
-  // 2. The clone's tunnel state, resolved via the workspace folder (the clone
-  //    root). Reading fresh keeps Reload Panels working across tunnel recreation.
-  for (const folder of vscode.workspace.workspaceFolders ?? []) {
-    const infoFile = path.join(folder.uri.fsPath, 'sandhost', 'TUNNEL_INFO');
+  // 2. The clone identified by ./launch (clone mode) is passed as its absolute
+  //    root in MAKERCHIP_MONO_CLONE. Read <clone>/sandhost/TUNNEL_INFO fresh each
+  //    call so Reload Panels tracks a tunnel ./launch recreated; the clone path is
+  //    stable even though the tunnel URL changes on recreation. ./launch resolves
+  //    the clone, so we read it directly rather than scanning (that scan is the
+  //    priority-3 F5 fallback below, deliberately skipped for a ./launch EDH).
+  const cloneDir = process.env.MAKERCHIP_MONO_CLONE;
+  if (cloneDir) {
+    const infoFile = path.join(cloneDir, 'sandhost', 'TUNNEL_INFO');
     const url = readTunnelUrl(infoFile);
     if (url) {
       log(`Using server URL from clone tunnel (${infoFile}): ${url}`);
       return url;
     }
+    log(`MAKERCHIP_MONO_CLONE=${cloneDir} but no live tunnel at ${infoFile}; falling through.`);
   }
 
-  // 3. Check VS Code configuration
+  // 3. Discovery fallback (F5 debug flow only): ./launch did NOT open this EDH
+  //    (MAKERCHIP_LAUNCH unset), so nothing pinned the server via env — scan the
+  //    open workspace folders for a clone's sandhost/TUNNEL_INFO. This is how a
+  //    breakpoint-capable F5 EDH is pointed at a clone: add the clone as a
+  //    workspace folder and reload. Skipped entirely for a ./launch EDH so its
+  //    explicit choice is never overridden by whatever folders happen to be open.
+  //    readTunnelUrl is silent on ENOENT, so non-clone folders don't warn.
+  if (!process.env.MAKERCHIP_LAUNCH) {
+    const found: { infoFile: string; url: string }[] = [];
+    for (const folder of vscode.workspace.workspaceFolders ?? []) {
+      const infoFile = path.join(folder.uri.fsPath, 'sandhost', 'TUNNEL_INFO');
+      const url = readTunnelUrl(infoFile);
+      if (url) {
+        found.push({ infoFile, url });
+      }
+    }
+    if (found.length > 0) {
+      if (found.length > 1) {
+        log(
+          `Warning: ${found.length} open workspace folders expose a SandHost tunnel; ` +
+            `using the first. Remove the others from the workspace to disambiguate. ` +
+            `Candidates: ${found.map((f) => `${f.infoFile} -> ${f.url}`).join(', ')}`,
+        );
+      }
+      log(`Using server URL discovered in workspace folder: ${found[0].url} (${found[0].infoFile})`);
+      return found[0].url;
+    }
+  }
+
+  // 4. Check VS Code configuration
   const config = vscode.workspace.getConfiguration('makerchip');
   const configUrl = config.get<string>('serverUrl');
   if (configUrl) {
@@ -997,7 +1047,7 @@ async function getServerUrl(panelKey?: string): Promise<string> {
     return configUrl;
   }
 
-  // 4. Use default
+  // 5. Use default
   log(`Using default server URL: ${DEFAULT_SERVER_URL}`);
   return DEFAULT_SERVER_URL;
 }

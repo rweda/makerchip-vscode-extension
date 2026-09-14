@@ -268,7 +268,7 @@ if [ "$MODE" = "clone" ]; then
   echo "SandHost for $CLONE_NAME is on port $PORT."
 
   # Tunnel state lives WITH the clone, in sandhost/TUNNEL_INFO, so the extension
-  # can resolve it unambiguously from its workspace folder (even with several
+  # can resolve it unambiguously from MAKERCHIP_MONO_CLONE (even with several
   # clones running) and the clone owns its own teardown (bin/teardown_tunnel).
   TUNNEL_INFO="$CLONE_DIR/sandhost/TUNNEL_INFO"
 
@@ -393,12 +393,17 @@ check_build "TL-Verilog extension" "$SCRIPT_DIR/../tlv-extension/src" \
 
 # ---------------------------------------------------------------------------
 # Launch. Pin the server the extension should use:
-#   clone -> nothing to export: the extension resolves the tunnel URL from the
-#            clone's sandhost/TUNNEL_INFO via its workspace folder, re-read every
-#            time a panel is (re)created. A window reload -- which a relaunch
-#            triggers -- thus repoints panels at a recreated tunnel.
+#   clone -> export MAKERCHIP_MONO_CLONE=<clone root>. The extension reads
+#            <clone>/sandhost/TUNNEL_INFO fresh every time a panel is (re)created,
+#            so a window reload -- which a relaunch triggers -- repoints panels at
+#            a recreated tunnel (the clone path is stable; the tunnel URL is not).
 #   url   -> the URL directly (static), via MAKERCHIP_SERVER_URL.
-#   default -> nothing (extension keeps its own default/auto-detection).
+#   default -> nothing server-specific; the extension falls back to
+#            makerchip.serverUrl or its built-in DEFAULT_SERVER_URL
+#            (beta.makerchip.com).
+# In all three modes we also export MAKERCHIP_LAUNCH=1 so the extension knows a
+# ./launch (not F5) opened this EDH and disables its workspace-folder discovery
+# fallback -- ./launch is authoritative, so open folders never override it.
 # ---------------------------------------------------------------------------
 
 # Nudge: surface any orphaned SandHosts/tunnels from clones you've since removed.
@@ -414,8 +419,22 @@ fi
 
 echo ""
 echo "Launching VS Code Extension Development Host..."
+# Mark this EDH as ./launch-opened, in EVERY mode (including default). The
+# extension treats ./launch as authoritative for the server and SKIPS its
+# workspace-folder discovery when this is set — discovery is a fallback meant only
+# for the F5 debug flow, where no env can be pinned. (In clone/url mode the
+# server is pinned below; default mode pins nothing and falls through to
+# makerchip.serverUrl / the built-in default, still without discovery.)
+export MAKERCHIP_LAUNCH=1
 if [ "$MODE" = "url" ]; then
   export MAKERCHIP_SERVER_URL="$SERVER_URL"
+elif [ "$MODE" = "clone" ]; then
+  # Hand the extension the RESOLVED clone root. It reads
+  # <clone>/sandhost/TUNNEL_INFO fresh each time a panel is (re)created, so a
+  # relaunch that recreates the tunnel on a new URL is picked up on reload without
+  # a reopen. We pass the clone (not the tunnel file or a frozen URL) because the
+  # clone path is stable and is the handle to everything else in the clone too.
+  export MAKERCHIP_MONO_CLONE="$CLONE_DIR"
 fi
 code "${CODE_ARGS[@]}"
 
