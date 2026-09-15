@@ -586,6 +586,65 @@ async function installCopilotInstructions(context: vscode.ExtensionContext, log:
 }
 
 /**
+ * Claude-only guidance appended to CLAUDE.md (not part of the shared Copilot intro).
+ * This guidance is based on testing a pre-release version of Microsoft's Claude harness.
+ * Future versions may resolve these issues.
+ */
+const CLAUDE_TOOL_GATING_NOTE = `
+## Tool Issues
+
+Based on testing of a pre-release version of Microsoft's Claude harness, there are several
+issues with tool access that have workarounds. Be careful to work around them, as some
+can result in HANGS.
+
+### Makerchip Tool Gating (Claude harness)
+
+The Makerchip MCP tools are gated to conserve tool slots, so not all are offered at once. Two
+fallbacks are always available: \`makerchip_enable_tools\` (activate (or release) a capability set) and
+\`makerchip_invoke_tool\` (call any tool by name, even a gated one).
+
+- \`makerchip_enable_tools\` makes a set's tools *offered*, but a newly enabled tool only becomes
+  directly callable on the NEXT turn — the offered tool list for the current turn is fixed before the
+  enable takes effect. Calling it the same turn fails with "No such tool available". This is expected
+  and does NOT require a new chat: either wait for your next turn, or call it now via
+  \`makerchip_invoke_tool\`.
+- For a one-off call to a gated tool, prefer \`makerchip_invoke_tool\` (no lasting tool-set change).
+- **Never issue \`mcp__client__makerchip*\` calls concurrently — issue them ONE AT A TIME**, awaiting
+  each before starting the next. Batching two or more in a single execution round HANGS: the first
+  returns, the rest never reach the extension (the harness bridge dispatches one tool call at a time
+  and drops the concurrent ones). This is a harness-bridge limitation, not a stale provider.
+  Fix: re-issue the calls serially.
+- A set change (\`makerchip_enable_tools\` enable OR release) plus a same-turn call to an affected tool
+  is unsafe: *enabling* lags (fast "No such tool available", above), and *releasing* a set then calling
+  one of its still-offered tools that same turn HANGS (the bridge dispatches to a now-unregistered
+  tool). Let set changes settle to the next turn, or reach the tool via \`makerchip_invoke_tool\`.
+
+### Stale Tool-Provider Binding
+
+The tool-provider clientId is bound at the start of the chat session and stays pinned for the whole
+chat. If the extension host reloads, it comes back with a new MCP gateway and clientId, but the chat
+stays bound to the old one, so every \`mcp__client__makerchip*\` call routes to the dead connection and
+**hangs indefinitely** — it never reaches the extension. If the user skips the command, a "skipped
+from another client" / "Unknown error" is surfaced. The harness may even say *"another active client
+now provides ... you may try calling the tool again"* — but retrying re-routes to the same dead
+connection and hangs again.
+
+### Diagnosing a Hang
+
+Try to avoid hangs, but if you slip and hit one, rule out the turn-local causes first:
+- **Gating lag** — fails FAST with "No such tool available"; only right after \`makerchip_enable_tools\`;
+  clears next turn. Do NOT start a new chat.
+- **Concurrent calls** — HANGS; you issued >=2 \`mcp__client__\` calls in one execution round (the first
+  returned, a later one hung). Fix: re-issue serially, one at a time. No fresh chat.
+- **Same-turn set change** — HANGS; you released a set and called one of its tools in the same turn.
+  Fix: let it settle to the next turn, or use \`makerchip_invoke_tool\`. No fresh chat.
+- **Stale provider** — a LONE, serial call still HANGS (until skipped), with no gating change this turn,
+  after a reload, an extension update/enable/disable or, an extension host crash; retrying keeps hanging.
+  Fix: Direct the user to start a fresh chat.
+
+`;
+
+/**
  * Generate `CLAUDE.md` for the Claude harness. Unlike Copilot, the Claude harness auto-loads
  * `CLAUDE.md` but NOT `.github/copilot-instructions.md` or `.vscode/skills/*`. So CLAUDE.md is a
  * COPY of the shared instruction intro (not a link — Claude needs the real file) with a generated
@@ -605,7 +664,7 @@ async function generateClaudeMd(context: vscode.ExtensionContext, log: (message:
         'folder) provide detailed TL-Verilog guidance — read the relevant one when its topic comes up:\n\n' +
         skillLines.join('\n') + '\n'
       : '';
-    const content = intro.trimEnd() + '\n' + skillSection;
+    const content = intro.trimEnd() + '\n' + skillSection + CLAUDE_TOOL_GATING_NOTE;
 
     await fs.writeFile(path.join(MAKERCHIP_DIR, 'CLAUDE.md'), content, 'utf-8');
     log('  ✓ Generated CLAUDE.md');
