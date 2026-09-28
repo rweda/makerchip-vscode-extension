@@ -23,11 +23,13 @@ import { initializeResources, updateResources } from './resourceManager';
 import { registerMakerchipTool } from './makerchipTool';
 import { initToolActivation, getToolActivation } from './toolActivation';
 import { registerMakerchipParticipant } from './makerchipParticipant';
+import { reconcileClaudeSkill } from './claudeSkill';
 import { log } from './logger';
 import * as compileCache from './compileCache';
 
-// Default Makerchip server URL
-const DEFAULT_SERVER_URL = 'https://beta.makerchip.com';
+// Default Makerchip server URL. Production; override with `makerchip.serverUrl` (or per-panel
+// via a tool's serverUrl argument) to test against beta or a local sandhost.
+const DEFAULT_SERVER_URL = 'https://makerchip.com';
 
 // How long to wait for a newly opened panel's webview to signal readiness
 // before rejecting. Without this, a webview that fails to load (e.g. plugin
@@ -153,6 +155,21 @@ export async function callIDE(method: string, args?: any[], panelName?: string, 
 }
 
 /**
+ * Is a Claude extension installed? Used to decide whether we may create `~/.claude` before the
+ * Claude harness has ever run (see claudeSkill.ts).
+ *
+ * Matched case-insensitively on a publisher-scoped prefix rather than with
+ * `getExtension('anthropic.claude-code')`, because the id's canonical case is ambiguous: the
+ * extension's own manifest says `Anthropic.claude-code`, while `code --list-extensions` and
+ * extensions.json report it lowercased. Comparing lowercased makes that disagreement moot, and
+ * the prefix survives a rename within the publisher. A false negative here is not fatal — it
+ * just falls back to requiring `~/.claude` to already exist.
+ */
+function claudeExtensionInstalled(): boolean {
+  return vscode.extensions.all.some(e => e.id.toLowerCase().startsWith('anthropic.claude'));
+}
+
+/**
  * Extension activation entry point called by VS Code.
  * Registers commands, tools, chat participant, and initializes resources.
  * @param ctx Extension context provided by VS Code
@@ -207,10 +224,42 @@ export function activate(ctx: vscode.ExtensionContext) {
     console.error('Failed to register Makerchip chat participant:', error);
   }
 
-  // Initialize resources (clone/update repos and install skill)
-  initializeResources(context).catch(error => {
-    console.error('Failed to initialize Makerchip reference data:', error);
+  // Get the Makerchip tool-usage rules in front of the Claude agent before it calls our tools
+  // (see claudeSkill.ts for why this lives in the user's ~/.claude). Deliberately NOT inside
+  // initializeResources: that path is version/age gated, and this must run on every activation
+  // to prune the registry entries of sibling installs that have since been uninstalled.
+  const refreshClaudeSkill = () => reconcileClaudeSkill({
+    extensionPath: context.extensionPath,
+    version: context.extension.packageJSON.version,
+    host: vscode.env.appName,
+    devMode: context.extensionMode === vscode.ExtensionMode.Development,
+  }, claudeExtensionInstalled()).then(result => {
+    log(`Claude skill ${result.action}: ${result.skillPath}`);
+    // Measured 2026-09-23: an already-open chat DOES pick up a newly installed skill, and even
+    // sees newly registered tools — but invoking them hangs on the stale tool-provider binding
+    // (see KNOWN LIMITS in claudeSkill.ts). So the guidance arrives on its own and needs no
+    // announcement; what the user has to be told is that the TOOLS will not work until they
+    // start a new chat, because the failure mode is a hang rather than an error. Only on
+    // 'created', which is the install case.
+    if (result.action === 'created') {
+      vscode.window.showInformationMessage(
+        'Makerchip: start a new Claude chat before using Makerchip tools. In a chat that was already ' +
+        'open, tool calls hang instead of failing.'
+      );
+    }
   });
+
+  // Run immediately so the skill exists even if the populate path below is gated off...
+  refreshClaudeSkill();
+
+  // Initialize resources (clone/update repos and install skill)
+  initializeResources(context)
+    .catch(error => {
+      console.error('Failed to initialize Makerchip reference data:', error);
+    })
+    // ...then again once the detailed guidance files are on disk, because the skill body
+    // indexes them dynamically and the first pass may have found nothing to index.
+    .finally(refreshClaudeSkill);
 
   // Cleanup old cache entries on activation
   compileCache.cleanupOldEntries().catch(error => {

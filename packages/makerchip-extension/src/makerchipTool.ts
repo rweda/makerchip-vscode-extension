@@ -4,7 +4,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { log } from './logger';
 import * as compileCache from './compileCache';
-import { MAKERCHIP_DIR, RESOURCES_DIR } from './populateResources';
+import { MAKERCHIP_DIR, RESOURCES_DIR, CACHE_DIR } from './populateResources';
 import { CeCompileTool } from './ceCompile';
 import { EnableToolsTool, getToolActivation } from './toolActivation';
 
@@ -554,7 +554,7 @@ export class MakerchipTool implements vscode.LanguageModelTool<MakerchipToolInpu
 
       // Build non-blocking response message with compile ID and log path
       const panelInfo = panelName ? ` in panel '${panelName}'` : '';
-      const cacheDir = path.join(MAKERCHIP_DIR, 'compile-cache', compileId);
+      const cacheDir = path.join(CACHE_DIR, compileId);
       const metadataPath = path.join(cacheDir, 'metadata.json');
       const stdallPath = path.join(cacheDir, 'stdall');
 
@@ -1625,12 +1625,23 @@ interface OpenThirdPartyPaneInput {
   contentType: 'pdf' | 'iframe';
   /** Content parameters - must include either contentUrl or filePath */
   contentParams: {
-    /** URL to the content (PDF file or web page). Supports https://, http://, file://, data URIs, etc. */
+    /**
+     * URL to the content. The IDE sandbox CSP governs what is actually reachable:
+     * `https:` and `blob:` (and same-origin) work. `file://` does NOT -- browsers block
+     * local-file loads from an https document beneath CSP, so no CSP change can enable it.
+     * `http://` is blocked/upgraded, and `data:` is permitted for `iframe` panes (frame-src)
+     * but NOT for `pdf` panes, whose viewer FETCHES the file (connect-src).
+     * To show a local file, use `filePath` -- do not hand-build a file:// or data: URL.
+     */
     contentUrl?: string;
     /**
-     * Absolute path to a local file to load. The extension reads the file and builds a
-     * `data:` URI internally, so large file contents never pass through the model context.
-     * Takes precedence over contentUrl when both are provided.
+     * Absolute path to a local file to load. Read by the extension, so the (potentially large)
+     * contents never pass through the model context window. Takes precedence over contentUrl.
+     *
+     * This is the supported way to display a local document -- including a licensed PDF that is
+     * not publicly reachable. For `iframe` panes the extension builds a `data:` URI (permitted by
+     * frame-src, and its opaque origin isolates the content). For `pdf` panes a data: URI does not
+     * work (see contentUrl above); those are delivered as raw bytes over the pane channel instead.
      */
     filePath?: string;
   };
@@ -1877,9 +1888,22 @@ export class OpenThirdPartyPaneTool implements vscode.LanguageModelTool<OpenThir
         ]);
       }
 
-      // When a local filePath is provided, read it here and build a data: URI internally so the
-      // (potentially large) file contents never pass through the model context window.
-      const resolvedParams: { contentUrl: string } = { contentUrl: contentParams.contentUrl ?? '' };
+      // When a local filePath is provided, read it here so the (potentially large) file contents
+      // never pass through the model context window.
+      //
+      // Delivery differs by pane type, because the sandbox CSP treats them differently:
+      //   iframe -- a `data:` URI works (permitted by frame-src) and its opaque origin isolates
+      //             the content, which is what we want for untrusted local HTML.
+      //   pdf    -- a `data:` URI CANNOT work: the bundled viewer FETCHES the file, and
+      //             connect-src is `'self' https: blob:`. A blob: URL is no good either (it is
+      //             minted in the IDE frame and unreachable across the pane's sandbox boundary).
+      //             So the bytes are pushed to the viewer over the pane channel instead, via the
+      //             bridge's `openData` -- as base64, since extension->webview messages are
+      //             JSON-serialized and a Uint8Array would not survive that hop.
+      const resolvedParams: { contentUrl?: string } = {};
+      if (contentParams.contentUrl) { resolvedParams.contentUrl = contentParams.contentUrl; }
+      let pdfBase64: string | null = null;
+      let fileBaseName: string | null = null;
       if (contentParams.filePath) {
         const filePath = contentParams.filePath;
         if (!path.isAbsolute(filePath)) {
@@ -1892,18 +1916,62 @@ export class OpenThirdPartyPaneTool implements vscode.LanguageModelTool<OpenThir
             new vscode.LanguageModelTextPart(`File not found: ${filePath}`)
           ]);
         }
-        const mimeType = mimeTypeForFile(filePath);
         const base64 = fs.readFileSync(filePath).toString('base64');
-        resolvedParams.contentUrl = `data:${mimeType};base64,${base64}`;
+        fileBaseName = path.basename(filePath);
+        if (contentType === 'pdf') {
+          pdfBase64 = base64;
+          // No contentUrl: the viewer opens empty and we feed it below.
+          delete resolvedParams.contentUrl;
+        } else {
+          resolvedParams.contentUrl = `data:${mimeTypeForFile(filePath)};base64,${base64}`;
+        }
+      }
+
+      // A data-fed pdf pane needs the channel (to receive the bytes) and cannot be recreated from
+      // serialized layout state, so it must not claim to be transferrable.
+      const resolvedOptions: Record<string, any> = { ...(paneOptions || {}) };
+      if (pdfBase64) {
+        resolvedOptions.channel = { ...(resolvedOptions.channel || {}), rpc: true };
+        resolvedOptions.nonTransferrable = true;
       }
 
       // Call the IDE method to open the third-party pane
       const actualMnemonic = await vscode.commands.executeCommand(
         'makerchip.callIdeMethodWithResult',
         'openThirdPartyPane',
-        [mnemonic, contentType, resolvedParams, paneOptions || {}],
+        [mnemonic, contentType, resolvedParams, resolvedOptions],
         panelName
       ) as string;
+
+      if (pdfBase64) {
+        if (!actualMnemonic) {
+          return new vscode.LanguageModelToolResult([
+            new vscode.LanguageModelTextPart(`Failed to open a pdf pane for '${mnemonic}'`)
+          ]);
+        }
+        // Push the document into the now-open viewer. A failure here leaves an empty pane, so say
+        // so rather than reporting success.
+        try {
+          // Generous timeouts on BOTH legs: a large PDF has to cross three hops as base64 and
+          // then be parsed by pdf.js. The command's own default is 10s, and callPane's pane-RPC
+          // default is 30s -- either would spuriously fail a big document.
+          const PDF_LOAD_TIMEOUT_MS = 120000;
+          await vscode.commands.executeCommand(
+            'makerchip.callIdeMethodWithResult',
+            'callPane',
+            [actualMnemonic, 'openData', [pdfBase64, fileBaseName], PDF_LOAD_TIMEOUT_MS],
+            panelName,
+            false,
+            PDF_LOAD_TIMEOUT_MS
+          );
+        } catch (e: any) {
+          return new vscode.LanguageModelToolResult([
+            new vscode.LanguageModelTextPart(
+              `Opened pane '${actualMnemonic}' but failed to load ${fileBaseName}: ${e?.message ?? e}`
+            )
+          ]);
+        }
+      }
 
       const action = paneOptions?.background ? 'opened' : 'opened and activated';
       const panelInfo = panelName ? ` in panel '${panelName}'` : '';
@@ -2790,6 +2858,10 @@ interface InvokeToolInput {
  * set is gated off. `vscode.lm.invokeTool` is not gated by picker/`when` state, so this keeps every
  * capability reachable even when tool-cap pressure hides it. It can also `describe` a tool (return
  * its inputSchema) so the model can construct a valid call before invoking.
+ *
+ * Proposed extension: accept a LIST of calls in one invocation, so the agent can batch Makerchip
+ * work without tripping the harness bridge's one-call-per-round limit (which hangs rather than
+ * erroring). See issues/008-invoke-tool-batched-calls.md.
  */
 export class InvokeToolTool implements vscode.LanguageModelTool<InvokeToolInput> {
 

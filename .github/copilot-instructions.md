@@ -1,7 +1,11 @@
 # Makerchip VS Code Extension — Development Guide
 
 See [`README.md`](../README.md) for repo structure, use models, coupling rationale, and
-development workflow. Key constraints to preserve when making changes:
+development workflow, and [`CONTRIBUTING.md`](../CONTRIBUTING.md) for the public build/PR flow.
+This repo is public; Redwood EDA also co-develops it against a **private** `mono` server clone,
+covered under [Internal Development](#internal-development) at the end.
+
+Key constraints to preserve when making changes:
 
 - **Preserve all three use models** (Desktop Makerchip, Web Makerchip, Editor-only TL-Verilog).
 - **Keep `languageFeatures.ts` web-safe** — no `fs`, `path`, `axios`, or any Node-only API.
@@ -10,14 +14,6 @@ development workflow. Key constraints to preserve when making changes:
 - **Grammar edits go in `tlv-grammar/` only** — `tlv-extension/syntaxes/tlverilog.tmLanguage` and
   `tlv-extension/language-configuration.json` are build artifacts copied by `scripts/copy-grammar.mjs`
   and are gitignored. Never edit them in `tlv-extension/`.
-- **`./launch` is clone-centric:** `./launch <mono-clone>` is the single door — it starts the
-  clone's SandHost if down, ensures a Cloudflare tunnel, and opens the clone's workspace in a
-  per-clone VS Code profile (`--user-data-dir`). `./launch <url>` / bare `./launch` target a
-  deployed server. The clone is the unit of coupling
-  (clone ↔ port ↔ tunnel ↔ workspace ↔ profile). See [`README.md`](../README.md).
-- **Co-dev setup:** `./launch` and "Run Extension" (F5) load both extensions from source via
-  two `--extensionDevelopmentPath` args. The `watch: all` task builds both. Reload the
-  Extension Development Host window after `tsc` finishes to pick up changes.
 - **Issues are a live backlog, not a changelog** — `issues/NNN-slug.md` files track *current status
   and remaining work only*. As work completes, remove it from the issue and fold durable outcomes
   into code/docs/READMEs; rely on Git history for how things evolved (no dated "vN/shipped/verified"
@@ -28,4 +24,19 @@ development workflow. Key constraints to preserve when making changes:
   genuinely cross-argument behavior (how options interact, ordering, gating); document each argument
   once in its `inputSchema` property `description`. The mirror TypeScript input interface (e.g.
   `MakerchipToolInput`) is the source the property descriptions track.
+
+## Internal Development
+
+Redwood-internal. This repo is public, but Redwood EDA co-develops it against a **private**
+`mono` server clone. The full workflow — `./launch <clone>`, Cloudflare tunnels, per-clone VS
+Code profiles, `bin/reap` — lives in [`DEVELOPMENT-INTERNAL.md`](../DEVELOPMENT-INTERNAL.md);
+keep it out of public-facing docs.
+
+- **`./launch` selects the server you develop against:** bare `./launch` / `./launch <url>`
+  target a *deployed* server (the public flow). `./launch <mono-clone>` targets a local `mono`
+  clone — the unit of coupling (clone ↔ port ↔ tunnel ↔ workspace ↔ profile) — documented in
+  [`DEVELOPMENT-INTERNAL.md`](../DEVELOPMENT-INTERNAL.md).
+- **Co-dev setup:** `./launch` and "Run Extension" (F5) load both extensions from source via
+  two `--extensionDevelopmentPath` args. The `watch: all` task builds both. Reload the
+  Extension Development Host window after `tsc` finishes to pick up changes.
 

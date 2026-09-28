@@ -34,6 +34,8 @@ with plain file edits (AI-friendly).
 - [004 — Transfer programs/settings into the CE UI pane (in-place, no reload)](004-ce-ui-config-transfer.md)
 - [005 — Headless CE-API compile path (no CE pane)](005-headless-ce-api-compile.md)
 - [007 — Serve and announce compile include files](007-serve-announce-include-files.md)
+- [008 — Let `makerchip_invoke_tool` carry several calls in one invocation](008-invoke-tool-batched-calls.md)
+- [009 — SystemVerilog language features inside TL-Verilog](009-sv-features-in-tlv.md)
 
 ## Closed
 

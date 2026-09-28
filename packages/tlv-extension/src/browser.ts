@@ -2,9 +2,9 @@
 //
 // The web extension host runs in a Web Worker with no Node.js APIs (no fs,
 // child_process, path, os). Only the web-safe language features are available
-// here. Module instantiation and the experimental SandPiper/Diagram/Nav-TLV/
-// Waveform buttons are desktop-only and intentionally excluded — see
-// extension.ts for the full Node activation.
+// here. The experimental SandPiper/Diagram/Nav-TLV/Waveform buttons are
+// desktop-only and intentionally excluded — see extension.ts for the full
+// Node activation.
 import * as vscode from 'vscode';
 import { registerLanguageFeatures } from './languageFeatures';
 

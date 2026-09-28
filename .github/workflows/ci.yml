@@ -9,7 +9,15 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # The extension itself runs wherever VS Code does, but Windows is a DEVELOPMENT platform for
+    # contributors, and the build scripts are what break there — `cp`, shell job control, quoting.
+    # Nobody here develops on Windows, so without a CI job that support rots silently and the next
+    # outside contributor hits it again (which is how it was found the first time).
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -26,3 +34,20 @@ jobs:
 
       - name: Lint
         run: npm run lint --if-present
+
+      # Package LICENSEs are real copies of the repo LICENSE, not symlinks:
+      # npm silently drops symlinks from the published tarball, and a Windows
+      # checkout without symlink support turns them into text files holding the
+      # target path. Copies mean drift is possible, so check for it here.
+      # Repo-invariant, so once is enough — and it is a bash script.
+      - name: Check package LICENSEs match the repo LICENSE
+        if: runner.os == 'Linux'
+        run: |
+          status=0
+          for pkg in packages/*/; do
+            if ! diff -q LICENSE "$pkg/LICENSE"; then
+              echo "::error::$pkg/LICENSE differs from the repo LICENSE"
+              status=1
+            fi
+          done
+          exit $status

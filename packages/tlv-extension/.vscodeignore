@@ -1,13 +1,17 @@
-.vscode/**
-.gitignore
-*.vsix
-test/**
-tsconfig.json
-build.sh
-.travis.yml
-testfile.*
+# Allowlist, not denylist: ignore everything, then re-include exactly what ships.
+# See packages/makerchip-extension/.vscodeignore for the rationale; in short,
+# vsce negations win globally rather than in order, so each `!` must be narrow
+# on its own, and LICENSE/CHANGELOG.md are not force-included.
+#
+# `syntaxes/` and `language-configuration.json` are generated at build time by
+# scripts/copy-grammar.mjs (gitignored), which is why they are re-included here
+# but absent from git.
+**
 
-.vscode-test/**
-out/test/**
-src/**
-**/*.map
+!out/src/**/*.js
+!dist/web/extension.js
+!syntaxes/**
+!language-configuration.json
+!images/icon.png
+!LICENSE
+!CHANGELOG.md

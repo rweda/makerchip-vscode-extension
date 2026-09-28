@@ -1,12 +1,20 @@
 {
   "name": "@rweda/tlv-grammar",
-  "version": "2.0.0",
+  "version": "0.0.1",
   "description": "TL-Verilog TextMate grammar and language configuration. Source of truth reusable by VS Code extensions, Monaco, Shiki, and GitHub Linguist.",
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/rweda/makerchip-vscode-extension",
     "directory": "packages/tlv-grammar"
+  },
+  "bugs": "https://github.com/rweda/makerchip-vscode-extension/issues",
+  "homepage": "https://github.com/rweda/makerchip-vscode-extension/tree/main/packages/tlv-grammar#readme",
+  "engines": {
+    "node": ">=18"
   },
   "keywords": [
     "tl-verilog",

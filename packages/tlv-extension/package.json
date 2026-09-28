@@ -2,19 +2,21 @@
 	"name": "tl-verilog",
 	"description": "TL-Verilog support for VS Code",
 	"version": "2.0.0",
+	"license": "MIT",
 	"publisher": "redwood-eda",
 	"displayName": "TL-Verilog",
 	"icon": "images/icon.png",
 	"keywords": ["tl-verilog", "verilog", "hdl", "fpga"],
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/rweda/tlv-vscode"
+		"url": "https://github.com/rweda/makerchip-vscode-extension",
+		"directory": "packages/tlv-extension"
 	},
 	"engines": {
 		"vscode": "^1.80.0"
 	},
 	"categories": [
-		"Languages"
+		"Programming Languages"
 	],
 	"contributes": {
 		"languages": [{
@@ -28,18 +30,9 @@
 			"scopeName": "source.tlverilog",
 			"path": "./syntaxes/tlverilog.tmLanguage"
 		}],
-		"snippets": [{
-			"language": "tlverilog",
-			"path": "./snippets/snippets.json"
-		}],
 		"configuration": {
 			"title": "TL-Verilog",
 			"properties": {
-				"tlverilog.instancePrefix": {
-					"type": "string",
-					"default": "u_",
-					"description": "The prefix to use when instantiating a new module"
-				},
 				"tlverilog.semanticHighlighting.enabled": {
 					"type": "boolean",
 					"default": true,
@@ -288,11 +281,7 @@
 					}
 				}
 			}
-		},
-		"commands": [{
-			"command": "extension.tlverilog.instantiateModule",
-			"title": "TL Verilog: Instantiate Module"
-		}]
+		}
 	},
 	"activationEvents": [
 		"onLanguage:tlverilog"
@@ -305,12 +294,12 @@
 		"compile-web": "node ./esbuild.mjs",
 		"watch": "npm run copy-grammar && exec tsc -watch -p ./",
 		"watch-web": "node ./esbuild.mjs --watch",
-		"vscode:prepublish": "npm run copy-grammar && tsc -p ./ && node ./esbuild.mjs --production",
-		"package": "npm run compile && vsce package",
+		"clean": "node -e \"for (const d of ['out','dist']) require('fs').rmSync(d,{recursive:true,force:true})\"",
+		"vscode:prepublish": "npm run clean && npm run copy-grammar && tsc -p ./ && node ./esbuild.mjs --production",
+		"package": "npm run compile && vsce package --no-dependencies",
 		"run-in-browser": "vscode-test-web --browserType=chromium --extensionDevelopmentPath=. ."
 	},
 	"devDependencies": {
-		"@rweda/tlv-grammar": "*",
 		"@types/node": "^22",
 		"@types/vscode": "^1.80.0",
 		"@vscode/test-web": "^0.0.60",

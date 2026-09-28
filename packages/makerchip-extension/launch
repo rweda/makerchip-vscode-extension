@@ -389,6 +389,39 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Guard: one workspace per profile. VS Code will not open a given workspace in
+# two windows of the same --user-data-dir. If a PLAIN (non-EDH) window already
+# holds this clone's .code-workspace (e.g. opened via bin/open_code), the EDH we
+# are about to open is silently DENIED that workspace and lands on a throwaway
+# "Untitled (Workspace)" instead -- which looks like ./launch "didn't open the
+# workspace". Detect that window and refuse, rather than open a broken EDH.
+#
+# We scan running VS Code main processes on THIS profile that have the workspace
+# open but are NOT Extension Development Hosts (no --extensionDevelopmentPath).
+# A prior EDH on the same workspace is fine -- relaunch just reuses its window --
+# so those are excluded. Requiring the literal "user-data-dir" flag string keeps
+# this pipeline's own grep helpers out of the match.
+# ---------------------------------------------------------------------------
+if [ "$MODE" = "clone" ] && [ -n "$WORKSPACE" ]; then
+  collider="$(ps -ww -ax -o pid=,args= 2>/dev/null \
+    | grep -F -- 'user-data-dir' \
+    | grep -F -- "$EDH_USER_DATA_DIR" \
+    | grep -F -- "$WORKSPACE" \
+    | grep -v -F -- '--extensionDevelopmentPath' || true)"
+  if [ -n "$collider" ]; then
+    echo "Error: '$CLONE_NAME' is already open in a plain (non-EDH) VS Code window:" >&2
+    echo "         $WORKSPACE" >&2
+    echo "       VS Code allows a workspace in only ONE window per profile, so the" >&2
+    echo "       Extension Development Host would be denied it and silently open an" >&2
+    echo "       'Untitled (Workspace)' instead. Close that window (it was opened via" >&2
+    echo "       bin/open_code), then re-run ./launch." >&2
+    echo "       Offending process(es):" >&2
+    printf '         %s\n' "$collider" >&2
+    exit 1
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # Build the `code` invocation and verify the extension is compiled.
 # makerchip declares a hard extensionDependencies on tl-verilog, so we also load
 # the language extension from source (satisfies the dependency without a
@@ -421,7 +454,8 @@ check_build "TL-Verilog extension" "$SCRIPT_DIR/../tlv-extension/src" \
 #   url   -> the URL directly (static), via MAKERCHIP_SERVER_URL.
 #   default -> nothing server-specific; the extension falls back to
 #            makerchip.serverUrl or its built-in DEFAULT_SERVER_URL
-#            (beta.makerchip.com).
+#            (makerchip.com). Note this differs from DEFAULT_SERVER below,
+#            which is what a bare `./launch` pins explicitly.
 # In all three modes we also export MAKERCHIP_LAUNCH=1 so the extension knows a
 # ./launch (not F5) opened this EDH and disables its workspace-folder discovery
 # fallback -- ./launch is authoritative, so open folders never override it.

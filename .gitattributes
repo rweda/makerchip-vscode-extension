@@ -1,0 +1,25 @@
+# Keep line endings LF in the repository regardless of the contributor's platform.
+#
+# Without this, a Windows checkout with core.autocrlf=true produces CRLF working files, and any
+# that get consumed as data rather than compiled will carry the CRLF through. `minimal.tlv` is the
+# concrete case: it is copied into ~/.vscode-makerchip/resources/ and compiled, and SandPiper
+# wants LF. (extension.ts also normalizes CRLF out of TL-Verilog source before dispatching a
+# compile, which covers user files; this covers ours.)
+#
+# `text=auto` means git decides what is text and normalizes it to LF on commit; `eol=lf` means it
+# checks out as LF everywhere too, so a Windows contributor sees the same bytes CI does.
+* text=auto eol=lf
+
+# Belt and braces for the file whose line endings actually reach a compiler.
+*.tlv text eol=lf
+
+# Never touch these — normalization would corrupt them.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.vsix binary

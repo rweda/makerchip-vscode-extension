@@ -1,11 +1,17 @@
-.vscode/**
-.vscode-test/**
-src/**
-.gitignore
-.yarnrc
-vsc-extension-quickstart.md
-**/tsconfig.json
-**/eslint.config.mjs
-**/*.map
-**/*.ts
-**/.vscode-test.*
+# Allowlist, not denylist: ignore everything, then re-include exactly what ships.
+# A denylist silently ships every new dev file someone adds; this cannot.
+#
+# NOTE: vsce negations win globally, not in order — a later ignore pattern will
+# NOT carve an exception out of an earlier `!` rule. So each `!` must be narrow
+# enough on its own (hence `out/*.js`, which excludes `out/test/`).
+#
+# vsce force-includes package.json and the README, but NOT LICENSE or
+# CHANGELOG.md, so those are re-included explicitly.
+**
+
+!out/*.js
+!out/webview.html
+!resources/**
+!images/icon.png
+!LICENSE
+!CHANGELOG.md

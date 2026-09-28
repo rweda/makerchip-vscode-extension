@@ -3,16 +3,20 @@
   "displayName": "Makerchip",
   "description": "VS Code extension for Makerchip IDE integration",
   "version": "0.0.1",
+  "license": "MIT",
   "publisher": "redwood-eda",
   "repository": {
     "type": "git",
     "url": "https://github.com/rweda/makerchip-vscode-extension"
   },
   "engines": {
-    "vscode": "^1.110.0"
+    "vscode": "^1.95.0"
   },
+  "icon": "images/icon.png",
   "categories": [
-    "Other"
+    "Visualization",
+    "AI",
+    "Education"
   ],
   "activationEvents": [
     "onStartupFinished",
@@ -95,10 +99,10 @@
         },
         "makerchip.serverUrl": {
           "type": "string",
-          "default": "https://beta.makerchip.com",
+          "default": "https://makerchip.com",
           "description": "Base URL of the Makerchip server (for testing with local or staging servers)",
           "examples": [
-            "https://makerchip.com",
+            "https://beta.makerchip.com",
             "https://v123.makerchip.com"
           ]
         },
@@ -1555,22 +1559,24 @@
     ]
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "clean": "node -e \"require('fs').rmSync('out',{recursive:true,force:true})\"",
+    "vscode:prepublish": "npm run clean && npm run compile",
+    "vscode:uninstall": "node ./out/uninstall.js",
     "compile": "tsc -p ./ && tsc -p src/tsconfig.webview.json && npm run copy-webview",
-    "copy-webview": "cp src/webview.html out/webview.html",
-    "watch": "npm run copy-webview && { trap 'kill 0' EXIT INT TERM; npm run watch:main & npm run watch:webview & npm run watch:html & wait; }",
+    "copy-webview": "shx mkdir -p out && shx cp src/webview.html out/webview.html",
+    "watch": "npm run copy-webview && node scripts/watch.js",
     "watch:main": "tsc -watch -p ./",
     "watch:webview": "tsc -watch -p src/tsconfig.webview.json",
-    "watch:html": "nodemon --watch src/webview.html --exec 'npm run copy-webview'",
+    "watch:html": "nodemon --watch src/webview.html --exec \"npm run copy-webview\"",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src",
     "test": "vscode-test",
-    "package": "npm run compile && vsce package"
+    "package": "npm run compile && vsce package --no-dependencies"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
     "@types/node": "^22.19.17",
-    "@types/vscode": "^1.110.0",
+    "@types/vscode": "^1.95.0",
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^3.6.0",

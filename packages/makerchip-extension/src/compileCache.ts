@@ -40,7 +40,7 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { CACHE_DIR } from './populateResources';
+import { CACHE_DIR, HISTORY_FILE } from './populateResources';
 
 /** All result files a compilation can produce. */
 export const RESULT_FILES = [
@@ -175,8 +175,6 @@ interface CompileHistory {
   version: string;
   compilations: CompileHistoryEntry[];
 }
-
-const HISTORY_FILE = path.join(path.dirname(CACHE_DIR), 'compile-history.json');
 
 // Queue for serializing all file updates to prevent race conditions
 const updateQueue: Array<() => Promise<any>> = [];

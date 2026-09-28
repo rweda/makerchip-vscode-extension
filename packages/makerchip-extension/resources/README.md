@@ -20,7 +20,6 @@ This skill file is the **primary source** of TL-Verilog knowledge for both AI as
 ~/.vscode-makerchip/
 ├── .github/
 │   └── copilot-instructions.md # Workspace intro auto-loaded by GitHub Copilot
-├── CLAUDE.md                   # Workspace intro + skill index, auto-loaded by the Claude harness
 ├── .vscode/skills/
 │   └── tlv-ecosystem.md        # Primary TL-Verilog documentation
 ├── resources/                  # RAG resources for AI assistants
