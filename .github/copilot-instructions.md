@@ -3,7 +3,7 @@
 See [`README.md`](../README.md) for repo structure, use models, coupling rationale, and
 development workflow, and [`CONTRIBUTING.md`](../CONTRIBUTING.md) for the public build/PR flow.
 This repo is public; Redwood EDA also co-develops it against a **private** `mono` server clone,
-covered under [Internal Development](#internal-development) at the end.
+covered under [Internal Development](#internal-development).
 
 Key constraints to preserve when making changes:
 

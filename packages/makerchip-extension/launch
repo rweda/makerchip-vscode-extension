@@ -77,6 +77,7 @@ if ! command -v "$CODE_BIN" &> /dev/null; then
 fi
 
 # Default deployed server when no target is given.
+# Since this script is for development, use the beta server by default.
 DEFAULT_SERVER="https://beta.makerchip.com"
 
 # Where mono clones live (siblings of this extension repo by default; that path
@@ -409,14 +410,20 @@ if [ "$MODE" = "clone" ] && [ -n "$WORKSPACE" ]; then
     | grep -F -- "$WORKSPACE" \
     | grep -v -F -- '--extensionDevelopmentPath' || true)"
   if [ -n "$collider" ]; then
-    echo "Error: '$CLONE_NAME' is already open in a plain (non-EDH) VS Code window:" >&2
+    collider_pids="$(printf '%s\n' "$collider" | awk '{print $1}' | paste -sd, -)"
+    echo "Error: '$CLONE_NAME' appears to be open in a plain (non-EDH) VS Code window:" >&2
     echo "         $WORKSPACE" >&2
     echo "       VS Code allows a workspace in only ONE window per profile, so the" >&2
     echo "       Extension Development Host would be denied it and silently open an" >&2
     echo "       'Untitled (Workspace)' instead. Close that window (it was opened via" >&2
     echo "       bin/open_code), then re-run ./launch." >&2
+    echo "" >&2
     echo "       Offending process(es):" >&2
     printf '         %s\n' "$collider" >&2
+    echo "" >&2
+    echo "       ALREADY closed it? You might need to wait a minute or two. It seems" >&2
+    echo "       VS Code processes can linger. To watch the process(es):" >&2
+    printf '         while ps -p %s >/dev/null; do sleep 2; done; echo gone\n' "$collider_pids" >&2
     exit 1
   fi
 fi

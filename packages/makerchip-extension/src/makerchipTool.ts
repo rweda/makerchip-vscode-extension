@@ -905,8 +905,14 @@ export class GetVizImageTool implements vscode.LanguageModelTool<GetVizImageInpu
 }
 
 interface ExtractPdfFigureInput {
-  /** PDF source: a URL string (resolved through the IDE's CORS proxy, like \viz_js code). */
-  source: string;
+  /** PDF source: a URL string (resolved through the IDE's CORS proxy, like \viz_js code). One of `source` or `filePath`. */
+  source?: string;
+  /**
+   * Absolute path to a local PDF, as an alternative to `source`. The extension reads the file and
+   * ships the bytes to the IDE, so the document never has to be reachable by URL -- this is the
+   * path for a licensed local copy. One of `source` or `filePath`.
+   */
+  filePath?: string;
   /** 1-based page number (default: 1). */
   page?: number;
   /**
@@ -948,7 +954,7 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
     _token: vscode.CancellationToken
   ): Promise<vscode.PreparedToolInvocation> {
     return {
-      invocationMessage: `Extracting PDF figure geometry from ${options.input.source}...`
+      invocationMessage: `Extracting PDF figure geometry from ${options.input.source ?? options.input.filePath ?? 'PDF'}...`
     };
   }
 
@@ -958,12 +964,37 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
   ): Promise<vscode.LanguageModelToolResult> {
     log('[ExtractPdfFigureTool] ========== TOOL INVOKED ==========');
     try {
-      const { source, page, select, gap, space, text, clip, includePaths = false, panelName } = options.input;
+      const { source, filePath, page, select, gap, space, text, clip, includePaths = false, panelName } = options.input;
 
-      if (!source) {
+      if (!source && !filePath) {
         return new vscode.LanguageModelToolResult([
-          new vscode.LanguageModelTextPart('No PDF `source` provided. Pass a URL to a PDF (reachable from the Makerchip IDE).')
+          new vscode.LanguageModelTextPart(
+            'No PDF provided. Pass `source` (a URL reachable from the Makerchip IDE) or `filePath` (an absolute path to a local PDF).'
+          )
         ]);
+      }
+      if (source && filePath) {
+        return new vscode.LanguageModelToolResult([
+          new vscode.LanguageModelTextPart('Pass either `source` or `filePath`, not both.')
+        ]);
+      }
+
+      // A local file is read here and shipped as base64: extension->webview messages are
+      // JSON-serialized, so a Uint8Array would not survive the hop. The IDE decodes it back to
+      // bytes before extraction (see IDE.coffee's extractPdfFigure).
+      let pdfSource: any = source;
+      if (filePath) {
+        if (!path.isAbsolute(filePath)) {
+          return new vscode.LanguageModelToolResult([
+            new vscode.LanguageModelTextPart(`filePath must be an absolute path, got: ${filePath}`)
+          ]);
+        }
+        if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+          return new vscode.LanguageModelToolResult([
+            new vscode.LanguageModelTextPart(`File not found: ${filePath}`)
+          ]);
+        }
+        pdfSource = { base64: fs.readFileSync(filePath).toString('base64') };
       }
 
       // Assemble extractFigure opts, omitting undefined fields (so extractFigure defaults apply).
@@ -975,18 +1006,25 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
       if (text !== undefined) { opts.text = text; }
       if (clip !== undefined) { opts.clip = clip; }
 
-      log('[ExtractPdfFigureTool] Calling extractPdfFigure with source/opts:', source, opts);
+      // Generous timeout: the command default is 10s, which a large document would blow through
+      // -- a local PDF crosses three hops as base64 before pdf.js even parses it. Matches the
+      // 120s used for pushing a PDF into a pane.
+      const PDF_EXTRACT_TIMEOUT_MS = 120000;
+      log('[ExtractPdfFigureTool] Calling extractPdfFigure with source/opts:',
+        filePath ? `filePath=${filePath}` : source, opts);
       const result = await vscode.commands.executeCommand(
         'makerchip.callIdeMethodWithResult',
         'extractPdfFigure',
-        [source, opts],
-        panelName
+        [pdfSource, opts],
+        panelName,
+        false,
+        PDF_EXTRACT_TIMEOUT_MS
       ) as any;
 
       if (!result) {
         return new vscode.LanguageModelToolResult([
           new vscode.LanguageModelTextPart(
-            'PDF extraction returned no result. Ensure a Makerchip panel is open (extraction runs inside the IDE) and the `source` URL is reachable.'
+            'PDF extraction returned no result. Ensure a Makerchip panel is open (extraction runs inside the IDE) and, for a `source` URL, that it is reachable.'
           )
         ]);
       }
@@ -2839,7 +2877,8 @@ export class GetWarpvTlvTool implements vscode.LanguageModelTool<WarpvPaneInput>
 /**
  * Register the Makerchip tools with the Language Model API
  */
-interface InvokeToolInput {
+/** One tool call: the unit both the single and batched forms of makerchip_invoke_tool execute. */
+interface InvokeToolCall {
   /** Name of the target tool to invoke (or to describe). Omit with `describe` to list all Makerchip tools. */
   name?: string;
   /** Arguments object forwarded to the target tool (must match its inputSchema). */
@@ -2850,7 +2889,24 @@ interface InvokeToolInput {
    * Makerchip tool. Use this to discover a gated tool's schema before calling it.
    */
   describe?: boolean;
+  /**
+   * Batched form only. Whether a failure of THIS entry aborts the entries after it. Defaults to
+   * true, because Makerchip batches are usually dependent sequences (compile -> wait -> inspect).
+   * Set `fatal: false` for an entry whose failure the rest does not depend on.
+   */
+  fatal?: boolean;
 }
+
+interface InvokeToolInput extends InvokeToolCall {
+  /**
+   * Batched form: run these calls in order, in a single invocation. Mutually exclusive with the
+   * top-level `name`/`input`/`describe`. See BATCHING on InvokeToolTool for why this exists.
+   */
+  calls?: InvokeToolCall[];
+}
+
+/** Upper bound on a batch, so a runaway list cannot produce an unbounded single result. */
+const MAX_BATCH_CALLS = 100;
 
 /**
  * Universal fallback tool: invoke (or describe) any registered Language Model tool by name —
@@ -2859,9 +2915,31 @@ interface InvokeToolInput {
  * capability reachable even when tool-cap pressure hides it. It can also `describe` a tool (return
  * its inputSchema) so the model can construct a valid call before invoking.
  *
- * Proposed extension: accept a LIST of calls in one invocation, so the agent can batch Makerchip
- * work without tripping the harness bridge's one-call-per-round limit (which hangs rather than
- * erroring). See issues/008-invoke-tool-batched-calls.md.
+ * BATCHING (`calls`)
+ * Microsoft's Claude harness bridge dispatches one tool call per execution round: if the agent
+ * issues two or more Makerchip calls in a single round, the first returns and the rest never reach
+ * the extension, so the call HANGS rather than failing. The agent's own general guidance pushes it
+ * toward batching independent calls, so the rule it must follow here is against its default and
+ * the penalty for slipping is a hang.
+ *
+ * `calls: [{name, input}, ...]` gives it a sanctioned way to batch: the harness sees exactly ONE
+ * tool call, and the list is executed serially inside the extension. The concurrency limit is in
+ * the bridge, not in us, so a single call carrying N invocations never trips it.
+ *
+ * This also defeats the gating lag for free. `makerchip_enable_tools` normally only takes effect
+ * on the agent's next turn because the harness fixes the offered tool list per round — but a batch
+ * runs entirely in-process with no harness round trip between entries, and no enablement requirement
+ * so `[enable_tools(video), capture_video(...)]` works in one call.
+ *
+ * Results are concatenated with a delimiting header per call, preserving each result's parts
+ * verbatim (so image parts from e.g. makerchip_get_viz_image survive batching). Per-call output is
+ * NOT truncated; keep batches small, and note MAX_BATCH_CALLS.
+ *
+ * Keep this deliberately dumb — a serial list, no data flow, no control flow. It cannot chain
+ * (feed one call's result into the next), and it should not learn how: parallelism, nesting or
+ * result interpolation would each be a step toward reimplementing a programming language inside a
+ * tool input. Agent-authored code that needs real control flow belongs in an ephemeral headless
+ * component instead. See issues/010-headless-components.md.
  */
 export class InvokeToolTool implements vscode.LanguageModelTool<InvokeToolInput> {
 
@@ -2878,7 +2956,11 @@ export class InvokeToolTool implements vscode.LanguageModelTool<InvokeToolInput>
     options: vscode.LanguageModelToolInvocationPrepareOptions<InvokeToolInput>,
     _token: vscode.CancellationToken
   ): Promise<vscode.PreparedToolInvocation> {
-    const { name, describe } = options.input;
+    const { name, describe, calls } = options.input;
+    if (calls && calls.length > 0) {
+      const names = calls.map(c => c.name ?? 'catalog').join(', ');
+      return { invocationMessage: `Invoking ${calls.length} Makerchip tools (${names})...` };
+    }
     const target = name ?? 'Makerchip tools';
     return {
       invocationMessage: describe ? `Describing '${target}'...` : `Invoking tool '${target}'...`
@@ -2889,38 +2971,142 @@ export class InvokeToolTool implements vscode.LanguageModelTool<InvokeToolInput>
     options: vscode.LanguageModelToolInvocationOptions<InvokeToolInput>,
     token: vscode.CancellationToken
   ): Promise<vscode.LanguageModelToolResult> {
-    const { name, input, describe } = options.input;
+    const { calls } = options.input;
+    if (calls !== undefined) {
+      return this.invokeBatch(calls, options, token);
+    }
+    // Single call: return the target's result verbatim, unchanged from before batching existed.
+    return (await this.runCall(options.input, options, token)).result;
+  }
+
+  /**
+   * Run `calls` in order, concatenating their results with a per-call header.
+   *
+   * A failing entry aborts the rest unless it is marked `fatal: false`. That default is
+   * deliberate: these batches are typically dependent sequences, so carrying on after a failure
+   * yields cascading secondary failures rather than useful work. There is no batch-wide override —
+   * "tolerate everything" is expressible by marking the entries, which keeps one local knob
+   * instead of two that can contradict each other.
+   *
+   * Stops between calls if cancellation is requested.
+   */
+  private async invokeBatch(
+    calls: InvokeToolCall[],
+    options: vscode.LanguageModelToolInvocationOptions<InvokeToolInput>,
+    token: vscode.CancellationToken
+  ): Promise<vscode.LanguageModelToolResult> {
+    const text = (s: string) =>
+      new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(s)]);
+
+    if (calls.length === 0) {
+      return text('`calls` was empty. Provide at least one {name, input}, or use `name` directly.');
+    }
+    if (calls.length > MAX_BATCH_CALLS) {
+      return text(
+        `Too many calls in one batch (${calls.length} > ${MAX_BATCH_CALLS}). Split it; ` +
+        'results are concatenated into a single reply and would otherwise grow unbounded.'
+      );
+    }
+
+    const parts: vscode.LanguageModelToolResult['content'] = [];
+    let ok = 0;
+    let failed = 0;
+    let skipped = 0;
+
+    for (let i = 0; i < calls.length; i++) {
+      const call = calls[i];
+      const label = `${i + 1}/${calls.length}: ${call.name ?? 'catalog'}`;
+
+      if (token.isCancellationRequested) {
+        skipped = calls.length - i;
+        parts.push(new vscode.LanguageModelTextPart(`\n=== cancelled before call ${label} ===\n`));
+        break;
+      }
+
+      const { result, error } = await this.runCall(call, options, token);
+      if (error) {
+        failed++;
+      } else {
+        ok++;
+      }
+
+      const fatal = error !== undefined && call.fatal !== false;
+      parts.push(new vscode.LanguageModelTextPart(
+        `\n=== call ${label} — ${error ? (fatal ? 'FAILED' : 'failed (non-fatal)') : 'ok'} ===\n`
+      ));
+      // Splice the target's own parts in, rather than stringifying, so non-text parts survive.
+      parts.push(...result.content);
+
+      if (fatal) {
+        skipped = calls.length - i - 1;
+        if (skipped > 0) {
+          parts.push(new vscode.LanguageModelTextPart(
+            `\n=== stopped: call ${label} failed and was fatal; ${skipped} remaining call(s) not run. ` +
+            'Mark an entry `fatal: false` if the rest does not depend on it. ===\n'
+          ));
+        }
+        break;
+      }
+    }
+
+    const summary =
+      `Batch of ${calls.length} call(s): ${ok} ok, ${failed} failed` +
+      (skipped > 0 ? `, ${skipped} not run` : '') + '.\n';
+    return new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(summary), ...parts]);
+  }
+
+  /**
+   * Execute one call. Returns the result plus an `error` string when the call could not be
+   * completed, so the batch path can count failures — the single path just returns the result,
+   * whose text already carries the explanation.
+   */
+  private async runCall(
+    call: InvokeToolCall,
+    options: vscode.LanguageModelToolInvocationOptions<InvokeToolInput>,
+    token: vscode.CancellationToken
+  ): Promise<{ result: vscode.LanguageModelToolResult; error?: string }> {
+    const { name, input, describe } = call;
     const text = (s: string) =>
       new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(s)]);
 
     // Describe mode (or a bare call with no name): return schema(s) instead of invoking.
     if (describe || !name) {
       if (!name) {
-        return text(
+        return { result: text(
           (describe ? '' : 'Provide `name` to invoke a tool, or `describe: true` to fetch a schema.\n\n') +
           this.catalogText()
-        );
+        ) };
       }
       const info = vscode.lm.tools.find(t => t.name === name);
       if (!info) {
-        return text(`Unknown tool '${name}'.\n\n${this.catalogText()}`);
+        return {
+          result: text(`Unknown tool '${name}'.\n\n${this.catalogText()}`),
+          error: `unknown tool '${name}'`,
+        };
       }
-      return text(JSON.stringify({
+      return { result: text(JSON.stringify({
         name: info.name,
         description: info.description,
         inputSchema: info.inputSchema ?? null,
         tags: info.tags
-      }, null, 2));
+      }, null, 2)) };
     }
 
     // Invoke mode.
     if (name === 'makerchip_invoke_tool') {
-      return text('makerchip_invoke_tool cannot invoke itself. Pass the name of the tool you want to run.');
+      // Also blocks nesting a batch inside a batch, which would defeat MAX_BATCH_CALLS.
+      return {
+        result: text('makerchip_invoke_tool cannot invoke itself. Pass the name of the tool you want to run.'),
+        error: 'self-invocation refused',
+      };
     }
 
     const target = vscode.lm.tools.find(t => t.name === name);
     if (!target) {
-      return text(`Unknown tool '${name}'.\n\n${this.catalogText()}`);
+      return {
+        result: text(`Unknown tool '${name}'.\n\n${this.catalogText()}`),
+        error: `unknown tool '${name}'`,
+      };
     }
 
     const args = input ?? {};
@@ -2931,24 +3117,31 @@ export class InvokeToolTool implements vscode.LanguageModelTool<InvokeToolInput>
     const required: string[] = Array.isArray(schema?.required) ? schema.required : [];
     const missing = required.filter(k => !(args && typeof args === 'object' && k in args));
     if (missing.length > 0) {
-      return text(
-        `Invalid input for '${name}': missing required field(s): ${missing.join(', ')}.\n` +
-        `Expected input schema:\n${JSON.stringify(target.inputSchema ?? {}, null, 2)}`
-      );
+      return {
+        result: text(
+          `Invalid input for '${name}': missing required field(s): ${missing.join(', ')}.\n` +
+          `Expected input schema:\n${JSON.stringify(target.inputSchema ?? {}, null, 2)}`
+        ),
+        error: `missing required field(s): ${missing.join(', ')}`,
+      };
     }
 
     try {
       // invokeTool is not gated by picker/`when` state, so gated tools remain reachable here.
-      return await vscode.lm.invokeTool(
+      const result = await vscode.lm.invokeTool(
         name,
         { input: args, toolInvocationToken: options.toolInvocationToken },
         token
       );
+      return { result };
     } catch (error: any) {
-      return text(
-        `Failed to invoke '${name}': ${error?.message ?? String(error)}\n` +
-        `Expected input schema:\n${JSON.stringify(target.inputSchema ?? {}, null, 2)}`
-      );
+      return {
+        result: text(
+          `Failed to invoke '${name}': ${error?.message ?? String(error)}\n` +
+          `Expected input schema:\n${JSON.stringify(target.inputSchema ?? {}, null, 2)}`
+        ),
+        error: error?.message ?? String(error),
+      };
     }
   }
 }

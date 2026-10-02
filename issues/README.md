@@ -7,6 +7,7 @@ with plain file edits (AI-friendly).
 ## Convention
 
 - One markdown file per issue, named `NNN-slug.md` (zero-padded id + short slug).
+- Issue numbers (`NNN`) are not guaranteed unique due to parallel development in different clones.
 - Start each file with a header block:
   ```
   # NNN: Title
@@ -34,8 +35,9 @@ with plain file edits (AI-friendly).
 - [004 — Transfer programs/settings into the CE UI pane (in-place, no reload)](004-ce-ui-config-transfer.md)
 - [005 — Headless CE-API compile path (no CE pane)](005-headless-ce-api-compile.md)
 - [007 — Serve and announce compile include files](007-serve-announce-include-files.md)
-- [008 — Let `makerchip_invoke_tool` carry several calls in one invocation](008-invoke-tool-batched-calls.md)
 - [009 — SystemVerilog language features inside TL-Verilog](009-sv-features-in-tlv.md)
+- [010 — Agent one-shot tasks via a headless IDE Component](010-headless-components.md)
+- [011 - Feedback from Yashvini](011-yashvini-feedback.md)
 
 ## Closed
 
@@ -45,3 +47,7 @@ Trailheads into Git history for removed issue files. Recover full text with
 - 2026-08-28 — `006-tool-gating-and-activation.md` (shipped: activation-graph engine, env holders,
   `makerchip_enable_tools`, `makerchip_invoke_tool`, and per-tool `when` gating on all 28 gated tools;
   Phase B pane-awareness dropped. Durable design now lives in `packages/makerchip-extension/src/toolActivation.ts`).
+- 2026-09-28 — `008-invoke-tool-batched-calls.md` (shipped: `calls` array on `makerchip_invoke_tool`,
+  run serially in-process so the harness sees one call and its one-per-round limit cannot hang;
+  per-entry `fatal` (default true), `MAX_BATCH_CALLS`, per-call result headers preserving non-text parts. Rationale now
+  lives in the BATCHING note on `InvokeToolTool` in `packages/makerchip-extension/src/makerchipTool.ts`).

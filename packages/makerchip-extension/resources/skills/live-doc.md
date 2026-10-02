@@ -29,7 +29,7 @@ user-invocable: true
 
 ## Inspecting a PDF (the `makerchip_extract_pdf_figure` tool)
 
-Before writing Live Doc code, **inspect the PDF** with the `makerchip_extract_pdf_figure` tool. It runs the *exact same* `this.global.pdf.extractFigure(source, opts)` that your `\viz_js` code will use at runtime, **inside an open Makerchip IDE panel**, so the coordinates, labels, cluster selection, figure bbox, and coordinate `transforms` it returns match precisely what your VIZ overlay will see — no drift between what you inspect and what runs.
+Before writing Live Doc code, **inspect the PDF** with the `makerchip_extract_pdf_figure` tool. It runs the *exact same* `this.global.pdf.extractFigure(source, opts)` that your `\viz_js` VIZ code will use at runtime, so the coordinates, labels, cluster selection, figure bbox, and coordinate `transforms` it returns match precisely what your VIZ overlay will see — no drift between what you inspect and what runs. Additionally, it provides narrower results to avoid cluttering the context window.
 
 Use it to:
 
@@ -42,7 +42,7 @@ Tool notes:
 
 - `source` must be a **URL reachable from the Makerchip IDE** (fetched through its CORS proxy, exactly like `\viz_js`). Local files must be served at a URL (e.g. mono serves `ide-env/public/` at `/module/ide/`, so a file in `ide-env/public/tmp/foo.pdf` is reachable at `/module/ide/tmp/foo.pdf`).
 - Requires an **open Makerchip panel** (extraction runs in the IDE browser context). It does **not** require a compiled design or simulation data.
-- SVG path `d` strings are omitted by default to keep the result compact. Set `includePaths: true` only if you need exact vector paths.
+- SVG path `d` strings are omitted by default. That keeps the result compact, and it also keeps the figure's own geometry out of model context — `d` is the drawing itself, not metadata about it. Set `includePaths: true` only when you actually need exact vector paths, and never copy the returned `d` strings into `.tlv` source (see the copyright model below).
 - The tool inputs mirror `extractFigure`'s `opts`: `page`, `select`, `gap`, `space`, `text`, `clip`.
 
 Once you understand the figure, write the `\viz_js` code using the API below.
@@ -65,7 +65,11 @@ A `\viz_js` block calls `this.global.pdf.extractFigure(source, opts)` to fetch a
 
 ### Copyright model
 
-In consideration of authors' copyrights, Live Doc features support a clear separation between the referenced figure and the Live Doc simulation animation capabilities. Live Doc code may be written to contain *no copy* of the referenced figure. The browser fetches and parses the (PDF, SVG, etc.) content at runtime, holding it only within the browser context. The reference URL stays in the source, or explicit instructions are needed for loading a licensed copy of the document, so attribution can be explicit. Simulation overlays encapsulated in the VIZ code (values, colors, annotations) are original work, not copied expression. This keeps the use consistent with the accepted interpretation of fair use for programmatic reference. Still, Live Doc developers are encouraged to communicate openly with static content authors and to consult legal counsel.
+In consideration of authors' copyrights, Live Doc features support a clear separation between the referenced figure and the Live Doc simulation animation capabilities. Live Doc code may be written to contain *no copy* of the referenced figure. The browser fetches and parses the (PDF, SVG, etc.) content at runtime, holding it only within the browser context. The VIZ code contains only a reference to the PDF (URL or pane ID). This reference provides explicit attribution, but adding attribution `Text` in the VIZ code is recommended. Simulation overlays encapsulated in the VIZ code (values, colors, annotations) are original work, not copied expression. This keeps the use consistent with the accepted interpretation of fair use for programmatic reference.
+
+Authoring Live Docs as an AI agent inherently shares PDF data with third-party LLMs. Unless you have confirmed that the user has the right to share the PDF or that the LLM terms prohibit training and data retention, **avoid opening the PDF file, parsing it with another tool, or pulling its bytes into context.** The `makerchip_extract_pdf_figure` tool can be used to narrow your data sharing. In addition to its other benefits (exposing exactly the VIZ call results and avoiding context clutter), using it with `includePaths=false` (the default) can avoid the inclusion of the figure's own vector geometry, while other aspects of the figure are less sensitive to copyright.
+
+Encourage Live Doc developers to communicate openly with static content authors and to consult legal counsel.
 
 ### Content Access and CORS
 
@@ -261,7 +265,7 @@ elements: { [name]: fabric.Text | fabric.Path | Array<fabric.Text | fabric.Path>
 
 #### The common case: index a static PDF
 
-A VIZ figure is almost always written against **one specific, unchanging PDF**, so there is no survivability concern: name each element by its **integer index** into the pool.
+A VIZ figure is often written against **one specific, unchanging PDF**, so there is no survivability concern: name each element by its **integer index** into the pool.
 
 ```js
 this.global.pdf.buildFigure(fabric, source, {
@@ -505,15 +509,25 @@ Source PDF: https://cs2461-2020.github.io/lectures/latches.pdf page 9, region `[
 
 ## Working with the user
 
+### Preparing to work on a Live Doc
+
 When a user asks you to create a Live Doc, it is important to be clear on a few points. If not already evident, ask questions like:
 
-1. "What are the licensing terms of the original content? Are you the author, or do you have permission to use it? (If you don't, I will provide overlay and set visual properties without copying elements into the VIZ code, but legal review may be needed.)" The parenthetical is important for two reasons: 1. it reassures the user that progress can be made without copying content to avoid a false affirmative from a user who fears being blocked; 2. it provides a legal disclaimer. In rare cases, there may even be patent consideration that warrant clarification.
+1. "What are the licensing terms of the original content? Are you the author, or do you have the right to copy it? (If you don't, I will provide overlay and set visual properties without copying elements into the VIZ code, but legal review may be needed.) Are there attribution requirements?" The parenthetical is important for two reasons: 1. it reassures the user that progress can be made without copying content to avoid a false affirmative from a user who fears being blocked; 2. it provides a legal disclaimer. In rare cases, there may even be patent consideration that warrant clarification.
 
-2. "Do you want me to leverage diagram as is or make improvements?" Without legal rights, direct leverage only by reference is a necessity. Alternatively, the diagram can be altered entirely to avoid mimicking any of its design. Direct leverage can be important for companion material to maintain a clear connection to the original. If the original is merely an inspirational starting point, it may be better to create a new diagram that is optimal for animation.
+2. "Do you want me to leverage diagram as is or make improvements?" Without legal rights, direct leverage only (by reference) is a necessity. Alternatively, the diagram can be altered entirely to avoid mimicking any of its design. Direct leverage can be important for companion material to maintain a clear connection to the original. If the original is merely an inspirational starting point, it may be better to create a new diagram that is optimal for animation.
 
 3. "How likely it is that subsequent versions of the original diagram will become available?" If uprevving may be necessary, and the original is leveraged by reference, consider the use of filtering features to minimize the likelihood of breaking changes. If copying is an option, mimicking elements as fabric.js code might minimize future maintenance in the face of change.
 
 4. "Is there an existing HDL model providing VCD trace data, or should I create HDL code to drive stimulus? Should the stimulus model use TL-Verilog or something else? Should it be structured to run self-contained in Makerchip or to simulate and generate a VCD externally?"
+
+If the user does not have the rights to the original content, also ask:
+
+"If the PDF is copy-protected, might your LLM provider for this conversation be authorized to train on conversation data or retain it for an extended period? If so, I need to avoid reading the PDF directly. Your LLM settings may provide an option." Ask **before** the first `makerchip_extract_pdf_figure` call, and carefully avoid reading copyright-protected data from the PDF if protected, reporting your limitations rather than risking infringement.
+
+### Addressing hurdles
+
+A primitive is a PDF path, not a logical element. One path may, for example, hold several wires. This can defeat the ability to style programmatically-extracted wires to indicate activity. **Legal considerations must always take precedence**. Never risk copyright infringement. If meeting goals would impose legal risk, stop, and explain the situation.
 
 ## Attribution
 

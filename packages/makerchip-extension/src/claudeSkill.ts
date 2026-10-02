@@ -287,6 +287,10 @@ carefully; some result in HANGS.
   returns, the rest never reach the extension (the harness bridge dispatches one tool call at a
   time and drops the concurrent ones). Fix: re-issue the calls serially. Note this overrides any
   general guidance you have about batching independent tool calls into one round.
+- **To avoid this constraint, use \`makerchip_invoke_tool\` with its \`calls\` array.** That is one tool call
+  from the harness's point of view, so it cannot trip the issue above, and the entries run serially
+  inside the extension. It is the supported way to do several Makerchip operations at once. (It
+  also avoids the need to enable tools in a separate turn with \`makerchip_enable_tools\`.
 - The Makerchip tools are gated to conserve tool slots, so not all are offered at once. Two
   fallbacks are always available: \`makerchip_enable_tools\` (activate or release a capability
   set) and \`makerchip_invoke_tool\` (call any tool by name, even a gated one).

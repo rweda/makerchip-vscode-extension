@@ -174,9 +174,45 @@ function claudeExtensionInstalled(): boolean {
  * Registers commands, tools, chat participant, and initializes resources.
  * @param ctx Extension context provided by VS Code
  */
+/**
+ * Dev-only activation diagnostics. Logs the paths that are otherwise tedious to find by hand
+ * when developing against a `./launch`ed Extension Development Host — chiefly WHERE this EDH's
+ * Makerchip output channel file lives. `./launch <clone>` runs the EDH under a per-clone VS Code
+ * profile (`--user-data-dir = <clone>/.vscode-env/profile`), so its logs sit under the CLONE, not
+ * `~/.config/Code*` — a trap when fishing out our own `log()` lines. Also surfaces which source
+ * tree is running and how `./launch` wired the server/clone/tunnel (the resolved URL itself is
+ * logged separately by getServerUrl). Gated on Development mode so production users see none of it.
+ */
+function logDevDiagnostics(context: vscode.ExtensionContext): void {
+  if (context.extensionMode !== vscode.ExtensionMode.Development) { return; }
+
+  // context.logUri is this extension's per-ext log dir; its parent (the window's `exthost` dir)
+  // also holds output_logging_<ts>/<n>-Makerchip.log — the OutputChannel's backing file. Resolve
+  // the newest one if it is on disk yet (channel files flush lazily), else leave a glob hint.
+  const exthostDir = path.dirname(context.logUri.fsPath);
+  let channelLog = `${exthostDir}/output_logging_*/*-Makerchip.log (not yet flushed to disk)`;
+  try {
+    const dirs = fs.readdirSync(exthostDir).filter(n => n.startsWith('output_logging_')).sort().reverse();
+    for (const d of dirs) {
+      const od = path.join(exthostDir, d);
+      const hit = fs.readdirSync(od).find(n => n.endsWith('-Makerchip.log'));
+      if (hit) { channelLog = path.join(od, hit); break; }
+    }
+  } catch { /* exthost dir may not exist yet; keep the glob hint */ }
+
+  log('[dev] ─── development diagnostics (Extension Development Host) ───');
+  log(`[dev] extension source tree: ${context.extensionPath}`);
+  log(`[dev] output channel log:    ${channelLog}`);
+  log('[dev] ./launch wiring: ' +
+      `MAKERCHIP_LAUNCH=${process.env.MAKERCHIP_LAUNCH ?? '(unset)'} ` +
+      `MAKERCHIP_MONO_CLONE=${process.env.MAKERCHIP_MONO_CLONE ?? '(unset)'} ` +
+      `MAKERCHIP_SERVER_URL=${process.env.MAKERCHIP_SERVER_URL ?? '(unset)'}`);
+}
+
 export function activate(ctx: vscode.ExtensionContext) {
   context = ctx;  // Store context globally
   log('Makerchip extension activating...');
+  logDevDiagnostics(context);
 
   // Activation graph (see toolActivation.ts): gates tool availability so the Makerchip suite doesn't
   // pressure the request tool cap. Must init before any env signal or the enable tool is used.

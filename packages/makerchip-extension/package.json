@@ -667,7 +667,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(file-pdf)",
         "userDescription": "Extract a figure's vector geometry and text labels from a PDF page (for Live Doc VIZ authoring).",
-        "modelDescription": "Extracts a figure's vector geometry (SVG-path primitives) and text labels from a PDF page, for authoring and debugging Makerchip Live Doc `\\viz_js` code. Runs the SAME `this.global.pdf.extractFigure` that Live Doc code uses at runtime, INSIDE an open Makerchip IDE panel, so the returned coordinates, labels, cluster selection, figure bbox and coordinate transforms match EXACTLY what a VIZ overlay will see (no drift). Requires an open Makerchip panel; does NOT require a compiled design. Use this to inspect a PDF before writing Live Doc overlays: find label positions to anchor to, choose a `select` mode / cluster index, and read the coordinate `transforms`. Returns the ExtractResult JSON `{primitives, labels, space, figure, bbox, page, transforms, meta}`; SVG path `d` strings are omitted by default (set includePaths=true to include them). No copy of the figure is produced — geometry is re-derived from the referenced PDF. See the Live Doc API skill/docs for the full authoring API (`extractFigure`, `toFabric`, `buildFigure`).",
+        "modelDescription": "Extracts a figure's vector geometry (SVG-path primitives) and text labels from a PDF page, for authoring and debugging Makerchip Live Doc `\\viz_js` code. Runs the SAME `this.global.pdf.extractFigure` that Live Doc code uses at runtime, INSIDE an open Makerchip IDE panel, so the returned coordinates, labels, cluster selection, figure bbox and coordinate transforms match EXACTLY what a VIZ overlay will see (no drift). Accepts either `source` (a URL reachable from the IDE) or `filePath` (an absolute path to a local PDF, read by the extension and shipped to the IDE as bytes) -- so a licensed local copy works without being published anywhere. Requires an open Makerchip panel; does NOT require a compiled design. Use this to inspect a PDF before writing Live Doc overlays: find label positions to anchor to, choose a `select` mode / cluster index, and read the coordinate `transforms`. Returns the ExtractResult JSON `{primitives, labels, space, figure, bbox, page, transforms, meta}`; SVG path `d` strings are omitted by default (set includePaths=true to include them). No copy of the figure is produced — geometry is re-derived from the referenced PDF. See the Live Doc API skill/docs for the full authoring API (`extractFigure`, `toFabric`, `buildFigure`). COPYRIGHT: the ExtractResult is a copy of material from the referenced PDF (label text, and with includePaths=true the figure's own vector geometry), and returning it places that copy in model context, i.e. off the user's machine. Avoid includePaths=true for copy-protected content unless it has been determined that the agent does not train on nor retain the data. Never write extracted `d` path strings into `.tlv` source without rights.",
         "tags": [
           "makerchip",
           "viz",
@@ -682,7 +682,11 @@
           "properties": {
             "source": {
               "type": "string",
-              "description": "PDF source: a URL to the PDF, reachable from the Makerchip IDE (resolved through its CORS proxy, like \\viz_js code)."
+              "description": "PDF source: a URL to the PDF, reachable from the Makerchip IDE (resolved through its CORS proxy, like \\viz_js code). Pass this OR `filePath`, not both."
+            },
+            "filePath": {
+              "type": "string",
+              "description": "Absolute path to a local PDF, as an alternative to `source`. The extension reads the file and ships the bytes to the IDE, so the PDF does not need to be reachable by URL. Use this for a licensed local copy. Pass this OR `source`, not both."
             },
             "page": {
               "type": "number",
@@ -720,7 +724,7 @@
               "description": "Optional panel name to target. Default: `default`."
             }
           },
-          "required": ["source"]
+          "required": []
         }
       },
       {
@@ -1491,7 +1495,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(tools)",
         "userDescription": "Invoke any Makerchip tool by name (a fallback for tools not currently offered).",
-        "modelDescription": "Universal fallback: invoke (or describe) any registered tool by name — including Makerchip tools that are not currently offered to you because their feature set is gated off. Pass the target tool's arguments under `input`. Because this bypasses tool-availability gating, it keeps every Makerchip capability reachable even when it is hidden to save tool slots. Set `describe: true` (optionally with `name`) to fetch a tool's input schema — or, with no `name`, a catalog of all Makerchip tools — so you can construct a valid call first. Refuses to invoke itself. Prefer this for a one-off call to a gated (currently-hidden) tool; if you will use a capability repeatedly across a task, call `makerchip_enable_tools` to offer that whole set directly instead.",
+        "modelDescription": "Universal fallback: invoke (or describe) any registered tool or tools by name — including Makerchip tools that are not currently offered to you because their feature set is gated off. Pass the target tool's arguments under `input`. Because this bypasses tool-availability gating, it keeps every Makerchip capability reachable even when it is hidden to save tool slots. Set `describe: true` (optionally with `name`) to fetch a tool's input schema — or, with no `name`, a catalog of all Makerchip tools — so you can construct a valid call first. Refuses to invoke itself. Prefer this for a one-off call to a gated (currently-hidden) tool; if you will use a capability repeatedly across a task, call `makerchip_enable_tools` to offer that whole set directly instead. To run SEVERAL Makerchip calls sequentially in one shot, pass them as `calls`. This is important for the Microsoft Claude harness, which is known to hang if multiple tools are called in a single round.",
         "tags": [
           "makerchip",
           "meta",
@@ -1514,6 +1518,31 @@
             "describe": {
               "type": "boolean",
               "description": "When true, do not invoke: return the named tool's contract (name, description, inputSchema, tags), or a catalog of all Makerchip tools if `name` is omitted."
+            },
+            "calls": {
+              "type": "array",
+              "description": "Batched form: run several tool calls in order within this one invocation. Use this INSTEAD of issuing multiple Makerchip tool calls in a single round — doing that HANGS, because the harness bridge dispatches only the first and drops the rest. Here the harness sees one call and the list runs serially inside the extension. Since there is no harness round trip between entries, a `makerchip_enable_tools` entry also takes effect for a later entry in the same batch (normally it only applies from your next turn). Results are concatenated with a header per call and are not truncated, so keep batches small (max 20). A failing entry aborts the remaining entries unless it is marked `fatal: false`. Mutually exclusive with the top-level `name`/`input`/`describe`.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "Name of the target Makerchip tool for this entry."
+                  },
+                  "input": {
+                    "type": "object",
+                    "description": "Arguments object forwarded to this entry's target tool."
+                  },
+                  "describe": {
+                    "type": "boolean",
+                    "description": "When true, return this entry's tool contract instead of invoking it."
+                  },
+                  "fatal": {
+                    "type": "boolean",
+                    "description": "Whether a failure of THIS entry aborts the call sequence. Defaults to true, because batches are usually dependent sequences (compile -> wait -> inspect). Set false for an entry the rest does not depend on (e.g. a cosmetic set_dark_mode alongside real work)."
+                  }
+                }
+              }
             }
           }
         }

@@ -72,7 +72,9 @@ export const RESOURCES_DIR = path.join(MAKERCHIP_DIR, MANAGED_ENTRIES.resources)
 export const CACHE_DIR = path.join(MAKERCHIP_DIR, MANAGED_ENTRIES.compileCache);
 export const HISTORY_FILE = path.join(MAKERCHIP_DIR, MANAGED_ENTRIES.compileHistory);
 export const TMP_DIR = path.join(MAKERCHIP_DIR, MANAGED_ENTRIES.tmp);
-export const RESOURCES_VERSION = '2.1.0';
+// Bump whenever a populate run must happen on existing installs — the path is otherwise gated to
+// a version change or 7 days (see checkResourcesNeedUpdate).
+export const RESOURCES_VERSION = '2.2.0';
 
 interface Repository {
   name: string;
@@ -205,11 +207,14 @@ export async function populateResources(context: vscode.ExtensionContext, output
     log('');
   }
 
-  // Show persistent warnings for repositories with local changes
+  // Show persistent warnings for repositories with local changes.
   if (result.localChanges.length > 0) {
-    const message = result.localChanges.length === 1
-      ? `Repository has local changes and was not updated: ${result.localChanges[0]}. Commit or stash your changes to allow updates.`
-      : `${result.localChanges.length} repositories have local changes and were not updated. Example: ${result.localChanges[0]}. Commit or stash your changes to allow updates.`;
+    const multipleMessage = result.localChanges.length === 1 ? "" : " (and others)";
+    const message = `${MAKERCHIP_DIR} is managed by the Makerchip extension. The write-protected ` +
+                    `Git repository clone ${result.localChanges[0]}${multipleMessage} ` +
+                    `contains modified content. Make it writable ("chmod -R u+w ${result.localChanges[0]}"), ` +
+                    `extract any important changes, revert or remove the clone directory, and run palette command ` +
+                    `Makerchip: Update Reference Data.`;
 
     vscode.window.showWarningMessage(
       message,
@@ -488,7 +493,16 @@ async function makeResourcesReadOnly(log: (message: string) => void): Promise<vo
     const entries = await fs.readdir(RESOURCES_DIR, { withFileTypes: true });
     for (const entry of entries) {
       if (entry.isDirectory() && entry.name !== '.git') {
-        await lock(path.join(RESOURCES_DIR, entry.name));
+        const repoRoot = path.join(RESOURCES_DIR, entry.name);
+        await lock(repoRoot);
+        // Lock the repo's OWN directory too, post-order. `lock` only clears the write bits of the
+        // entries it walks, so without this the clone root (resources/<repo>/) stays writable —
+        // which is precisely where a stray file would land, and where cleanupUnexpectedResources
+        // does not look. RESOURCES_DIR itself deliberately stays writable so that sweep can still
+        // remove disposable clones.
+        if (!(await clearWriteBits(repoRoot))) {
+          unprotected.push(repoRoot);
+        }
       }
     }
     log('  ✓ Reference data is read-only (files and directories)');
