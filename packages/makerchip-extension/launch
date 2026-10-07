@@ -41,12 +41,11 @@
 # settings/keybindings/snippets (symlinked, not copied). Deployed modes (no
 # clone) share ONE profile ($EDH_DATA_ROOT/deployed) and open no workspace.
 #
-# Re-running `./launch <clone>` refocuses that clone's existing window (no
-# duplicate) and re-ensures the tunnel. If a window is already open against a
-# tunnel that has since been recreated, run "Makerchip: Reload Panels" (or ask
-# Copilot to reload panels) to repoint it — the extension resolves the URL live
-# from the clone's sandhost/TUNNEL_INFO, so a recreation is picked up without a
-# reopen.
+# Re-running `./launch <clone>` fails (gracefully) if a dev host is already-open
+# (though it will ensure the tunnel is up). (VS Code allows one dev host per profile).
+# To pick up a recompiled build or a new tunnel, use "Makerchip: Reload Window".
+# Note that you may see this failure if you recently closed the dev host, as it can take
+# a minute for the process to exit.
 #
 # The tunnel is owned by the clone: tear it down with the clone's
 # bin/teardown_tunnel when you're done (e.g. before trashing it). bin/stop leaves
@@ -429,14 +428,58 @@ if [ "$MODE" = "clone" ] && [ -n "$WORKSPACE" ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Guard: one Extension Development Host per profile. VS Code allows a single EDH
+# per --user-data-dir, so if one is already live this launch cannot get its own.
+# Handing our args to it is a coin flip: a window that won't take this workspace
+# (open elsewhere, or an F5 window whose extension host re-breaks on every
+# reload) leaves us on a throwaway "Untitled (Workspace)" -- which looks like
+# ./launch "didn't open the workspace" and, since chat history is keyed to
+# WORKSPACE storage, like lost chats too. The earlier guard above cannot see any
+# of this: it deliberately excludes every process carrying
+# --extensionDevelopmentPath, which is exactly what an EDH is.
+#
+# So we never reuse an open window: report and stop. Nothing is lost -- the
+# tunnel is already (re)ensured above, and "Developer: Reload Window" in the open
+# window picks up a recompiled build exactly as a relaunch did. We also cannot
+# tell a live window from a lingering process of one just closed, so the message
+# says so rather than guessing.
+# ---------------------------------------------------------------------------
+edh="$(ps -ww -ax -o pid=,args= 2>/dev/null \
+  | grep -F -- "user-data-dir=$EDH_USER_DATA_DIR" \
+  | grep -F -- '--extensionDevelopmentPath' \
+  | grep -v -F -- '--type=' || true)"
+if [ -n "$edh" ]; then
+  edh_pids="$(printf '%s\n' "$edh" | awk '{print $1}' | paste -sd, -)"
+  echo "Error: an Extension Development Host is already running on this profile:" >&2
+  echo "         $EDH_USER_DATA_DIR" >&2
+  echo "       VS Code allows only one per profile, so this launch would be denied a" >&2
+  echo "       window of its own. Close that window and re-run ./launch -- or, to pick" >&2
+  echo "       up a recompiled build, just run \"Developer: Reload Window\" in it." >&2
+  if [ "$MODE" = "clone" ]; then
+    echo "       The tunnel is already up to date; use \"Makerchip: Reload Panels\"" >&2
+    echo "       there to repoint that window's panels at it:" >&2
+    echo "         $SERVER_URL" >&2
+  fi
+  echo "" >&2
+  echo "       Process(es):" >&2
+  printf '         %s\n' "$edh" >&2
+  echo "" >&2
+  echo "       NOTE: this may ALREADY be closed -- a window can be gone while its" >&2
+  echo "       process lingers a minute or two, and we cannot tell the two apart. To" >&2
+  echo "       wait for it to exit:" >&2
+  printf '         while ps -p %s >/dev/null; do sleep 2; done; echo gone\n' "$edh_pids" >&2
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
 # Build the `code` invocation and verify the extension is compiled.
 # makerchip declares a hard extensionDependencies on tl-verilog, so we also load
 # the language extension from source (satisfies the dependency without a
 # published build and lets both be co-developed; reload the window to pick up
-# edits to either). No --new-window: with a per-clone user-data-dir, relaunching
-# the same clone reuses its single window rather than spawning a duplicate -- and
-# VS Code RELOADS (restarts) that dev-host window to load the latest build, so a
-# relaunch is also how you pick up recompiled extension code.
+# edits to either). No --new-window is needed: the guard above has already
+# established that no dev host is running on this profile, so there is no window
+# to duplicate. To pick up recompiled extension code in a window that IS open,
+# run "Developer: Reload Window" there rather than relaunching.
 # ---------------------------------------------------------------------------
 CODE_ARGS=(--user-data-dir="$EDH_USER_DATA_DIR" --extensionDevelopmentPath="$SCRIPT_DIR" --extensionDevelopmentPath="$SCRIPT_DIR/../tlv-extension")
 if [ -n "$WORKSPACE" ]; then
