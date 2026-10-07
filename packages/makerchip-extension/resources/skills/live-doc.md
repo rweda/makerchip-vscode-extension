@@ -226,8 +226,8 @@ extractFigure(source, {select: {mode:"region", rect, space:"device"}, clip: true
       fill,                // CSS color string, or "" if none
       stroke,              // CSS color string, or "" if none
       strokeWidth,         // 0 for fill-only paths (important: prevents Fabric bbox inflation)
-      fillAlpha,           // 0..1
-      strokeAlpha,         // 0..1
+      fillAlpha,           // 0..1 (PDF `ca`); `toFabric` folds it into the fill colour
+      strokeAlpha,         // 0..1 (PDF `CA`); likewise into the stroke colour
       bbox,                // [minX, minY, maxX, maxY] in output space
       path,                // index of the PDF path this came from (see `splitSubpaths`)
       // Stroke decoration, PRESENT ONLY when the PDF asked for something other than the
