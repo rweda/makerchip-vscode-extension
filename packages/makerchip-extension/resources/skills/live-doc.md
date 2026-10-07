@@ -1,13 +1,13 @@
 ---
 name: live-doc
-description: 'Makerchip Live Doc API — extract vector figures from a PDF and animate them with simulation data in a \viz_js (VIZ) block. Use when: authoring or debugging Live Doc / \viz_js overlays on a PDF, working with this.global.pdf, extractFigure, toFabric, buildFigure, PDF figure extraction, overlaying simulation values on a diagram/spec/lecture slide, or when the makerchip_extract_pdf_figure tool is relevant.'
+description: 'Makerchip Live Doc API — extract vector figures from a PDF and animate them with simulation data in a \viz_js (VIZ) block. Use when: authoring or debugging Live Doc / \viz_js overlays on a PDF, working with this.global.pdf, extractFigure, toFabric, extractToFabric, PDF figure extraction, overlaying simulation values on a diagram/spec/lecture slide, or when the makerchip_extract_pdf_figure tool is relevant.'
 applyTo:
   - pattern: "**/*.tlv"
     triggerWords:
       - live doc
       - livedoc
       - extractFigure
-      - buildFigure
+      - extractToFabric
       - toFabric
       - this.global.pdf
       - pdf figure
@@ -25,27 +25,7 @@ user-invocable: true
 
 # Live Doc
 
-**Live Doc** is a capability of the Makerchip Visual Debug (VIZ) framework that lets a `\viz_js` block extract vector figures from a referenced PDF document and overlay them with simulation-driven data at runtime.
-
-## Inspecting a PDF (the `makerchip_extract_pdf_figure` tool)
-
-Before writing Live Doc code, **inspect the PDF** with the `makerchip_extract_pdf_figure` tool. It runs the *exact same* `this.global.pdf.extractFigure(source, opts)` that your `\viz_js` VIZ code will use at runtime, so the coordinates, labels, cluster selection, figure bbox, and coordinate `transforms` it returns match precisely what your VIZ overlay will see — no drift between what you inspect and what runs. Additionally, it provides narrower results to avoid cluttering the context window.
-
-Use it to:
-
-- **Find anchor coordinates** — read `primitives[].bbox` (wire midpoints) to place overlay chips with `fig(...)`.
-- **Choose a `select` mode / cluster index** — try `{mode:"largest"}`, `{mode:"cluster", index:N}`, or a `{mode:"region", rect:[…], space:"device"}` crop and see which primitives/labels land in the figure.
-- **Discover pool indices** — read the `labels` and `primitives` arrays to pick the integer indices you will name in `toFabric`/`buildFigure`'s `labels`/`primitives` opts.
-- **Read the coordinate `transforms`** for manual coordinate conversion.
-
-Tool notes:
-
-- `source` must be a **URL reachable from the Makerchip IDE** (fetched through its CORS proxy, exactly like `\viz_js`). Local files must be served at a URL (e.g. mono serves `ide-env/public/` at `/module/ide/`, so a file in `ide-env/public/tmp/foo.pdf` is reachable at `/module/ide/tmp/foo.pdf`).
-- Requires an **open Makerchip panel** (extraction runs in the IDE browser context). It does **not** require a compiled design or simulation data.
-- SVG path `d` strings are omitted by default. That keeps the result compact, and it also keeps the figure's own geometry out of model context — `d` is the drawing itself, not metadata about it. Set `includePaths: true` only when you actually need exact vector paths, and never copy the returned `d` strings into `.tlv` source (see the copyright model below).
-- The tool inputs mirror `extractFigure`'s `opts`: `page`, `select`, `gap`, `space`, `text`, `clip`.
-
-Once you understand the figure, write the `\viz_js` code using the API below.
+**Live Doc** is a set of capabilities that support import and animation of originally-static documentation (currently, PDF) using Visual Debug (VIZ). Live Doc supports a no-copy use model so that copyright infringement can be avoided when necessary.
 
 ## Concept and Use Models
 
@@ -67,13 +47,41 @@ A `\viz_js` block calls `this.global.pdf.extractFigure(source, opts)` to fetch a
 
 In consideration of authors' copyrights, Live Doc features support a clear separation between the referenced figure and the Live Doc simulation animation capabilities. Live Doc code may be written to contain *no copy* of the referenced figure. The browser fetches and parses the (PDF, SVG, etc.) content at runtime, holding it only within the browser context. The VIZ code contains only a reference to the PDF (URL or pane ID). This reference provides explicit attribution, but adding attribution `Text` in the VIZ code is recommended. Simulation overlays encapsulated in the VIZ code (values, colors, annotations) are original work, not copied expression. This keeps the use consistent with the accepted interpretation of fair use for programmatic reference.
 
+#### AI agent guidance for authoring Live Docs
+
 Authoring Live Docs as an AI agent inherently shares PDF data with third-party LLMs. Unless you have confirmed that the user has the right to share the PDF or that the LLM terms prohibit training and data retention, **avoid opening the PDF file, parsing it with another tool, or pulling its bytes into context.** The `makerchip_extract_pdf_figure` tool can be used to narrow your data sharing. In addition to its other benefits (exposing exactly the VIZ call results and avoiding context clutter), using it with `includePaths=false` (the default) can avoid the inclusion of the figure's own vector geometry, while other aspects of the figure are less sensitive to copyright.
 
 Encourage Live Doc developers to communicate openly with static content authors and to consult legal counsel.
 
 ### Content Access and CORS
 
-The browser's same-origin policy applies to the `fetch` inside `extractFigure`. The PDF server must send `Access-Control-Allow-Origin: *` (e.g. GitHub Pages, many CDNs). Documents that don't allow cross-origin fetch can be proxied.
+The browser's same-origin policy applies to the `fetch` inside `extractFigure`. A PDF server that sends `Access-Control-Allow-Origin: *` (e.g. GitHub Pages, many CDNs) is fetched directly. Live Doc probes the origin once per session and, only when a direct read is blocked, retries through the IDE's CORS proxy — so hosting your own PDF works as long as the server sends that header, and nothing needs to be added to an allowlist.
+
+### Large documents
+
+Live Doc does not download the whole PDF. It reads the page you asked for by byte range, so pulling one figure out of a 33 MB textbook costs about a megabyte. That requires the server to send **`Content-Length`** and **`Accept-Ranges: bytes`**, which static file servers and CDNs normally do. If a server omits them (or serves the PDF gzipped, which makes byte ranges meaningless), pdf.js falls back to fetching the entire file.
+
+Documents that must go through the CORS proxy are additionally limited: 64 MB when the server declares a length, 10 MB when it does not. Over the limit, `extractFigure` rejects with a clear error rather than returning a partial parse — but note that a document reached **directly** has no such ceiling, so the usual fix for a large PDF is to serve it with `Access-Control-Allow-Origin: *` instead of relying on the proxy.
+
+### Inspecting a PDF (the `makerchip_extract_pdf_figure` tool)
+
+Before writing Live Doc code, **inspect the PDF** with the `makerchip_extract_pdf_figure` tool. It runs the *exact same* `this.global.pdf.extractFigure(source, opts)` that your `\viz_js` VIZ code will use at runtime, so the coordinates, labels, cluster selection, figure bbox, and coordinate `transforms` it returns match precisely what your VIZ overlay will see — no drift between what you inspect and what runs. Additionally, it provides narrower results to avoid clutter and potentially-copyrighted data in the context window.
+
+Use it to:
+
+- **Find anchor coordinates** — read `primitives[].bbox` (wire midpoints) to place overlay chips with `fig(...)`.
+- **Choose a `select` mode / cluster index** — try `{mode:"largest"}`, `{mode:"cluster", index:N}`, or a `{mode:"region", rect:[…], space:"device"}` crop and see which primitives/labels land in the figure.
+- **Discover pool indices** — read the `labels` and `primitives` arrays to pick the integer indices you will name in `toFabric`/`extractToFabric`'s `labels`/`primitives` opts.
+- **Read the coordinate `transforms`** for manual coordinate conversion.
+
+Tool notes:
+
+- `source` must be a **URL reachable from the Makerchip IDE** (fetched through its CORS proxy, exactly like `\viz_js`). Local files must be served at a URL (e.g. mono serves `ide-env/public/` at `/module/ide/`, so a file in `ide-env/public/tmp/foo.pdf` is reachable at `/module/ide/tmp/foo.pdf`).
+- Requires an **open Makerchip panel** (extraction runs in the IDE browser context). It does **not** require a compiled design or simulation data.
+- SVG path `d` strings are omitted by default. That keeps the result compact, and it also keeps the figure's own geometry out of model context — `d` is the drawing itself, not metadata about it. Set `includePaths: true` only when you actually need exact vector paths, and never copy the returned `d` strings into `.tlv` source (see the copyright model below).
+- The tool inputs mirror `extractFigure`'s `opts`: `page`, `select`, `gap`, `space`, `text`, `clip`.
+
+Once you understand the figure, write the `\viz_js` code using the API below.
 
 ---
 
@@ -98,9 +106,52 @@ The primary entry point. Fetches the PDF (or reuses the cache), parses the reque
 | `"https://..."` | URL string — fetched by the browser (CORS applies) |
 | `{url: "https://..."}` | Same, with explicit object form |
 | `{data: ArrayBuffer}` | Raw PDF bytes (from an extension-host bridge for local files) |
+| `{pane: "mnemonic", fingerprint}` | A PDF already open in a PDF pane — see [Figures from a loaded PDF](#figures-from-a-loaded-pdf) |
 | PDFDocumentProxy | Already-opened pdf.js document — passed through unchanged |
 
 Documents opened by URL are **cached** across compilations (keyed by URL). Re-compiling the same design does not re-fetch the PDF.
+
+#### Figures from a loaded PDF
+
+`{pane: "mnemonic"}` extracts from a document already open in a PDF pane, which is how a figure comes from a **local file** — a licensed copy of a textbook or spec that no URL can reach. Load the PDF into a pane first (the IDE's file menu, or the VS Code extension), then name that pane:
+
+```js
+this.global.pdf.extractToFabric(fabric, {pane: "mybook"}, {
+   extract: {page: 342, select: {...}},
+   build:   {left: 10, top: 10, into: figure},
+})
+```
+
+The extraction runs *inside* the pane, which already holds the parsed document, and only the resulting geometry crosses back. So nothing is re-parsed, no bytes are copied, and no second copy of pdf.js is loaded. It also keeps your `.tlv` free of any copy of the figure: the source names a pane, and the geometry is re-derived at runtime from the document the reader supplies.
+
+##### Naming the pane
+
+The mnemonic is the pane's tab label, and you have three ways to name it:
+
+| `pane` | Resolves to |
+|--------|-------------|
+| `"latches.pdf"` | that pane, by exact name |
+| `"latch"` | the one open PDF whose name starts with it — a unique prefix, like an abbreviated git SHA |
+| `""` (or omitted) | the sole open PDF pane |
+
+Prefix matching exists because a pane's name is uniquified on collision (`book`, `book+2`), so the name a `.tlv` was authored against may not be the name it gets. An exact match always wins outright, so `"book"` still means `book` even when `book+2` is also open.
+
+Ambiguity is always an error, never a guess — it lists the candidates, since animating the wrong document is worse than failing.
+
+##### Verifying the document: `fingerprint`
+
+The reader supplies their own copy of the PDF, so its *file name* says little about its contents. An optional `fingerprint` identifies the document itself:
+
+```js
+{pane: "", fingerprint: "a1b2c3d4e5f60718"}   // whichever open PDF this actually is
+{pane: "book", fingerprint: "a1b2c3d4e5f60718"}  // that pane, and check it is the right document
+```
+
+It comes from the PDF's trailer `/ID`, available as `fingerprints` — `[original, modified]`; either matches. Use `extractFigure`'s result during authoring, or the pane's `getInfo`, to read it once.
+
+With a name, `fingerprint` **verifies** rather than selects, and that is the point: a different printing of the same book has different fingerprints, so you get a clear error instead of an overlay silently landing on a shifted layout. Your `labels` and `primitives` indices are authored against one layout, so a mismatch really is a problem worth hearing about.
+
+A byte-identical publisher distribution matches for every reader. A per-purchaser watermarked copy will not.
 
 #### `opts`
 
@@ -112,6 +163,34 @@ Documents opened by URL are **cached** across compilations (keyed by URL). Re-co
 | `space` | `"figure"` \| `"device"` \| `"pdf"` | `"figure"` | Output coordinate space for primitives and labels |
 | `text` | `"labels"` \| `"all"` \| `"none"` | `"labels"` | Which text items to return |
 | `clip` | `bool` \| `number` | `false` | Drop primitives whose device bbox falls outside the figure (+pad). `true` uses pad 4; a number sets the pad. Removes the need for a manual consumer-side filter (see region-select note). |
+| `splitSubpaths` | `bool` | `true` | `false` keeps whole paths as single primitives — see [Primitives, paths, and `path`](#primitives-paths-and-path) |
+
+#### Primitives, paths, and `path`
+
+A **primitive is a subpath** — one `M…` run of a PDF path. A PDF is free to emit many separate lines as a single compound path, and drawing tools routinely do, so a path is not a logical element: one path can hold a dozen unrelated wires, or four crop marks in opposite corners.
+
+Each primitive therefore carries **`path`**, the index of the PDF path it came from. Subpaths of one path share a `path`, which makes the grouping addressable via `path` as a selector filter:
+
+```js
+primitives: {
+   bundle: {path: 16, all: true},         // every subpath of PDF path 16 -> array of refs
+   wire:   {path: 16, nth: 7},            // just its 8th
+   near_j: {path: 16, near: [32, 48.8]},  // the one nearest a point, within that path
+}
+```
+
+`all: true` takes every candidate; without it a filter still resolves to one (`nth` defaults to `0`). It works with `str` too, so `{str: "0", all: true}` names every `"0"` label.
+
+Subpath granularity is what makes `{mode:"largest"}` usable. Clustering joins primitives by bbox proximity, and a compound path's bbox can span the whole page — crop marks being the usual culprit. One such bbox touches everything, so the page collapses into a single cluster and "the largest figure" becomes the entire page, header and all. Split, a crop-marked textbook page yields 18 clusters and `largest` finds the circuit.
+
+Still a starting point rather than a replacement for a crop: on that page `largest` omits an output label sitting a little apart from the wires, which a hand-tuned `{mode:"region"}` rect catches.
+
+Two details worth knowing:
+
+- Only **unfilled** paths are split. Splitting a filled path would break even-odd holes, since each ring would become its own path and stop subtracting. Wires are stroke-only, so this costs nothing where it matters.
+- A `path` means "drawn together", not "belongs together". PDFs batch same-styled strokes for efficiency, so a group may be a gate outline or may be meaningless — nothing in the file distinguishes them.
+
+`splitSubpaths: false` turns splitting off, keeping whole paths as single primitives.
 
 #### `opts.select` — figure selection modes
 
@@ -150,6 +229,14 @@ extractFigure(source, {select: {mode:"region", rect, space:"device"}, clip: true
       fillAlpha,           // 0..1
       strokeAlpha,         // 0..1
       bbox,                // [minX, minY, maxX, maxY] in output space
+      path,                // index of the PDF path this came from (see `splitSubpaths`)
+      // Stroke decoration, PRESENT ONLY when the PDF asked for something other than the
+      // default. Names and values are Fabric's, so they spread straight onto a fabric.Path.
+      strokeLineCap,       // "round" | "square"   (absent = "butt")
+      strokeLineJoin,      // "round" | "bevel"    (absent = "miter")
+      strokeMiterLimit,    // number               (absent = 10)
+      strokeDashArray,     // [on, off, ...] in output-space units (absent = solid)
+      strokeDashOffset,    // number, same units   (absent = 0)
     },
     ...
   ],
@@ -210,7 +297,7 @@ Convenience helper that turns an `ExtractResult` into a ready-to-place `fabric.G
 | `fontFamily` | string | `"Roboto"` | Font family for label text |
 | `into` | fabric.Group | — | Existing group to fill; encapsulates the `group=null` `addWithUpdate` dance |
 
-> To suppress labels entirely, drop them at **extraction** time with `text: "none"` (an `extractFigure`/`buildFigure` option) rather than at build time.
+> To suppress labels entirely, drop them at **extraction** time with `text: "none"` (`extractFigure`'s `text`, or `extract.text` via `extractToFabric`) rather than at build time.
 
 #### Return value
 
@@ -231,33 +318,39 @@ Anchor coordinates come from wire midpoints (`primitive.bbox`), not label positi
 
 ---
 
-### `buildFigure(fabric, source, opts)` → `Promise<{ext, group, parts, fig, origin, elements}>`
+### `extractToFabric(fabric, source, opts)` → `Promise<{ext, group, parts, fig, origin, elements}>`
 
-The recommended one-call entry point for `\viz_js`. Fetches the PDF, extracts the figure, and builds the Fabric group in a single step — equivalent to `extractFigure(source, opts).then(ext => toFabric(fabric, ext, opts))`.
+The one-call entry point for `\viz_js`. Extracts the figure and builds the Fabric group in a single step — equivalent to `extractFigure(source, opts.extract).then(ext => toFabric(fabric, ext, opts.build))`.
+
+Options are **nested, one group per stage**:
+
+| Group | Options | Runs |
+|-------|---------|------|
+| `extract` | `page`, `select`, `gap`, `space`, `text`, `clip` | in the PDF pane for a `{pane}` source, else here |
+| `build` | `left`, `top`, `into`, `labels`, `primitives`, `labelFill`, `fontFamily` | always here, where the canvas is |
 
 ```js
-const {fig} = await this.global.pdf.buildFigure(fabric, source, {
-   page: N, clip: true,
-   select: {mode: "region", rect: [...], space: "device"},
-   left: OFFX, top: OFFY, into: figure,
+const {fig} = await this.global.pdf.extractToFabric(fabric, source, {
+   extract: {page: N, clip: true, select: {mode: "region", rect: [...], space: "device"}},
+   build:   {left: OFFX, top: OFFY, into: figure},
 })
 this._pos = { a: fig(32, 48.8), b: fig(32, 71.3) }
 ```
 
-`opts` is a flat merge of `extractFigure` options (`page`, `select`, `clip`, `space`, `text`, `gap`) and `toFabric` options (`left`, `top`, `into`, `labels`, `primitives`, `labelFill`, `fontFamily`) — the two sets do not collide.
+The nesting is not cosmetic. For a `{pane: ...}` source the two stages run in **different realms** — extraction in the pane, which holds the parsed document, and the Fabric build here, where the per-canvas `fabric` lives. The `extract` group is what crosses between them, so it must be plain data; `build.into` is a live `fabric.Group` and could never cross. Keeping the groups separate also means neither constrains the other's option names.
 
 The result also carries `ext` (the full `ExtractResult`) and `parts` (the individual Fabric objects), so nothing is lost versus the two-step form:
 
-- Reach for `extractFigure` alone when **authoring** — inspect `ext.primitives[].bbox` and `ext.labels` to discover the wire coordinates you hardcode into anchors, and the pool indices you name in `labels`/`primitives`. (The `makerchip_extract_pdf_figure` tool is the fastest way to do this from the chat.)
+- Reach for `extractFigure` alone when **authoring** — inspect `ext.primitives[].bbox` and `ext.labels` to discover the wire coordinates you hardcode into anchors, and the pool indices you name in `labels`/`primitives`.
 - Reach for `toFabric` (or the returned `parts`) for **live manipulation** — e.g. recoloring a specific extracted wire per cycle.
-- Reach for `buildFigure` for the **common case** — a static figure with either overlay chips (via `fig` anchors) or named elements mutated in place (via `labels`/`primitives`).
+- Reach for `extractToFabric` for the **common case** — a static figure with either overlay chips (via `fig` anchors) or named elements mutated in place (via `labels`/`primitives`).
 - Use `labels`/`primitives` when the **PDF itself has the wire values / paths** you want to drive from simulation. Name them by pool index (discovered once during authoring), then mutate the returned `elements` refs directly in `render()` — no per-cycle object creation. See [Named element access](#named-element-access-labels-and-primitives).
 
 ---
 
 ### Named element access: `labels` and `primitives`
 
-`toFabric` and `buildFigure` accept `labels` and `primitives` opts that **name** specific extracted elements for direct manipulation in `render()`. Named elements **remain in the Fabric group**; `render()` mutates them in place. The result gains a flat merged `elements` object whose keys are the names you chose (they must not collide across the two pools):
+`toFabric` and `extractToFabric` accept `labels` and `primitives` opts that **name** specific extracted elements for direct manipulation in `render()`. Named elements **remain in the Fabric group**; `render()` mutates them in place. The result gains a flat merged `elements` object whose keys are the names you chose (they must not collide across the two pools):
 
 ```
 elements: { [name]: fabric.Text | fabric.Path | Array<fabric.Text | fabric.Path> }
@@ -268,15 +361,17 @@ elements: { [name]: fabric.Text | fabric.Path | Array<fabric.Text | fabric.Path>
 A VIZ figure is often written against **one specific, unchanging PDF**, so there is no survivability concern: name each element by its **integer index** into the pool.
 
 ```js
-this.global.pdf.buildFigure(fabric, source, {
-   // extraction opts ...
-   labels: {
-      s_val: 6,      // ext.labels[6] — the "0" on the S wire
-      r_val: 7,      // ext.labels[7] — the "0" on the R wire
-      q_val: 8,      // ext.labels[8] — the "1" on the Q wire
-   },
-   primitives: {
-      s_wire: 15,    // ext.primitives[15] — a path
+this.global.pdf.extractToFabric(fabric, source, {
+   extract: { /* page, select, clip, ... */ },
+   build: {
+      labels: {
+         s_val: 6,      // ext.labels[6] — the "0" on the S wire
+         r_val: 7,      // ext.labels[7] — the "0" on the R wire
+         q_val: 8,      // ext.labels[8] — the "1" on the Q wire
+      },
+      primitives: {
+         s_wire: 15,    // ext.primitives[15] — a path
+      },
    },
 }).then(({elements}) => {
    this._el = elements   // {s_val: fabric.Text, r_val: fabric.Text, q_val: fabric.Text, s_wire: fabric.Path}
@@ -306,7 +401,7 @@ labels: { in_vals: [2, 4, 8] }   // → elements.in_vals = [ext.labels[2], ext.l
 
 Iterate it directly: `this._el.in_vals.forEach((t, i) => t.set({text: String(vals[i])}))`.
 
-**Discovery workflow.** Log the pools once during authoring (`extractFigure`, or inspect `ext` from `buildFigure`), read off the indices, and hardcode them. Indices are stable as long as the `select` crop rect and the source PDF layout do not change; for a frozen PDF this never happens, so the bare index is the cheapest and clearest choice.
+**Discovery workflow.** Log the pools once during authoring (`extractFigure`, or inspect `ext` from `extractToFabric`), read off the indices, and hardcode them. Indices are stable as long as the `select` crop rect and the source PDF layout do not change; for a frozen PDF this never happens, so the bare index is the cheapest and clearest choice.
 
 ```js
 // ext.labels for page 9, clip [242,456,350,540]:
@@ -332,6 +427,7 @@ A bare integer is shorthand for the no-filter case: `s_val: 6` ≡ `s_val: {nth:
 | Property | Pool | Effect |
 |----------|------|--------|
 | `str: 'text'` | labels | Keep only labels whose content matches |
+| `path: N` | primitives | Keep only primitives from PDF path `N` (see `splitSubpaths`) |
 
 *(future filters — `stroke`, `fill`, `xobj` for primitives — slot in here without touching the selection stage.)*
 
@@ -342,6 +438,7 @@ A bare integer is shorthand for the no-filter case: `s_val: 6` ≡ `s_val: {nth:
 | `nth: N` | The Nth candidate in array order (default `0`) |
 | `nth: [a, b, …]` | Several candidates, in the given index order → array result |
 | `near: [x, y]` | The candidate closest to this figure-space point |
+| `all: true` | Every candidate, in pool order → array result |
 
 `nth` and `near` are mutually exclusive. Because they apply after filtering, `{str: '0', nth: 1}` means "the 2nd candidate *among the '0' labels*", not the 2nd label overall.
 
@@ -421,13 +518,13 @@ init() {
    let status = new fabric.Text("", {left:4, top:101, fontSize:9, fill:"#1565c0"})
 
    const OFFX = 10, OFFY = 22
-   this.global.pdf.buildFigure(
+   this.global.pdf.extractToFabric(
       fabric,
       {url: "https://..."},
-      {page: N, clip: true,
-       select: {mode: "region", rect: [...], space: "device"},
-       labels: {s_val: 6, r_val: 7, q_val: 8},   // named by pool index
-       left: OFFX, top: OFFY, into: figure}
+      {extract: {page: N, clip: true,
+                 select: {mode: "region", rect: [...], space: "device"}},
+       build:   {labels: {s_val: 6, r_val: 7, q_val: 8},   // named by pool index
+                 left: OFFX, top: OFFY, into: figure}}
    ).then(({elements}) => {
       this._el = elements          // refs live inside `figure`
       this._statusLabel = status
@@ -459,12 +556,12 @@ init() {
    this._pdfReady = false
    const OFFX = 12, OFFY = 30
 
-   this.global.pdf.buildFigure(
+   this.global.pdf.extractToFabric(
       fabric,
       {url: "https://..."},
-      {page: N, clip: true,
-       select: {mode: "region", rect: [...], space: "device"},
-       left: OFFX, top: OFFY, into: figure}
+      {extract: {page: N, clip: true,
+                 select: {mode: "region", rect: [...], space: "device"}},
+       build:   {left: OFFX, top: OFFY, into: figure}}
    ).then(({fig}) => {
       // Use primitive.bbox midpoints (not label positions) for anchor coords.
       // fig() corrects for the content origin so anchors land on the rendered wires.
@@ -484,10 +581,10 @@ render() {
 }
 ```
 
-> The single-call `buildFigure` covers both patterns. For authoring (inspecting the
+> The single-call `extractToFabric` covers both patterns. For authoring (inspecting the
 > extracted geometry to find anchor coordinates and pool indices) or advanced live
 > manipulation, use the composable `extractFigure` and `toFabric` primitives directly —
-> `buildFigure` also returns `ext` and `parts` if you want both at once.
+> `extractToFabric` also returns `ext` and `parts` if you want both at once.
 
 ---
 
@@ -506,6 +603,12 @@ Source PDF: https://cs2461-2020.github.io/lectures/logic2.pdf (Apache-licensed c
 NAND R-S Latch (first sequential-logic Live Doc example). Extracts the bottom-half circuit from page 9 of `latches.pdf` — "Storage: Cross-Coupled NANDs (R-S Latch)". A 16-cycle counter cycles through HOLD → SET → HOLD → RESET phases. Active-low S and R inputs use the `>>1$signal` relative-reference idiom for state. Orange chips mark the asserted (low) input; the operation label (SET/RESET/HOLD) appears below the canvas.
 
 Source PDF: https://cs2461-2020.github.io/lectures/latches.pdf page 9, region `[242, 456, 350, 540]` (device px).
+
+### `d_latch.tlv`
+
+Gated D-Latch. Extracts the bottom-half circuit from page 11 of `latches.pdf` — "Gated D-Latch: Preventing Illegal State of RS Latch". An 8-cycle counter alternates between HOLD (WE=0) and TRANSPARENT (WE=1) phases; D changes every 2 cycles so both capture transitions are visible. An orange ring on the WE chip signals transparent mode; the operation label switches between "TRANSPARENT (Q follows D)" and "HOLD (Q locked)".
+
+Source PDF: https://cs2461-2020.github.io/lectures/latches.pdf page 11, region `[188, 593, 397, 681]` (device px).
 
 ## Working with the user
 

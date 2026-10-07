@@ -896,7 +896,7 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string, isRestore: boo
       }
 
       if (msg.type === 'ideError') {
-        console.error(`[ideError] ${msg.method}: ${msg.error}`);
+        log(`[ideError] ${msg.method}: ${msg.error}` + (msg.requestId ? ` (${msg.requestId})` : ''));
         // Step 3 of callIdeMethodWithResult (failure): mirror the ideResult path — match by requestId and reject.
         if (msg.requestId && pendingIdeResults.has(msg.requestId)) {
           const { reject } = pendingIdeResults.get(msg.requestId)!;
@@ -906,7 +906,8 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string, isRestore: boo
           // No matching entry: the request already timed out (step 4) or was never registered.
           // Capture it as the late reply so a caller that gave up can still retrieve it.
           lastLateReply = {requestId: msg.requestId, method: msg.method, kind: 'error', value: msg.error, timestamp: Date.now()};
-          console.warn(`[ideError] Late error for timed-out request ${msg.requestId} (method: ${msg.method})`);
+          log(`[ideError] Late error for timed-out request ${msg.requestId} ` +
+              `(method: ${msg.method}): ${msg.error}`);
         }
       }
 

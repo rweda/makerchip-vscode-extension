@@ -38,6 +38,7 @@ with plain file edits (AI-friendly).
 - [009 — SystemVerilog language features inside TL-Verilog](009-sv-features-in-tlv.md)
 - [010 — Agent one-shot tasks via a headless IDE Component](010-headless-components.md)
 - [011 - Feedback from Yashvini](011-yashvini-feedback.md)
+- [012 - An IDE call made while a panel is still connecting times out](012-ide-call-timeout-vs-panel-readiness.md)
 
 ## Closed
 
