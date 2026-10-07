@@ -98,7 +98,7 @@ The user may help guide your video framing. Use `makerchip_get_viz_image` to che
 
 To **inspect a PDF** before writing overlays, use the `makerchip_extract_pdf_figure` tool. It runs the exact same `extractFigure` your code will use, inside an open Makerchip panel, and returns the figure's vector primitives, text labels, bounding box, and coordinate transforms — so the coordinates and pool indices you read match precisely what the running overlay sees. Use it to find anchor coordinates, choose a `select`/crop, and discover the label/primitive indices you'll name in `buildFigure`.
 
-**The complete Live Doc API is documented in the `live-doc` skill** (`.vscode-makerchip/.vscode/skills/live-doc.md`): source forms, `extractFigure` options, the `ExtractResult` shape, `toFabric`/`buildFigure`, named-element selectors, coordinate spaces, and the two rendering patterns. Read it whenever authoring or debugging Live Doc code.
+**The complete Live Doc API is documented in the `live-doc` skill** (`.vscode-makerchip/.vscode/skills/live-doc.md`): source forms, `extractFigure` options, the `ExtractResult` shape, `toFabric`/`extractToFabric`, named-element selectors, coordinate spaces, and the two rendering patterns. Read it whenever authoring or debugging Live Doc code.
 
 ### File Creation and Workspace Organization
 

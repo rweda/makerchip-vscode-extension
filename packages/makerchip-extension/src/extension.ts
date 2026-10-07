@@ -20,10 +20,12 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { initializeResources, updateResources } from './resourceManager';
+import { MAKERCHIP_DIR, MANAGED_ENTRIES } from './populateResources';
 import { registerMakerchipTool } from './makerchipTool';
 import { initToolActivation, getToolActivation } from './toolActivation';
 import { registerMakerchipParticipant } from './makerchipParticipant';
 import { reconcileClaudeSkill } from './claudeSkill';
+import { installLiveDocSkill } from './liveDocSkill';
 import { log } from './logger';
 import * as compileCache from './compileCache';
 
@@ -288,14 +290,35 @@ export function activate(ctx: vscode.ExtensionContext) {
   // Run immediately so the skill exists even if the populate path below is gated off...
   refreshClaudeSkill();
 
+  // Compose the Live Doc skill from the connected sandhost's API reference (see liveDocSkill.ts).
+  // Installed once per populate attempt, never before one: installing skills clears the directory
+  // this writes into, so an earlier call would only be undone. Unlike the Claude skill above there
+  // is no eager first pass -- the file would be deleted moments later, at the cost of a fetch.
+  const refreshLiveDocSkill = () => getServerUrl()
+    .then(serverUrl => installLiveDocSkill({
+      extensionPath: context.extensionPath,
+      skillsDir: path.join(MAKERCHIP_DIR, MANAGED_ENTRIES.vscode, 'skills'),
+      serverUrl, log,
+    }))
+    .then(result => log(
+      `Live Doc skill ${result.action}: ${result.skillPath}` + (result.reason ? ` (${result.reason})` : '')))
+    .catch(error => log(`⚠ Live Doc skill not installed: ${error?.message ?? error}`));
+
   // Initialize resources (clone/update repos and install skill)
   initializeResources(context)
     .catch(error => {
       console.error('Failed to initialize Makerchip reference data:', error);
     })
     // ...then again once the detailed guidance files are on disk, because the skill body
-    // indexes them dynamically and the first pass may have found nothing to index.
-    .finally(refreshClaudeSkill);
+    // indexes them dynamically and the first pass may have found nothing to index. This runs
+    // whether resources were populated or found current, which is also the one moment the Live
+    // Doc skill can be written without a populate deleting it.
+    //
+    // Live Doc FIRST, and awaited: reconcileClaudeSkill indexes this directory by reading it, so
+    // starting both together leaves the index missing Live Doc -- the fetch loses that race every
+    // time. An index that silently omits one topic is worse than a missing one, which renderSkill
+    // has a fallback for.
+    .finally(() => refreshLiveDocSkill().then(refreshClaudeSkill));
 
   // Cleanup old cache entries on activation
   compileCache.cleanupOldEntries().catch(error => {
@@ -414,6 +437,8 @@ export function activate(ctx: vscode.ExtensionContext) {
           },
           async () => {
             await updateResources(context);
+            // Installing skills cleared the directory; put the composed Live Doc skill back.
+            await refreshLiveDocSkill();
           }
         );
       } catch (error: any) {
