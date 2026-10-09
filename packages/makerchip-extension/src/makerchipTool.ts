@@ -935,6 +935,15 @@ interface ExtractPdfFigureInput {
   clip?: boolean | number;
   /** Include the SVG path `d` string on each primitive. Default false (omitted to keep the result compact). */
   includePaths?: boolean;
+  /**
+   * EXPERIMENTAL, AUTHORING ONLY. Find the figure whose caption matches this text (e.g.
+   * "Figure 3.7") instead of passing `select`. Resolved here in the extension, not by the VIZ
+   * runtime: the result reports the equivalent `select` rect to hardcode. No backward
+   * compatibility is promised, and `caption` is NOT a `\viz_js` option.
+   */
+  caption?: string;
+  /** With `caption`, pick among reported candidates (0 = best). Default 0. */
+  captionIndex?: number;
   /** Optional panel name to target. If not provided, uses the default panel. */
   panelName?: string;
 }
@@ -964,7 +973,8 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
   ): Promise<vscode.LanguageModelToolResult> {
     log('[ExtractPdfFigureTool] ========== TOOL INVOKED ==========');
     try {
-      const { source, filePath, page, select, gap, space, text, clip, includePaths = false, panelName } = options.input;
+      const { source, filePath, page, select, gap, space, text, clip, includePaths = false,
+              caption, captionIndex, panelName } = options.input;
 
       if (!source && !filePath) {
         return new vscode.LanguageModelToolResult([
@@ -997,29 +1007,99 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
         pdfSource = { base64: fs.readFileSync(filePath).toString('base64') };
       }
 
+      // Generous timeout: the command default is 10s, which a large document would blow through
+      // -- a local PDF crosses three hops as base64 before pdf.js even parses it. Matches the
+      // 120s used for pushing a PDF into a pane.
+      const PDF_EXTRACT_TIMEOUT_MS = 120000;
+      const callExtract = (o: Record<string, any>) => vscode.commands.executeCommand(
+        'makerchip.callIdeMethodWithResult',
+        'extractPdfFigure',
+        [pdfSource, o],
+        panelName,
+        false,
+        PDF_EXTRACT_TIMEOUT_MS
+      ) as Promise<any>;
+
+      // `caption` is resolved HERE rather than in the extractor, deliberately. Matching a caption
+      // is a heuristic -- a page's "Figure 2.24" is far more often a cross-reference in body prose
+      // than a caption -- and a heuristic on the runtime path would silently animate the wrong
+      // figure on a reader's machine. Resolving it in the tool keeps it to authoring time and
+      // makes the output a plain `region` rect, which IS a stable runtime selector.
+      let captionNote = '';
+      let resolvedSelect: any = select;
+      if (caption !== undefined) {
+        if (select !== undefined) {
+          return new vscode.LanguageModelToolResult([
+            new vscode.LanguageModelTextPart('Pass either `caption` or `select`, not both.')
+          ]);
+        }
+        const located = await callExtract({
+          ...(page !== undefined ? { page } : {}),
+          select: { mode: 'all' },
+          text: 'all',
+          space: 'device',
+        });
+        const items: any[] = Array.isArray(located?.labels) ? located.labels : [];
+        const norm = (t: string) => String(t).replace(/\s+/g, ' ').trim().toLowerCase();
+        const q = norm(caption);
+        // Rank by how standalone the match is: an exact item beats one that starts with the
+        // query, which beats one that merely contains it (that is the body-prose case). Shorter
+        // wins within a rank, since a caption is a short run and a sentence is not.
+        const ranked = items
+          .map((l, i) => {
+            const t = norm(l.str);
+            const rank = t === q ? 3 : t.startsWith(q) ? 2 : t.includes(q) ? 1 : 0;
+            return { rank, len: t.length, item: l, i };
+          })
+          .filter((c) => c.rank > 0)
+          .sort((a, b) => b.rank - a.rank || a.len - b.len || a.item.y - b.item.y);
+
+        if (ranked.length === 0) {
+          const hints = items
+            .filter((l) => /fig|abb|table|chart/i.test(l.str))
+            .slice(0, 8)
+            .map((l) => `  "${String(l.str).slice(0, 70)}" at [${Math.round(l.x)}, ${Math.round(l.y)}]`);
+          return new vscode.LanguageModelToolResult([
+            new vscode.LanguageModelTextPart(
+              `No text on this page matches caption ${JSON.stringify(caption)}.` +
+              (hints.length
+                ? `\n\nCaption-like text found:\n${hints.join('\n')}`
+                : '\n\nNo caption-like text at all — this page may have none (lecture slides often do not). Use `select` with a region rect instead.')
+            )
+          ]);
+        }
+
+        const pick = ranked[Math.min(Math.max(captionIndex ?? 0, 0), ranked.length - 1)];
+        const RANKS = ['', 'contains', 'starts with', 'exact'];
+        resolvedSelect = { mode: 'clusterAt', at: [pick.item.x, pick.item.y], space: 'device' };
+        captionNote =
+          `Caption match (${RANKS[pick.rank]}): "${String(pick.item.str).slice(0, 90)}" ` +
+          `at device [${Math.round(pick.item.x)}, ${Math.round(pick.item.y)}].`;
+        if (ranked.length > 1) {
+          captionNote +=
+            `\n${ranked.length} candidates — a running header or a cross-reference can match too. ` +
+            `Pass captionIndex to choose another:\n` +
+            ranked
+              .slice(0, 6)
+              .map((c, n) => `  [${n}] ${RANKS[c.rank]}: "${String(c.item.str).slice(0, 70)}" at [${Math.round(c.item.x)}, ${Math.round(c.item.y)}]`)
+              .join('\n');
+        }
+        captionNote +=
+          `\nResolved to select: ${JSON.stringify(resolvedSelect)} — the nearest vector cluster to that text.`;
+      }
+
       // Assemble extractFigure opts, omitting undefined fields (so extractFigure defaults apply).
       const opts: Record<string, any> = {};
       if (page !== undefined) { opts.page = page; }
-      if (select !== undefined) { opts.select = select; }
+      if (resolvedSelect !== undefined) { opts.select = resolvedSelect; }
       if (gap !== undefined) { opts.gap = gap; }
       if (space !== undefined) { opts.space = space; }
       if (text !== undefined) { opts.text = text; }
       if (clip !== undefined) { opts.clip = clip; }
 
-      // Generous timeout: the command default is 10s, which a large document would blow through
-      // -- a local PDF crosses three hops as base64 before pdf.js even parses it. Matches the
-      // 120s used for pushing a PDF into a pane.
-      const PDF_EXTRACT_TIMEOUT_MS = 120000;
       log('[ExtractPdfFigureTool] Calling extractPdfFigure with source/opts:',
         filePath ? `filePath=${filePath}` : source, opts);
-      const result = await vscode.commands.executeCommand(
-        'makerchip.callIdeMethodWithResult',
-        'extractPdfFigure',
-        [pdfSource, opts],
-        panelName,
-        false,
-        PDF_EXTRACT_TIMEOUT_MS
-      ) as any;
+      const result = await callExtract(opts);
 
       if (!result) {
         return new vscode.LanguageModelToolResult([
@@ -1044,10 +1124,22 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
 
       const meta = result.meta || {};
       const json = JSON.stringify(payload, null, 2);
+      // With a caption, hand back the STABLE selector to hardcode. `caption` is an authoring
+      // convenience with no compatibility promise and is not a `\viz_js` option; a region rect is.
+      const dev = result.bbox?.device;
+      const stable = caption !== undefined && Array.isArray(dev)
+        ? `\n\nFor the \`.tlv\`, hardcode the equivalent stable selector (\`caption\` is authoring-only ` +
+          `and must NOT appear in \`\\viz_js\` code):\n` +
+          `    extract: {page: ${page ?? 1}, clip: true, select: {mode: "region", ` +
+          `rect: [${dev.map((v: number) => Math.round(v * 10) / 10).join(', ')}], space: "device"}}\n` +
+          `Verify it selects the same figure before relying on it.`
+        : '';
       const summary =
         `Extracted PDF figure: ${result.primitives?.length ?? 0} primitives, ` +
         `${result.labels?.length ?? 0} labels, ${meta.clusterCount ?? '?'} clusters, space="${result.space}".` +
         (includePaths ? '' : ' (SVG path `d` strings omitted — set includePaths=true to include them.)') +
+        (captionNote ? `\n\n${captionNote}` : '') +
+        stable +
         `\n\n\`\`\`json\n${json}\n\`\`\``;
 
       log('[ExtractPdfFigureTool] Result received:', summary.length, 'chars');

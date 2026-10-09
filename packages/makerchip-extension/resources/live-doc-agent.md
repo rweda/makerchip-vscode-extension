@@ -65,6 +65,12 @@ Tool notes:
 - SVG path `d` strings are omitted by default. That keeps the result compact, and it also keeps the figure's own geometry out of model context — `d` is the drawing itself, not metadata about it. Set `includePaths: true` only when you actually need exact vector paths, and never copy the returned `d` strings into `.tlv` source (see the copyright model above).
 - The tool inputs mirror `extractFigure`'s `opts`: `page`, `select`, `gap`, `space`, `text`, `clip`.
 
-Once you understand the figure, write the `\viz_js` code using the API reference above.
+**Finding a figure by its caption (experimental).** Instead of `select`, pass `caption: "Figure 3.7"`. The extension locates that text on the page and takes the nearest vector cluster, then reports the equivalent `region` rect.
+
+- It is an **authoring aid only, with no backward-compatibility promise**. Never write `caption` into `\viz_js` code — hardcode the reported `region` rect, which is a stable runtime selector, and check it selects the figure you meant.
+- **Verify the match.** A page's "Figure 3.7" is more often a cross-reference in body prose than a caption, and a running header can match too. The tool reports every candidate; use `captionIndex` to choose another. Measured on real pages: one had only prose mentions, one had three candidates including a case variant, and one had no captions at all.
+- **Feedback is wanted on this one.** If it picks the wrong figure, needs a hint it does not have, or the candidate report was not enough to decide, say so — and if you are working against a development build, file it in the extension repo's `issues/`.
+
+Once you understand the figure, write the `\viz_js` code using the API reference below. `extractToFabric` is the entry point; the pool indices you discovered here are what you name in its `build.labels` / `build.primitives`.
 
 ---

@@ -253,6 +253,15 @@ Consequences worth acting on:
 - **Report gaps, not just failures.** Missing capabilities, tool descriptions that misled you,
   guidance that was absent when you needed it, and rules you nearly broke are all worth raising —
   you are the consumer of this API, so your confusion is evidence.
+- **File what you find, in the working tree above.** Raising it in chat is useful; recording it is
+  more useful, because the next session does not have your context. The repo keeps a backlog of
+  \`NNN-slug.md\` files under \`issues/\`, indexed in \`issues/README.md\` — follow the header and
+  status convention documented there. File an issue for anything you deliberately left undone or
+  worked around, and make edits when the fix is small and you are confident in it.
+  Mention what you filed so the user can redirect you.
+- **Stay on the lookout, not just when asked.** This applies throughout the session, to anything
+  you touch — not only to the task you were given. Experimental features in particular want
+  feedback: where a tool's description says so, that is an explicit invitation.
 - Extension logs go to the \`Makerchip\` output channel; compilation artifacts to
   \`~/.vscode-makerchip/compile-cache/\`.
 
