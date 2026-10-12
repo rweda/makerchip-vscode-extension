@@ -49,21 +49,20 @@ goals would impose legal risk, stop, and explain the situation.
 
 ### Inspecting a PDF (the `makerchip_extract_pdf_figure` tool)
 
-Before writing Live Doc code, **inspect the PDF** with the `makerchip_extract_pdf_figure` tool. It runs the *exact same* `this.global.pdf.extractFigure(source, opts)` that your `\viz_js` VIZ code will use at runtime, so the coordinates, labels, cluster selection, figure bbox, and coordinate `transforms` it returns match precisely what your VIZ overlay will see — no drift between what you inspect and what runs. Additionally, it provides narrower results to avoid clutter and potentially-copyrighted data in the context window.
+Before writing Live Doc code, **inspect the PDF** with the `makerchip_extract_pdf_figure` tool. It runs the *exact same* `this.global.pdf.extractFigure(source, opts)` that your `\viz_js` VIZ code will use at runtime, so the coordinates, labels, cluster selection, and figure bbox it returns match precisely what your VIZ overlay will see — no drift between what you inspect and what runs. Additionally, it provides narrower results to avoid clutter and potentially-copyrighted data in the context window.
 
 Use it to:
 
-- **Find anchor coordinates** — read `primitives[].bbox` (wire midpoints) to place overlay chips with `fig(...)`.
-- **Choose a `select` mode / cluster index** — try `{mode:"largest"}`, `{mode:"cluster", index:N}`, or a `{mode:"region", rect:[…], space:"device"}` crop and see which primitives/labels land in the figure.
+- **Find anchor coordinates** — read `primitives[].bbox` (wire midpoints, figure coordinates) to position overlay chips, which you add to the group `extractToFabric` returns.
+- **Choose a `select` mode / cluster index** — try `{mode:"largest"}`, `{mode:"cluster", index:N}`, or a `{mode:"region", rect:[…]}` crop (page coordinates) and see which primitives/labels land in the figure. Pass `pageCoords: true` to read positions in page coordinates, as `select` takes them; leave it off when reading anchors for overlays, which are in figure coordinates.
 - **Discover pool indices** — read the `labels` and `primitives` arrays to pick the integer indices you will name in `toFabric`/`extractToFabric`'s `labels`/`primitives` opts.
-- **Read the coordinate `transforms`** for manual coordinate conversion.
 
 Tool notes:
 
-- `source` must be a **URL reachable from the Makerchip IDE** (fetched through its CORS proxy, exactly like `\viz_js`). Local files must be served at a URL (e.g. mono serves `ide-env/public/` at `/module/ide/`, so a file in `ide-env/public/tmp/foo.pdf` is reachable at `/module/ide/tmp/foo.pdf`).
+- Supply either `source`, a **URL reachable from the Makerchip IDE**, or `filePath`, an **absolute path to a local PDF**. The extension reads local files and sends their bytes to the IDE; they do not need to be served at a URL. URL sources use the IDE's direct/CORS-proxy resolution, exactly like `\viz_js`. For the resulting `.tlv`, reference a URL or a PDF view supplied by the reader; `filePath` is a tool input, not a runtime source form.
 - Requires an **open Makerchip panel** (extraction runs in the IDE browser context). It does **not** require a compiled design or simulation data.
 - SVG path `d` strings are omitted by default. That keeps the result compact, and it also keeps the figure's own geometry out of model context — `d` is the drawing itself, not metadata about it. Set `includePaths: true` only when you actually need exact vector paths, and never copy the returned `d` strings into `.tlv` source (see the copyright model above).
-- The tool inputs mirror `extractFigure`'s `opts`: `page`, `select`, `gap`, `space`, `text`, `clip`.
+- The tool exposes these `extractFigure` options: `page`, `select`, `gap`, `text`, `clip`. It currently uses the runtime default `splitSubpaths: true` and does not expose that option; bind indices against the same setting in your `.tlv`.
 
 **Finding a figure by its caption (experimental).** Instead of `select`, pass `caption: "Figure 3.7"`. The extension locates that text on the page and takes the nearest vector cluster, then reports the equivalent `region` rect.
 

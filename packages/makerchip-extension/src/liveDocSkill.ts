@@ -14,6 +14,9 @@
  * and a reworded heading would silently misplace the guidance. The frontmatter cannot be spliced
  * (it has to lead the file), so the guidance file is split at its frontmatter fence.
  *
+ * Spans the reference marks `skill-omit` (look-up detail an author rarely needs) are dropped,
+ * and a note says where the full reference is.
+ *
  * Fetching the reference rather than bundling it means the agent's copy describes the API of the
  * server it is actually talking to -- which during development is the author's own working tree.
  *
@@ -37,6 +40,12 @@ const GUIDANCE_FILE = path.join('resources', 'live-doc-agent.md');
 const INSERT_MARKER = '<!-- insert: agent-guidance';
 
 const SKILL_FILE = 'live-doc.md';
+
+/**
+ * A span of the reference to leave out of the skill, from an exact `<!-- skill-omit -->` opener
+ * to its closer. Exact, so that a comment merely mentioning the markers is not taken for one.
+ */
+const OMIT_SPAN = /<!-- skill-omit -->[\s\S]*?<!-- \/skill-omit -->\n?/g;
 
 export interface LiveDocSkillResult {
   /** 'composed' when the API reference was fetched; 'degraded' when only the guidance is present. */
@@ -112,6 +121,28 @@ function splice(reference: string, guidance: string, log: (message: string) => v
 }
 
 /**
+ * Drop the reference's `skill-omit` spans, noting where the full text is when any were dropped,
+ * then its other HTML comments: they are notes for its maintainers, hidden when rendered but read
+ * by an agent. The guidance marker is kept for `splice`.
+ * @param reference The fetched API reference.
+ * @param url Where the full reference is served.
+ * @param log Output-channel logger, told of an unpaired marker.
+ */
+function omitSpans(reference: string, url: string, log: (message: string) => void): string {
+  const trimmed = reference.replace(OMIT_SPAN, '');
+  // An unpaired marker survives the replace; say so rather than ship a half-omitted span.
+  if (/<!-- \/?skill-omit -->/.test(trimmed)) {
+    log('Live Doc skill: unpaired skill-omit marker in the API reference; check its spans.');
+  }
+  const omitted = trimmed !== reference;
+  const uncommented = trimmed.replace(/<!--[\s\S]*?-->\n?/g,
+    (comment) => (comment.startsWith(INSERT_MARKER) ? comment : ''));
+  if (!omitted) { return uncommented; }
+  return `${uncommented.trimEnd()}\n\n---\n\nSome look-up detail is left out of this skill. ` +
+    `The full reference is at ${url}.\n`;
+}
+
+/**
  * Write `.vscode-makerchip/.vscode/skills/live-doc.md`, composed as described above. Always
  * overwrites, so a failure never leaves a stale copy claiming to be current and a later success
  * repairs a degraded one.
@@ -146,7 +177,7 @@ export async function installLiveDocSkill(opts: {
   let body: string;
   let result: LiveDocSkillResult;
   try {
-    body = splice(await fetchApiReference(url), guidance, opts.log);
+    body = splice(omitSpans(await fetchApiReference(url), url, opts.log), guidance, opts.log);
     result = { action: 'composed', skillPath };
   } catch (error: any) {
     const reason = error?.message || String(error);

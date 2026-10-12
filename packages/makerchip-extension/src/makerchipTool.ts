@@ -919,22 +919,25 @@ interface ExtractPdfFigureInput {
    * Figure-selection descriptor. One of:
    *   {mode:"largest"}                              densest cluster (default)
    *   {mode:"cluster", index}                       nth-densest cluster (0-based)
-   *   {mode:"clusterAt", at:[x,y], space}           cluster at/nearest a point
-   *   {mode:"region", rect:[x0,y0,x1,y1], space}    explicit crop rectangle
+   *   {mode:"clusterAt", at:[x,y]}                  cluster at/nearest a point
+   *   {mode:"region", rect:[x0,y0,x1,y1]}           explicit crop rectangle
    *   {mode:"all"}                                  whole page
-   * `space` (for at/rect) is "pdf" (default), "device", or "norm".
+   * `at`/`rect` are page coordinates: top-left origin, y down, PDF points.
    */
   select?: any;
-  /** Cluster-join distance in device px (default: 12). */
+  /** Cluster-join distance in px (default: 12). */
   gap?: number;
-  /** Output coordinate space: "figure" (default), "device", or "pdf". */
-  space?: 'figure' | 'device' | 'pdf';
   /** Which text to return: "labels" (default, inside the figure), "all", or "none". */
   text?: 'labels' | 'all' | 'none';
   /** Clip primitives to the figure bounds: true (pad 4px), a number (explicit pad), or omit for no clip. */
   clip?: boolean | number;
   /** Include the SVG path `d` string on each primitive. Default false (omitted to keep the result compact). */
   includePaths?: boolean;
+  /**
+   * Report primitive bboxes and label positions in page coordinates (as `select` takes them)
+   * rather than figure coordinates (as `\viz_js` overlays use them). `d` is not converted.
+   */
+  pageCoords?: boolean;
   /**
    * EXPERIMENTAL, AUTHORING ONLY. Find the figure whose caption matches this text (e.g.
    * "Figure 3.7") instead of passing `select`. Resolved here in the extension, not by the VIZ
@@ -949,12 +952,26 @@ interface ExtractPdfFigureInput {
 }
 
 /**
+ * An ExtractResult with primitive bboxes and label positions shifted from figure to page
+ * coordinates, by the figure box's corner. Path `d` strings are left in figure coordinates.
+ */
+function toPageCoords(ext: any): any {
+  const [ox, oy] = ext.bbox ?? [0, 0];
+  return {
+    ...ext,
+    primitives: (ext.primitives ?? []).map((p: any) =>
+      ({ ...p, bbox: [p.bbox[0] + ox, p.bbox[1] + oy, p.bbox[2] + ox, p.bbox[3] + oy] })),
+    labels: (ext.labels ?? []).map((l: any) => ({ ...l, left: l.left + ox, top: l.top + oy })),
+  };
+}
+
+/**
  * Language Model tool that extracts a figure's vector geometry + text labels from a PDF page.
  *
  * Runs the same PdfExtractor.extractFigure used by \viz_js Live Doc code, inside the IDE, so the
- * returned coordinates/labels/transforms match exactly what a VIZ overlay will see. Use it to
+ * returned coordinates/labels match exactly what a VIZ overlay will see. Use it to
  * inspect a PDF before writing Live Doc VIZ code (find label positions to anchor overlays, choose
- * a select mode / cluster index, read the figure bbox and coordinate transforms).
+ * a select mode / cluster index, read the figure bbox).
  */
 export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdfFigureInput> {
 
@@ -973,7 +990,7 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
   ): Promise<vscode.LanguageModelToolResult> {
     log('[ExtractPdfFigureTool] ========== TOOL INVOKED ==========');
     try {
-      const { source, filePath, page, select, gap, space, text, clip, includePaths = false,
+      const { source, filePath, page, select, gap, text, clip, includePaths = false, pageCoords = false,
               caption, captionIndex, panelName } = options.input;
 
       if (!source && !filePath) {
@@ -1037,9 +1054,9 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
           ...(page !== undefined ? { page } : {}),
           select: { mode: 'all' },
           text: 'all',
-          space: 'device',
         });
-        const items: any[] = Array.isArray(located?.labels) ? located.labels : [];
+        // `at` is in page coordinates.
+        const items: any[] = located ? toPageCoords(located).labels : [];
         const norm = (t: string) => String(t).replace(/\s+/g, ' ').trim().toLowerCase();
         const q = norm(caption);
         // Rank by how standalone the match is: an exact item beats one that starts with the
@@ -1047,18 +1064,18 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
         // wins within a rank, since a caption is a short run and a sentence is not.
         const ranked = items
           .map((l, i) => {
-            const t = norm(l.str);
+            const t = norm(l.text);
             const rank = t === q ? 3 : t.startsWith(q) ? 2 : t.includes(q) ? 1 : 0;
             return { rank, len: t.length, item: l, i };
           })
           .filter((c) => c.rank > 0)
-          .sort((a, b) => b.rank - a.rank || a.len - b.len || a.item.y - b.item.y);
+          .sort((a, b) => b.rank - a.rank || a.len - b.len || a.item.top - b.item.top);
 
         if (ranked.length === 0) {
           const hints = items
-            .filter((l) => /fig|abb|table|chart/i.test(l.str))
+            .filter((l) => /fig|abb|table|chart/i.test(l.text))
             .slice(0, 8)
-            .map((l) => `  "${String(l.str).slice(0, 70)}" at [${Math.round(l.x)}, ${Math.round(l.y)}]`);
+            .map((l) => `  "${String(l.text).slice(0, 70)}" at [${Math.round(l.left)}, ${Math.round(l.top)}]`);
           return new vscode.LanguageModelToolResult([
             new vscode.LanguageModelTextPart(
               `No text on this page matches caption ${JSON.stringify(caption)}.` +
@@ -1071,17 +1088,17 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
 
         const pick = ranked[Math.min(Math.max(captionIndex ?? 0, 0), ranked.length - 1)];
         const RANKS = ['', 'contains', 'starts with', 'exact'];
-        resolvedSelect = { mode: 'clusterAt', at: [pick.item.x, pick.item.y], space: 'device' };
+        resolvedSelect = { mode: 'clusterAt', at: [pick.item.left, pick.item.top] };
         captionNote =
-          `Caption match (${RANKS[pick.rank]}): "${String(pick.item.str).slice(0, 90)}" ` +
-          `at device [${Math.round(pick.item.x)}, ${Math.round(pick.item.y)}].`;
+          `Caption match (${RANKS[pick.rank]}): "${String(pick.item.text).slice(0, 90)}" ` +
+          `at page [${Math.round(pick.item.left)}, ${Math.round(pick.item.top)}].`;
         if (ranked.length > 1) {
           captionNote +=
             `\n${ranked.length} candidates — a running header or a cross-reference can match too. ` +
             `Pass captionIndex to choose another:\n` +
             ranked
               .slice(0, 6)
-              .map((c, n) => `  [${n}] ${RANKS[c.rank]}: "${String(c.item.str).slice(0, 70)}" at [${Math.round(c.item.x)}, ${Math.round(c.item.y)}]`)
+              .map((c, n) => `  [${n}] ${RANKS[c.rank]}: "${String(c.item.text).slice(0, 70)}" at [${Math.round(c.item.left)}, ${Math.round(c.item.top)}]`)
               .join('\n');
         }
         captionNote +=
@@ -1093,7 +1110,6 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
       if (page !== undefined) { opts.page = page; }
       if (resolvedSelect !== undefined) { opts.select = resolvedSelect; }
       if (gap !== undefined) { opts.gap = gap; }
-      if (space !== undefined) { opts.space = space; }
       if (text !== undefined) { opts.text = text; }
       if (clip !== undefined) { opts.clip = clip; }
 
@@ -1110,11 +1126,11 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
       }
 
       // Trim large SVG path `d` strings unless explicitly requested, to keep the result compact.
-      let payload = result;
+      let payload = pageCoords ? toPageCoords(result) : result;
       if (!includePaths && Array.isArray(result.primitives)) {
         payload = {
-          ...result,
-          primitives: result.primitives.map((p: any) => {
+          ...payload,
+          primitives: payload.primitives.map((p: any) => {
             const rest = { ...p };
             delete rest.d;
             return rest;
@@ -1126,25 +1142,30 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
       const json = JSON.stringify(payload, null, 2);
       // With a caption, hand back the STABLE selector to hardcode. `caption` is an authoring
       // convenience with no compatibility promise and is not a `\viz_js` option; a region rect is.
-      const dev = result.bbox?.device;
+      const dev = result.bbox;
       const stable = caption !== undefined && Array.isArray(dev)
         ? `\n\nFor the \`.tlv\`, hardcode the equivalent stable selector (\`caption\` is authoring-only ` +
           `and must NOT appear in \`\\viz_js\` code):\n` +
           `    extract: {page: ${page ?? 1}, clip: true, select: {mode: "region", ` +
-          `rect: [${dev.map((v: number) => Math.round(v * 10) / 10).join(', ')}], space: "device"}}\n` +
+          `rect: [${dev.map((v: number) => Math.round(v * 10) / 10).join(', ')}]}}\n` +
           `Verify it selects the same figure before relying on it.`
         : '';
       const summary =
-        `Extracted PDF figure: ${result.primitives?.length ?? 0} primitives, ` +
-        `${result.labels?.length ?? 0} labels, ${meta.clusterCount ?? '?'} clusters, space="${result.space}".` +
+        `Extracted PDF figure (page ${page ?? 1} of ${meta.numPages ?? '?'}): ` +
+        `${result.primitives?.length ?? 0} primitives, ` +
+        `${result.labels?.length ?? 0} labels, ${meta.clusterCount ?? '?'} clusters, ` +
+        `${pageCoords ? 'page coordinates (`d` excepted)' : 'figure coordinates'}.` +
         (includePaths ? '' : ' (SVG path `d` strings omitted — set includePaths=true to include them.)') +
         (captionNote ? `\n\n${captionNote}` : '') +
         stable +
-        `\n\n\`\`\`json\n${json}\n\`\`\``;
+        '\n\nThe extraction JSON follows as a separate part.\n';
 
-      log('[ExtractPdfFigureTool] Result received:', summary.length, 'chars');
+      log('[ExtractPdfFigureTool] Result received:', json.length, 'chars');
+      // JSON in its own, pure-JSON part: when large, Copilot spills it as `content.json` (with a
+      // derived schema) that can be queried directly, rather than JSON buried in markdown.
       return new vscode.LanguageModelToolResult([
-        new vscode.LanguageModelTextPart(summary)
+        new vscode.LanguageModelTextPart(summary),
+        new vscode.LanguageModelTextPart(json)
       ]);
 
     } catch (error: any) {
@@ -3023,9 +3044,12 @@ const MAX_BATCH_CALLS = 100;
  * runs entirely in-process with no harness round trip between entries, and no enablement requirement
  * so `[enable_tools(video), capture_video(...)]` works in one call.
  *
- * Results are concatenated with a delimiting header per call, preserving each result's parts
- * verbatim (so image parts from e.g. makerchip_get_viz_image survive batching). Per-call output is
- * NOT truncated; keep batches small, and note MAX_BATCH_CALLS.
+ * Results are concatenated with a delimiting header per call, preserving non-text parts verbatim
+ * (so image parts from e.g. makerchip_get_viz_image survive batching) and merging each run of
+ * adjacent text into ONE part. The merge matters: Copilot spills a large text part to
+ * `<session>/<toolCallId>/content.txt`, keyed only by the (outer) call id, so several large text
+ * parts in one result overwrite each other's spill file. Per-call output is NOT truncated; keep
+ * batches small, and note MAX_BATCH_CALLS.
  *
  * Keep this deliberately dumb — a serial list, no data flow, no control flow. It cannot chain
  * (feed one call's result into the next), and it should not learn how: parallelism, nesting or
@@ -3144,7 +3168,17 @@ export class InvokeToolTool implements vscode.LanguageModelTool<InvokeToolInput>
     const summary =
       `Batch of ${calls.length} call(s): ${ok} ok, ${failed} failed` +
       (skipped > 0 ? `, ${skipped} not run` : '') + '.\n';
-    return new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(summary), ...parts]);
+    // Merge adjacent text parts (see BATCHING for why).
+    const merged: vscode.LanguageModelToolResult['content'] = [];
+    for (const part of [new vscode.LanguageModelTextPart(summary), ...parts]) {
+      const last = merged[merged.length - 1];
+      if (part instanceof vscode.LanguageModelTextPart && last instanceof vscode.LanguageModelTextPart) {
+        merged[merged.length - 1] = new vscode.LanguageModelTextPart(last.value + part.value);
+      } else {
+        merged.push(part);
+      }
+    }
+    return new vscode.LanguageModelToolResult(merged);
   }
 
   /**

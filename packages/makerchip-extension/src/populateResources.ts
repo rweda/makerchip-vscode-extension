@@ -923,6 +923,9 @@ async function installCopilotInstructions(context: vscode.ExtensionContext, log:
  *
  *  - DEPRECATED_ARTIFACTS -- files we created in an earlier version. Removed silently, because the
  *    user never put them there and asking about our own leftovers is noise.
+ *  - Empty directories -- removed silently, since they cannot hold anything of the user's. Agent
+ *    sandboxes leave these: Codex's, for one, creates empty `.git`, `.codex`, `.agents` and `.aws`
+ *    in a folder it is run in, as mount points for keeping them read-only or masked.
  *  - Anything else -- foreign, most likely dropped by an agent or the user. Returned to the caller,
  *    which routes it through offerToTrash. This mirrors cleanupUnexpectedResources: each sweep
  *    silently removes only what it can prove is ours or re-obtainable, and defers everything else
@@ -960,6 +963,13 @@ async function cleanupMakerchipDir(log: (message: string) => void): Promise<stri
       }
       continue;
     }
+    // rmdir removes only an EMPTY directory, so a failure (non-empty, or not a directory) is
+    // exactly the case that needs the user.
+    try {
+      await fs.rmdir(entryPath);
+      log(`  \u2713 Removed empty ${entry}`);
+      continue;
+    } catch { /* not an empty directory */ }
     log(`  Unexpected entry: ${entry}`);
     strays.push(entryPath);
   }

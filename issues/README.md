@@ -39,6 +39,8 @@ with plain file edits (AI-friendly).
 - [010 — Agent one-shot tasks via a headless IDE Component](010-headless-components.md)
 - [011 - Feedback from Yashvini](011-yashvini-feedback.md)
 - [012 - An IDE call made while a panel is still connecting times out](012-ide-call-timeout-vs-panel-readiness.md)
+- [013 — Large results from batched `makerchip_invoke_tool` calls overwrite each other](013-batched-large-results-overwrite.md)
+- [014 — `makerchip_extract_pdf_figure` has no cheap way to survey a document](014-extract-pdf-figure-survey-mode.md)
 
 ## Closed
 

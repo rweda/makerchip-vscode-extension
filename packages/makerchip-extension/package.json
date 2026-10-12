@@ -667,7 +667,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(file-pdf)",
         "userDescription": "Extract a figure's vector geometry and text labels from a PDF page (for Live Doc VIZ authoring).",
-        "modelDescription": "Extracts a figure's vector geometry (SVG-path primitives) and text labels from a PDF page, for authoring and debugging Makerchip Live Doc `\\viz_js` code. Runs the SAME `this.global.pdf.extractFigure` that Live Doc code uses at runtime, INSIDE an open Makerchip IDE panel, so the returned coordinates, labels, cluster selection, figure bbox and coordinate transforms match EXACTLY what a VIZ overlay will see (no drift). Accepts either `source` (a URL reachable from the IDE) or `filePath` (an absolute path to a local PDF, read by the extension and shipped to the IDE as bytes) -- so a licensed local copy works without being published anywhere. Requires an open Makerchip panel; does NOT require a compiled design. Use this to inspect a PDF before writing Live Doc overlays: find label positions to anchor to, choose a `select` mode / cluster index, and read the coordinate `transforms`. Returns the ExtractResult JSON `{primitives, labels, space, figure, bbox, page, transforms, meta}`; SVG path `d` strings are omitted by default (set includePaths=true to include them). No copy of the figure is produced — geometry is re-derived from the referenced PDF. See the Live Doc API skill/docs for the full authoring API (`extractFigure`, `toFabric`, `extractToFabric`). COPYRIGHT: the ExtractResult is a copy of material from the referenced PDF (label text, and with includePaths=true the figure's own vector geometry), and returning it places that copy in model context, i.e. off the user's machine. Avoid includePaths=true for copy-protected content unless it has been determined that the agent does not train on nor retain the data. Never write extracted `d` path strings into `.tlv` source without rights. AUTHORING AID: `caption` (e.g. \"Figure 3.7\") finds a figure by its printed caption, resolved in the extension and reported as an equivalent `region` rect -- experimental, no backward compatibility, and never to be written into \\viz_js code. Feedback on it is wanted; see the Live Doc skill for how to file it.",
+        "modelDescription": "Extracts a figure's vector geometry (SVG-path primitives) and text labels from a PDF page, for authoring and debugging Makerchip Live Doc `\\viz_js` code. Runs the SAME `this.global.pdf.extractFigure` that Live Doc code uses at runtime, INSIDE an open Makerchip IDE panel, so the returned coordinates, labels, cluster selection and figure bbox match EXACTLY what a VIZ overlay will see (no drift). Accepts either `source` (a URL reachable from the IDE) or `filePath` (an absolute path to a local PDF, read by the extension and shipped to the IDE as bytes) -- so a licensed local copy works without being published anywhere. Requires an open Makerchip panel; does NOT require a compiled design. Use this to inspect a PDF before writing Live Doc overlays: find label positions to anchor to, and choose a `select` mode / cluster index. Returns the ExtractResult JSON `{primitives, labels, fingerprints, figure, bbox, page, meta}`, in figure coordinates (the figure's top-left is (0,0)) except `bbox`, the figure box in page coordinates -- set pageCoords=true for page coordinates throughout, when choosing a `select`; SVG path `d` strings are omitted by default (set includePaths=true to include them). No copy of the figure is produced — geometry is re-derived from the referenced PDF. See the Live Doc API skill/docs for the full authoring API (`extractFigure`, `toFabric`, `extractToFabric`). COPYRIGHT: the ExtractResult is a copy of material from the referenced PDF (label text, and with includePaths=true the figure's own vector geometry), and returning it places that copy in model context, i.e. off the user's machine. Avoid includePaths=true for copy-protected content unless it has been determined that the agent does not train on nor retain the data. Never write extracted `d` path strings into `.tlv` source without rights. AUTHORING AID: `caption` (e.g. \"Figure 3.7\") finds a figure by its printed caption, resolved in the extension and reported as an equivalent `region` rect -- experimental, no backward compatibility, and never to be written into \\viz_js code. Feedback on it is wanted; see the Live Doc skill for how to file it.",
         "tags": [
           "makerchip",
           "viz",
@@ -694,16 +694,11 @@
             },
             "select": {
               "type": "object",
-              "description": "Figure-selection descriptor. Modes: {mode:\"largest\"} (default, densest cluster); {mode:\"cluster\", index} (nth-densest, 0-based); {mode:\"clusterAt\", at:[x,y], space} (cluster at/nearest a point); {mode:\"region\", rect:[x0,y0,x1,y1], space} (explicit crop); {mode:\"all\"} (whole page). `space` for at/rect is \"pdf\" (default), \"device\", or \"norm\"."
+              "description": "Figure-selection descriptor. Modes: {mode:\"largest\"} (default, densest cluster); {mode:\"cluster\", index} (nth-densest, 0-based); {mode:\"clusterAt\", at:[x,y]} (cluster at/nearest a point); {mode:\"region\", rect:[x0,y0,x1,y1]} (explicit crop); {mode:\"all\"} (whole page). `at`/`rect` are page coordinates: top-left origin, y down, PDF points."
             },
             "gap": {
               "type": "number",
-              "description": "Cluster-join distance in device px. Default: 12."
-            },
-            "space": {
-              "type": "string",
-              "enum": ["figure", "device", "pdf"],
-              "description": "Output coordinate space. Default: \"figure\" (figure top-left at origin)."
+              "description": "Cluster-join distance in px. Default: 12."
             },
             "text": {
               "type": "string",
@@ -726,6 +721,10 @@
               "type": "boolean",
               "description": "Include the SVG path `d` string on each primitive. Default false (omitted to keep the result compact). Set true only if you need the exact vector paths.",
               "default": false
+            },
+            "pageCoords": {
+              "type": "boolean",
+              "description": "Report primitive bboxes and label positions in page coordinates (top-left origin, y down, PDF points), as `select` rects/points are written, instead of figure coordinates, as `\\viz_js` overlays use. Path `d` strings are not converted. Default false."
             },
             "panelName": {
               "type": "string",
