@@ -667,7 +667,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(file-pdf)",
         "userDescription": "Extract a figure's vector geometry and text labels from a PDF page (for Live Doc VIZ authoring).",
-        "modelDescription": "Extracts a figure's vector geometry (SVG-path primitives) and text labels from a PDF page, for authoring and debugging Makerchip Live Doc `\\viz_js` code. Runs the SAME `this.global.pdf.extractFigure` that Live Doc code uses at runtime, INSIDE an open Makerchip IDE panel, so the returned coordinates, labels, cluster selection and figure bbox match EXACTLY what a VIZ overlay will see (no drift). Accepts either `source` (a URL reachable from the IDE) or `filePath` (an absolute path to a local PDF, read by the extension and shipped to the IDE as bytes) -- so a licensed local copy works without being published anywhere. Requires an open Makerchip panel; does NOT require a compiled design. Use this to inspect a PDF before writing Live Doc overlays: find label positions to anchor to, and choose a `select` mode / cluster index. Returns the ExtractResult JSON `{primitives, labels, fingerprints, figure, bbox, page, meta}`, in figure coordinates (the figure's top-left is (0,0)) except `bbox`, the figure box in page coordinates -- set pageCoords=true for page coordinates throughout, when choosing a `select`; SVG path `d` strings are omitted by default (set includePaths=true to include them). No copy of the figure is produced — geometry is re-derived from the referenced PDF. See the Live Doc API skill/docs for the full authoring API (`extractFigure`, `toFabric`, `extractToFabric`). COPYRIGHT: the ExtractResult is a copy of material from the referenced PDF (label text, and with includePaths=true the figure's own vector geometry), and returning it places that copy in model context, i.e. off the user's machine. Avoid includePaths=true for copy-protected content unless it has been determined that the agent does not train on nor retain the data. Never write extracted `d` path strings into `.tlv` source without rights. AUTHORING AID: `caption` (e.g. \"Figure 3.7\") finds a figure by its printed caption, resolved in the extension and reported as an equivalent `region` rect -- experimental, no backward compatibility, and never to be written into \\viz_js code. Feedback on it is wanted; see the Live Doc skill for how to file it.",
+        "modelDescription": "Inspects a PDF page for Makerchip Live Doc authoring by running the same `this.global.pdf.extractFigure` that `\\viz_js` code runs, inside an open Makerchip panel (no compiled design needed), so selection, coordinates and pool indices match what the VIZ will see. Use it to choose `select`, and to read anchor coordinates and the pool indices to name. Returns the ExtractResult (see the Live Doc skill), shaped by the output options; primitives also carry a tool-only `kind` (`line`, `rect`, `polygon`, `curve`), which, like the style fields, appears only where it changes from the previous primitive. Uses the runtime default `splitSubpaths: true`, so indices hold for `\\viz_js` code that keeps it. COPYRIGHT: the result is a copy of PDF material placed in model context; follow the Live Doc skill's guidance before using it on copy-protected content, and never write extracted `d` strings into `.tlv` source.",
         "tags": [
           "makerchip",
           "viz",
@@ -682,36 +682,36 @@
           "properties": {
             "source": {
               "type": "string",
-              "description": "PDF source: a URL to the PDF, reachable from the Makerchip IDE (resolved through its CORS proxy, like \\viz_js code). Pass this OR `filePath`, not both."
+              "description": "URL of the PDF, reachable from the Makerchip IDE (directly or through its CORS proxy, as for \\viz_js code). Pass this OR `filePath`."
             },
             "filePath": {
               "type": "string",
-              "description": "Absolute path to a local PDF, as an alternative to `source`. The extension reads the file and ships the bytes to the IDE, so the PDF does not need to be reachable by URL. Use this for a licensed local copy. Pass this OR `source`, not both."
+              "description": "Absolute path to a local PDF (e.g. a licensed copy). The extension sends its bytes to the IDE, so no URL is needed. A tool input only: `\\viz_js` code references a URL or a reader-supplied PDF view. Pass this OR `source`."
             },
             "page": {
               "type": "number",
-              "description": "1-based page number. Default: 1."
+              "description": "As `extractFigure`'s `page`: 1-based, default 1."
             },
             "select": {
               "type": "object",
-              "description": "Figure-selection descriptor. Modes: {mode:\"largest\"} (default, densest cluster); {mode:\"cluster\", index} (nth-densest, 0-based); {mode:\"clusterAt\", at:[x,y]} (cluster at/nearest a point); {mode:\"region\", rect:[x0,y0,x1,y1]} (explicit crop); {mode:\"all\"} (whole page). `at`/`rect` are page coordinates: top-left origin, y down, PDF points."
+              "description": "As `extractFigure`'s `select` (Live Doc skill): {mode: \"largest\" (default) | \"cluster\" with `index` | \"clusterAt\" with `at:[x,y]` | \"region\" with `rect:[x0,y0,x1,y1]` | \"all\"}. `at`/`rect` are page coordinates."
             },
             "gap": {
               "type": "number",
-              "description": "Cluster-join distance in px. Default: 12."
+              "description": "As `extractFigure`'s `gap`: cluster-join distance, px, default 12."
             },
             "text": {
               "type": "string",
               "enum": ["labels", "all", "none"],
-              "description": "Which text to return: \"labels\" (default, inside the figure), \"all\", or \"none\"."
+              "description": "As `extractFigure`'s `text`. Default \"labels\"."
             },
             "clip": {
               "type": ["boolean", "number"],
-              "description": "Clip primitives to the figure bounds: true (pad 4px), a number (explicit pad px), or omit for no clip."
+              "description": "As `extractFigure`'s `clip`: true (pad 4), a pad in px, or omitted for none."
             },
             "caption": {
               "type": "string",
-              "description": "EXPERIMENTAL, AUTHORING ONLY. Find the figure whose caption matches this text (e.g. \"Figure 3.7\") instead of passing `select`. Resolved in the extension by locating the text and taking the nearest vector cluster, NOT by the VIZ runtime -- the result reports the equivalent `region` rect to hardcode. A page's \"Figure N\" is more often a cross-reference in body prose than a caption, so candidates are reported and must be sanity-checked. No backward compatibility is promised, and `caption` is NOT a \\viz_js option."
+              "description": "EXPERIMENTAL, AUTHORING ONLY; not a \\viz_js option, no backward compatibility. Instead of `select`, find the figure captioned with this text (e.g. \"Figure 3.7\"): the extension locates the text and takes the nearest vector cluster, reporting the candidates and the equivalent `region` rect."
             },
             "captionIndex": {
               "type": "number",
@@ -719,12 +719,24 @@
             },
             "includePaths": {
               "type": "boolean",
-              "description": "Include the SVG path `d` string on each primitive. Default false (omitted to keep the result compact). Set true only if you need the exact vector paths.",
+              "description": "Include each primitive's SVG path `d`. Default false, which keeps the result compact and the figure's own geometry out of context.",
               "default": false
             },
             "pageCoords": {
               "type": "boolean",
               "description": "Report primitive bboxes and label positions in page coordinates (top-left origin, y down, PDF points), as `select` rects/points are written, instead of figure coordinates, as `\\viz_js` overlays use. Path `d` strings are not converted. Default false."
+            },
+            "outFile": {
+              "type": ["boolean", "string"],
+              "description": "Write the extraction JSON to a file instead of returning it: true for an auto-named temp file, or an absolute path (parent directories are created). Only the summary and the file path are returned. Shaped by includePaths/pageCoords/group/summary like the returned JSON."
+            },
+            "group": {
+              "type": "boolean",
+              "description": "Collapse each set of same-paint primitives that reads as one shape into one `groups` entry `{id, kind, count, members, bbox, fill, stroke, strokeWidth}`, omitting the members from `primitives`. Only two kinds join: `line`s whose endpoint lies on another (corners and T-junctions, not crossings), so a set is a wire net; and unstroked filled `rect`s that touch (a shape filled in pieces). `members` are inclusive pool-index runs `[[from, to], ...]`; remaining primitives keep their `id`s, so indices still match the full pool `\\viz_js` code sees. Default false."
+            },
+            "summary": {
+              "type": "boolean",
+              "description": "Replace the `primitives`, `labels` and `images` pools with `counts` and `rows`: one row per kind and paint, `{kind, fill, stroke, strokeWidth, count, shapes, bbox, members}`, largest first. `shapes` counts each set `group` would join as one; `members` are inclusive pool-index runs. Supersedes `group`. Default false."
             },
             "panelName": {
               "type": "string",

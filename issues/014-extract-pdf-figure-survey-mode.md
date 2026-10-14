@@ -13,9 +13,11 @@ has no compact output, so a survey is expensive:
 - The workaround was a 1×1 `region` with `text: "all"` to get only the labels, then `jq` over
   the spill file.
 
-Remaining work (some combination):
+Remaining work (`summary` gives a compact kind/paint breakdown of one selection, and `outFile`
+and `group` shrink a figure-level read, but none of them helps choose a figure on a page):
 
-- Add a `summary` output mode. It would give counts plus cluster bboxes and sizes, and label text
-  grouped by line. That is enough to choose a figure and a `region` without the full pools.
+- Report cluster bboxes and sizes, and label text grouped by line, perhaps as part of `summary`
+  with `select: {mode: "all"}`. That is enough to choose a figure and a `region` without the
+  full pools.
 - Consider leaving out the background rectangle, or dropping a primitive that covers ≥ ~90% of
   the page before clustering.

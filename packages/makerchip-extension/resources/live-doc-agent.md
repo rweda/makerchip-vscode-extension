@@ -22,7 +22,7 @@ While the rest of this skill is generic documentation for any Live Doc user, thi
 
 ### Copyright and data sharing with LLM services
 
-Authoring Live Docs as an AI agent inherently shares PDF data with third-party LLMs. Unless/until you have confirmed that the user has the right to share the PDF or that the LLM terms prohibit training and data retention, **avoid opening the PDF file, parsing it with another tool, or pulling its bytes into context.** The `makerchip_extract_pdf_figure` tool can be used to narrow your data sharing. In addition to its other benefits (exposing exactly the VIZ call results and avoiding context clutter), using it with `includePaths=false` (the default) can avoid the inclusion of the figure's own vector geometry, while other aspects of the figure are less sensitive to copyright.
+Authoring Live Docs as an AI agent inherently shares PDF data with third-party LLMs. Unless/until you have confirmed that the user has the right to share the PDF or that the LLM terms prohibit training and data retention, **avoid opening the PDF file, parsing it with another tool, pulling its bytes into context, taking snapshots of the resulting VIZ**, or anything else that might put copyrighted content in LLM context. The `makerchip_extract_pdf_figure` tool can be used to narrow your data sharing. In addition to its other benefits (exposing exactly the VIZ call results and avoiding context clutter), using it with `includePaths=false` (the default) can avoid the inclusion of the figure's own vector geometry, while other aspects of the figure are less sensitive to copyright.
 
 Encourage Live Doc developers to communicate openly with static content authors and to consult legal counsel.
 
@@ -49,7 +49,7 @@ goals would impose legal risk, stop, and explain the situation.
 
 ### Inspecting a PDF (the `makerchip_extract_pdf_figure` tool)
 
-Before writing Live Doc code, **inspect the PDF** with the `makerchip_extract_pdf_figure` tool. It runs the *exact same* `this.global.pdf.extractFigure(source, opts)` that your `\viz_js` VIZ code will use at runtime, so the coordinates, labels, cluster selection, and figure bbox it returns match precisely what your VIZ overlay will see — no drift between what you inspect and what runs. Additionally, it provides narrower results to avoid clutter and potentially-copyrighted data in the context window.
+Before writing Live Doc code, **inspect the PDF** with the `makerchip_extract_pdf_figure` tool. It returns exactly what your `\viz_js` code's `extractFigure` call will see, while keeping the context narrow.
 
 Use it to:
 
@@ -59,14 +59,12 @@ Use it to:
 
 Tool notes:
 
-- Supply either `source`, a **URL reachable from the Makerchip IDE**, or `filePath`, an **absolute path to a local PDF**. The extension reads local files and sends their bytes to the IDE; they do not need to be served at a URL. URL sources use the IDE's direct/CORS-proxy resolution, exactly like `\viz_js`. For the resulting `.tlv`, reference a URL or a PDF view supplied by the reader; `filePath` is a tool input, not a runtime source form.
-- Requires an **open Makerchip panel** (extraction runs in the IDE browser context). It does **not** require a compiled design or simulation data.
-- SVG path `d` strings are omitted by default. That keeps the result compact, and it also keeps the figure's own geometry out of model context — `d` is the drawing itself, not metadata about it. Set `includePaths: true` only when you actually need exact vector paths, and never copy the returned `d` strings into `.tlv` source (see the copyright model above).
-- The tool exposes these `extractFigure` options: `page`, `select`, `gap`, `text`, `clip`. It currently uses the runtime default `splitSubpaths: true` and does not expose that option; bind indices against the same setting in your `.tlv`.
+- Leave `includePaths` off unless you need exact vector paths: `d` is the drawing itself, not metadata about it.
+- For a large figure (hundreds of primitives), start with `summary: true`, which is usually enough to see what the figure is made of. Then pass `outFile: true` and filter the written JSON with `jq` or `python` in the terminal, reading only the records you need. That keeps context small and the rest of the extraction on the user's machine. If the count comes from fragments (curves as scanline slivers, wires as segments), add `group: true` to see wire nets and pieced-together fills as single records, and name a group's runs in `\viz_js` with `{nth: [{from, to}, ...]}`. When filtering, carry `kind` and style forward from earlier primitives, since they appear only where they change.
 
-**Finding a figure by its caption (experimental).** Instead of `select`, pass `caption: "Figure 3.7"`. The extension locates that text on the page and takes the nearest vector cluster, then reports the equivalent `region` rect.
+**Finding a figure by its caption (experimental).** Instead of `select`, pass `caption: "Figure 3.7"`.
 
-- It is an **authoring aid only, with no backward-compatibility promise**. Never write `caption` into `\viz_js` code — hardcode the reported `region` rect, which is a stable runtime selector, and check it selects the figure you meant.
+- Never write `caption` into `\viz_js` code — hardcode the reported `region` rect, which is a stable runtime selector, and check it selects the figure you meant.
 - **Verify the match.** A page's "Figure 3.7" is more often a cross-reference in body prose than a caption, and a running header can match too. The tool reports every candidate; use `captionIndex` to choose another. Measured on real pages: one had only prose mentions, one had three candidates including a case variant, and one had no captions at all.
 - **Feedback is wanted on this one.** If it picks the wrong figure, needs a hint it does not have, or the candidate report was not enough to decide, say so — and if you are working against a development build, file it in the extension repo's `issues/`.
 

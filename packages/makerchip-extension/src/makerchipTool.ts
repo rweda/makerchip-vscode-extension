@@ -905,39 +905,50 @@ export class GetVizImageTool implements vscode.LanguageModelTool<GetVizImageInpu
 }
 
 interface ExtractPdfFigureInput {
-  /** PDF source: a URL string (resolved through the IDE's CORS proxy, like \viz_js code). One of `source` or `filePath`. */
+  /** URL of the PDF, reachable from the IDE (directly or through its CORS proxy, as for \viz_js code). One of `source` or `filePath`. */
   source?: string;
   /**
-   * Absolute path to a local PDF, as an alternative to `source`. The extension reads the file and
-   * ships the bytes to the IDE, so the document never has to be reachable by URL -- this is the
-   * path for a licensed local copy. One of `source` or `filePath`.
+   * Absolute path to a local PDF (e.g. a licensed copy). The extension sends its bytes to the IDE,
+   * so no URL is needed. A tool input only: `\viz_js` code references a URL or a reader-supplied
+   * PDF view. One of `source` or `filePath`.
    */
   filePath?: string;
-  /** 1-based page number (default: 1). */
+  /** As `extractFigure`'s `page`: 1-based, default 1. */
   page?: number;
   /**
-   * Figure-selection descriptor. One of:
-   *   {mode:"largest"}                              densest cluster (default)
-   *   {mode:"cluster", index}                       nth-densest cluster (0-based)
-   *   {mode:"clusterAt", at:[x,y]}                  cluster at/nearest a point
-   *   {mode:"region", rect:[x0,y0,x1,y1]}           explicit crop rectangle
-   *   {mode:"all"}                                  whole page
-   * `at`/`rect` are page coordinates: top-left origin, y down, PDF points.
+   * As `extractFigure`'s `select` (Live Doc docs): `{mode}` of "largest" (default), "cluster" with
+   * `index`, "clusterAt" with `at:[x,y]`, "region" with `rect:[x0,y0,x1,y1]`, or "all". `at`/`rect`
+   * are page coordinates.
    */
   select?: any;
-  /** Cluster-join distance in px (default: 12). */
+  /** As `extractFigure`'s `gap`: cluster-join distance, px, default 12. */
   gap?: number;
-  /** Which text to return: "labels" (default, inside the figure), "all", or "none". */
+  /** As `extractFigure`'s `text`. Default "labels". */
   text?: 'labels' | 'all' | 'none';
-  /** Clip primitives to the figure bounds: true (pad 4px), a number (explicit pad), or omit for no clip. */
+  /** As `extractFigure`'s `clip`: true (pad 4), a pad in px, or omitted for none. */
   clip?: boolean | number;
-  /** Include the SVG path `d` string on each primitive. Default false (omitted to keep the result compact). */
+  /** Include each primitive's SVG path `d`. Default false: compact, and the figure's own geometry stays out of context. */
   includePaths?: boolean;
   /**
    * Report primitive bboxes and label positions in page coordinates (as `select` takes them)
    * rather than figure coordinates (as `\viz_js` overlays use them). `d` is not converted.
    */
   pageCoords?: boolean;
+  /**
+   * Write the extraction JSON to a file instead of returning it: `true` for an auto-named temp
+   * file, or an absolute path. Only the summary and the path are returned.
+   */
+  outFile?: boolean | string;
+  /**
+   * Collapse each set of primitives that reads as one shape (a wire net, a fill drawn in pieces)
+   * into one `groups` record, omitting its members from `primitives`. See `analyzePrimitives`.
+   */
+  group?: boolean;
+  /**
+   * Return one row per (kind, paint) with counts, bbox and member runs, instead of the pools.
+   * Supersedes `group`.
+   */
+  summary?: boolean;
   /**
    * EXPERIMENTAL, AUTHORING ONLY. Find the figure whose caption matches this text (e.g.
    * "Figure 3.7") instead of passing `select`. Resolved here in the extension, not by the VIZ
@@ -952,17 +963,136 @@ interface ExtractPdfFigureInput {
 }
 
 /**
- * An ExtractResult with primitive bboxes and label positions shifted from figure to page
+ * An ExtractResult with primitive, label and image positions shifted from figure to page
  * coordinates, by the figure box's corner. Path `d` strings are left in figure coordinates.
  */
 function toPageCoords(ext: any): any {
   const [ox, oy] = ext.bbox ?? [0, 0];
+  const shift = (b: number[]) => b && [b[0] + ox, b[1] + oy, b[2] + ox, b[3] + oy];
   return {
     ...ext,
-    primitives: (ext.primitives ?? []).map((p: any) =>
-      ({ ...p, bbox: [p.bbox[0] + ox, p.bbox[1] + oy, p.bbox[2] + ox, p.bbox[3] + oy] })),
-    labels: (ext.labels ?? []).map((l: any) => ({ ...l, left: l.left + ox, top: l.top + oy })),
+    primitives: (ext.primitives ?? []).map((p: any) => ({ ...p, bbox: shift(p.bbox) })),
+    labels: (ext.labels ?? []).map((l: any) =>
+      ({ ...l, left: l.left + ox, top: l.top + oy, bbox: shift(l.bbox) })),
+    images: (ext.images ?? []).map((im: any) => ({ ...im, bbox: shift(im.bbox) })),
   };
+}
+
+type Subpath = { pts: number[][]; closed: boolean; curved: boolean };
+
+/** A primitive's subpaths from its absolute `d`: vertices only (a curve's control points drop). */
+function parseSubpaths(d: string): Subpath[] {
+  const subs: Subpath[] = [];
+  for (const [, op, args] of d.matchAll(/([MLCQZ])([^MLCQZ]*)/g)) {
+    const n = args.trim().split(/\s+/).map(Number);
+    if (op === 'M') {
+      subs.push({ pts: [n], closed: false, curved: false });
+    } else if (op === 'Z') {
+      subs[subs.length - 1].closed = true;
+    } else {
+      subs[subs.length - 1].curved ||= op !== 'L';
+      subs[subs.length - 1].pts.push(n.slice(-2));
+    }
+  }
+  return subs;
+}
+
+/**
+ * `curve` (any Bezier: circles, arcs), `line` (straight, open, unfilled: wires), `rect` (one
+ * closed axis-aligned quad), else `polygon` (including an open path closed by its fill).
+ */
+function kindOf(subs: Subpath[], filled: boolean): string {
+  const eq = (a: number, b: number) => Math.abs(a - b) < 0.01; // `d` is rounded to 0.01
+  if (subs.some((s) => s.curved)) { return 'curve'; }
+  if (!filled && subs.every((s) => !s.closed)) { return 'line'; }
+  const p = subs[0].pts;
+  const c = p.length === 5 && eq(p[0][0], p[4][0]) && eq(p[0][1], p[4][1]) ? p.slice(0, 4) : p;
+  return subs.length === 1 && c.length === 4 &&
+    c.every((a, i) => eq(a[0], c[(i + 1) % 4][0]) || eq(a[1], c[(i + 1) % 4][1])) ? 'rect' : 'polygon';
+}
+
+function distToSegment(q: number[], a: number[], b: number[]): number {
+  const [dx, dy] = [b[0] - a[0], b[1] - a[1]];
+  const len2 = dx * dx + dy * dy;
+  const t = len2 ? Math.max(0, Math.min(1, ((q[0] - a[0]) * dx + (q[1] - a[1]) * dy) / len2)) : 0;
+  return Math.hypot(a[0] + t * dx - q[0], a[1] + t * dy - q[1]);
+}
+
+/**
+ * Each primitive's `kind`, and the sets of 2+ primitives that read as one shape -- for inspection
+ * only; `\viz_js` code always addresses the full pool. Only two kinds join, both also requiring
+ * the same paint, by tests that hold for any figure:
+ * - `line`s where an endpoint of one lies on the other (a corner or a T-junction), within a stroke
+ *   width: a gap narrower than the line reads as no gap, and converters often leave one between
+ *   the pieces of a wire. Interiors crossing do NOT join -- that is how a PDF draws wires that do
+ *   not connect -- so a set is a net. (The endpoint-on-interior test of mono issue 023.)
+ * - unstroked filled `rect`s that touch: same-colour touching rects render as one shape, e.g. a
+ *   converter's scanline fill of a curve.
+ * Curves (circles), polygons (arrowheads) and outlined boxes are objects in their own right.
+ */
+function analyzePrimitives(prims: any[]): { kinds: string[]; styles: any[]; sets: number[][] } {
+  const EPS = 0.05;
+  // Style is on the first primitive of each path only; carry it to the rest.
+  let style: any;
+  const styles = prims.map((p, i) => (i === 0 || prims[i - 1].path !== p.path ? (style = p) : style));
+  const subs = prims.map((p) => parseSubpaths(p.d));
+  const kinds = prims.map((_, i) => kindOf(subs[i], !!styles[i].fill));
+  const paint = (i: number) => `${styles[i].fill}|${styles[i].stroke}|${styles[i].strokeWidth}`;
+  const reach = (i: number) => (kinds[i] === 'line' ? styles[i].strokeWidth : 0) + EPS;
+  const endOn = (i: number, j: number) => subs[i].some((s) => [s.pts[0], s.pts[s.pts.length - 1]]
+    .some((q) => subs[j].some((t) => t.pts.slice(1).some((b, k) => distToSegment(q, t.pts[k], b) <= reach(i)))));
+  const joins = (i: number, j: number) => kinds[i] === 'line' ? endOn(i, j) || endOn(j, i) : true;
+
+  const parent = prims.map((_, i) => i);
+  const find = (a: number): number => {
+    while (parent[a] !== a) { a = parent[a] = parent[parent[a]]; }
+    return a;
+  };
+  const cand = prims.map((_, i) => i)
+    .filter((i) => kinds[i] === 'line' || (kinds[i] === 'rect' && styles[i].fill && !styles[i].stroke))
+    .sort((a, b) => prims[a].bbox[0] - prims[b].bbox[0]);
+  const maxReach = Math.max(EPS, ...cand.map(reach));
+  for (let s = 0; s < cand.length; s++) {
+    const i = cand[s], a = prims[i].bbox;
+    for (let t = s + 1; t < cand.length && prims[cand[t]].bbox[0] <= a[2] + maxReach; t++) {
+      const j = cand[t], b = prims[j].bbox, r = reach(i);
+      if (kinds[i] === kinds[j] && paint(i) === paint(j) && b[0] <= a[2] + r &&
+          b[1] <= a[3] + r && a[1] <= b[3] + r && joins(i, j)) {
+        parent[find(i)] = find(j);
+      }
+    }
+  }
+  const byRoot = new Map<number, number[]>();
+  prims.forEach((_, i) => {
+    const r = find(i);
+    if (!byRoot.has(r)) { byRoot.set(r, []); }
+    byRoot.get(r)!.push(i);
+  });
+  return { kinds, styles, sets: [...byRoot.values()].filter((m) => m.length > 1).sort((a, b) => a[0] - b[0]) };
+}
+
+/** Ascending indices as inclusive runs `[from, to]`, i.e. the ranges of `{nth: [{from, to}, ...]}`. */
+function toRuns(m: number[]): number[][] {
+  const runs: number[][] = [];
+  for (const i of m) {
+    const last = runs[runs.length - 1];
+    if (last && last[1] === i - 1) { last[1] = i; } else { runs.push([i, i]); }
+  }
+  return runs;
+}
+
+function unionBox(bbs: number[][]): number[] {
+  return [Math.min(...bbs.map((b) => b[0])), Math.min(...bbs.map((b) => b[1])),
+          Math.max(...bbs.map((b) => b[2])), Math.max(...bbs.map((b) => b[3]))];
+}
+
+/** JSON with each top-level key, and each record of an array of records, on its own line. */
+function toLineJson(obj: Record<string, any>): string {
+  const val = (v: any) => Array.isArray(v) && v.some((e) => e && typeof e === 'object')
+    ? `[\n${v.map((e) => `    ${JSON.stringify(e)}`).join(',\n')}\n  ]`
+    : JSON.stringify(v);
+  return `{\n${Object.entries(obj).filter(([, v]) => v !== undefined)
+    .map(([k, v]) => `  ${JSON.stringify(k)}: ${val(v)}`).join(',\n')}\n}\n`;
 }
 
 /**
@@ -991,7 +1121,13 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
     log('[ExtractPdfFigureTool] ========== TOOL INVOKED ==========');
     try {
       const { source, filePath, page, select, gap, text, clip, includePaths = false, pageCoords = false,
-              caption, captionIndex, panelName } = options.input;
+              outFile, group, summary, caption, captionIndex, panelName } = options.input;
+
+      if (typeof outFile === 'string' && !path.isAbsolute(outFile)) {
+        return new vscode.LanguageModelToolResult([
+          new vscode.LanguageModelTextPart(`outFile must be an absolute path, got: ${outFile}`)
+        ]);
+      }
 
       if (!source && !filePath) {
         return new vscode.LanguageModelToolResult([
@@ -1125,21 +1261,69 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
         ]);
       }
 
-      // Trim large SVG path `d` strings unless explicitly requested, to keep the result compact.
+      // Analysis reads `d` in figure coordinates, so from `result`; `payload` is index-aligned.
+      const pool: any[] = result.primitives ?? [];
+      const { kinds, styles, sets } = analyzePrimitives(pool);
       let payload = pageCoords ? toPageCoords(result) : result;
-      if (!includePaths && Array.isArray(result.primitives)) {
-        payload = {
-          ...payload,
-          primitives: payload.primitives.map((p: any) => {
-            const rest = { ...p };
-            delete rest.d;
-            return rest;
-          })
-        };
+      // Trim large SVG path `d` strings unless explicitly requested, to keep the result compact.
+      let primitives = (payload.primitives ?? []).map((p: any, i: number) => {
+        const { d, ...rest } = p;
+        return { id: p.id, kind: kinds[i], ...(includePaths ? p : rest) };
+      });
+      let groupNote = '';
+      if (summary) {
+        const paint = (i: number) => [kinds[i], styles[i].fill, styles[i].stroke, styles[i].strokeWidth].join('|');
+        const byPaint = new Map<string, number[]>();
+        pool.forEach((_, i) => {
+          if (!byPaint.has(paint(i))) { byPaint.set(paint(i), []); }
+          byPaint.get(paint(i))!.push(i);
+        });
+        // A set is uniform in kind and paint, so it falls in one row and counts as one shape there.
+        const merged = new Map<string, number>();
+        for (const m of sets) { merged.set(paint(m[0]), (merged.get(paint(m[0])) ?? 0) + m.length - 1); }
+        const rows = [...byPaint].map(([k, m]) => {
+          const s = styles[m[0]];
+          return {
+            kind: kinds[m[0]], fill: s.fill, stroke: s.stroke, strokeWidth: s.strokeWidth,
+            count: m.length, shapes: m.length - (merged.get(k) ?? 0),
+            bbox: unionBox(m.map((i) => primitives[i].bbox)), members: toRuns(m),
+          };
+        }).sort((a, b) => b.count - a.count);
+        const { primitives: _p, labels, images, ...rest } = payload;
+        payload = { ...rest, counts: { primitives: pool.length, labels: labels?.length ?? 0, images: images?.length ?? 0 }, rows };
+        groupNote =
+          ` Summary only: one row per kind and paint; \`shapes\` counts joined sets once (see \`group\`); ` +
+          `\`members\` are inclusive pool-index runs. Call again without \`summary\` (e.g. with \`outFile\`) for the records.`;
+      } else {
+        if (group) {
+          const groups = sets.map((m, g) => {
+            const s = styles[m[0]];
+            return {
+              id: `g${g}`, kind: kinds[m[0]], count: m.length, members: toRuns(m),
+              bbox: unionBox(m.map((i) => primitives[i].bbox)),
+              fill: s.fill, stroke: s.stroke, strokeWidth: s.strokeWidth,
+            };
+          });
+          const grouped = new Set(sets.flat());
+          primitives = primitives.filter((_: any, i: number) => !grouped.has(i));
+          payload = { ...payload, groups };
+          groupNote =
+            ` ${grouped.size} primitives collapsed into ${groups.length} \`groups\` ` +
+            `(members as inclusive index runs; ids keep their pool numbering, so name a run in \`\\viz_js\` ` +
+            `as \`{nth: [{from, to}, ...]}\`).`;
+        }
+        // Like the style fields, `kind` is given only where it changes: absent means as before.
+        let prev: string | undefined;
+        primitives = primitives.map((p: any) => {
+          if (p.kind !== prev) { prev = p.kind; return p; }
+          const { kind: _k, ...rest } = p;
+          return rest;
+        });
+        payload = { ...payload, primitives };
       }
 
       const meta = result.meta || {};
-      const json = JSON.stringify(payload, null, 2);
+      const json = toLineJson(payload);
       // With a caption, hand back the STABLE selector to hardcode. `caption` is an authoring
       // convenience with no compatibility promise and is not a `\viz_js` option; a region rect is.
       const dev = result.bbox;
@@ -1150,21 +1334,32 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
           `rect: [${dev.map((v: number) => Math.round(v * 10) / 10).join(', ')}]}}\n` +
           `Verify it selects the same figure before relying on it.`
         : '';
-      const summary =
+      const header =
         `Extracted PDF figure (page ${page ?? 1} of ${meta.numPages ?? '?'}): ` +
         `${result.primitives?.length ?? 0} primitives, ` +
         `${result.labels?.length ?? 0} labels, ${meta.clusterCount ?? '?'} clusters, ` +
         `${pageCoords ? 'page coordinates (`d` excepted)' : 'figure coordinates'}.` +
         (includePaths ? '' : ' (SVG path `d` strings omitted — set includePaths=true to include them.)') +
+        groupNote +
         (captionNote ? `\n\n${captionNote}` : '') +
         stable +
-        '\n\nThe extraction JSON follows as a separate part.\n';
+        '\n\n';
 
       log('[ExtractPdfFigureTool] Result received:', json.length, 'chars');
+      if (outFile) {
+        const outPath = typeof outFile === 'string'
+          ? outFile
+          : path.join(os.tmpdir(), `makerchip-pdf-figure-${Date.now()}.json`);
+        fs.mkdirSync(path.dirname(outPath), { recursive: true });
+        fs.writeFileSync(outPath, json);
+        return new vscode.LanguageModelToolResult([
+          new vscode.LanguageModelTextPart(header + `The extraction JSON (${json.length} chars) was written to: ${outPath}\n`)
+        ]);
+      }
       // JSON in its own, pure-JSON part: when large, Copilot spills it as `content.json` (with a
       // derived schema) that can be queried directly, rather than JSON buried in markdown.
       return new vscode.LanguageModelToolResult([
-        new vscode.LanguageModelTextPart(summary),
+        new vscode.LanguageModelTextPart(header + 'The extraction JSON follows as a separate part.\n'),
         new vscode.LanguageModelTextPart(json)
       ]);
 
