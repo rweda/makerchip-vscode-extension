@@ -41,6 +41,7 @@ with plain file edits (AI-friendly).
 - [012 - An IDE call made while a panel is still connecting times out](012-ide-call-timeout-vs-panel-readiness.md)
 - [013 — Large results from batched `makerchip_invoke_tool` calls overwrite each other](013-batched-large-results-overwrite.md)
 - [014 — `makerchip_extract_pdf_figure` has no cheap way to survey a document](014-extract-pdf-figure-survey-mode.md)
+- [015 — Live Doc gaps found in user-model testing](015-live-doc-gaps-from-eecs151-test.md)
 
 ## Closed
 
