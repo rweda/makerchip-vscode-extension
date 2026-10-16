@@ -375,9 +375,10 @@ export async function fetchIntermediateFiles(id: string, serverUrl: string): Pro
 }
 
 
+// Serialized: concurrent fs.appendFile calls can land out of order (e.g. reordering VCD chunks).
 export async function appendFile(id: string, fileName: string, chunk: string): Promise<void> {
   const filePath = path.join(CACHE_DIR, id, fileName);
-  await fs.appendFile(filePath, chunk, 'utf-8');
+  return serializeUpdate(() => fs.appendFile(filePath, chunk, 'utf-8'));
 }
 
 /**
