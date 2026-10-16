@@ -958,6 +958,8 @@ interface ExtractPdfFigureInput {
   caption?: string;
   /** With `caption`, pick among reported candidates (0 = best). Default 0. */
   captionIndex?: number;
+  /** Also return the figure box as pdf.js draws it, as a PNG: `true` (2 pixels per px) or a scale. */
+  render?: boolean | number;
   /** Optional panel name to target. If not provided, uses the default panel. */
   panelName?: string;
 }
@@ -1121,7 +1123,7 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
     log('[ExtractPdfFigureTool] ========== TOOL INVOKED ==========');
     try {
       const { source, filePath, page, select, gap, text, clip, includePaths = false, pageCoords = false,
-              outFile, group, summary, caption, captionIndex, panelName } = options.input;
+              outFile, group, summary, caption, captionIndex, render, panelName } = options.input;
 
       if (typeof outFile === 'string' && !path.isAbsolute(outFile)) {
         return new vscode.LanguageModelToolResult([
@@ -1346,29 +1348,48 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
         '\n\n';
 
       log('[ExtractPdfFigureTool] Result received:', json.length, 'chars');
+      // `render`: the figure box as pdf.js draws it, inline where the image API exists, else a file.
+      const ToolResult = (vscode as any).LanguageModelToolResult2 ?? vscode.LanguageModelToolResult;
+      const imageParts: any[] = [];
+      if (render) {
+        const url = await vscode.commands.executeCommand('makerchip.callIdeMethodWithResult', 'renderPdfFigure',
+          [pdfSource, { page: page ?? 1, rect: result.bbox, scale: render === true ? 2 : render }],
+          panelName, false, PDF_EXTRACT_TIMEOUT_MS) as string;
+        const png = Buffer.from(url.replace(/^data:image\/png;base64,/, ''), 'base64');
+        const DataPart = (vscode as any).LanguageModelDataPart;
+        if ((vscode as any).LanguageModelToolResult2 && DataPart?.image) {
+          imageParts.push(DataPart.image(new Uint8Array(png), 'image/png'));
+        } else {
+          const pngPath = path.join(os.tmpdir(), `makerchip-pdf-figure-${Date.now()}.png`);
+          fs.writeFileSync(pngPath, png);
+          imageParts.push(new vscode.LanguageModelTextPart(`The rendered figure was written to: ${pngPath}\n`));
+        }
+      }
       if (outFile) {
         const outPath = typeof outFile === 'string'
           ? outFile
           : path.join(os.tmpdir(), `makerchip-pdf-figure-${Date.now()}.json`);
         fs.mkdirSync(path.dirname(outPath), { recursive: true });
         fs.writeFileSync(outPath, json);
-        return new vscode.LanguageModelToolResult([
-          new vscode.LanguageModelTextPart(header + `The extraction JSON (${json.length} chars) was written to: ${outPath}\n`)
+        return new ToolResult([
+          new vscode.LanguageModelTextPart(header + `The extraction JSON (${json.length} chars) was written to: ${outPath}\n`),
+          ...imageParts
         ]);
       }
       // JSON in its own, pure-JSON part: when large, Copilot spills it as `content.json` (with a
       // derived schema) that can be queried directly, rather than JSON buried in markdown.
-      return new vscode.LanguageModelToolResult([
+      return new ToolResult([
         new vscode.LanguageModelTextPart(header + 'The extraction JSON follows as a separate part.\n'),
-        new vscode.LanguageModelTextPart(json)
+        new vscode.LanguageModelTextPart(json),
+        ...imageParts
       ]);
 
     } catch (error: any) {
       log('[ExtractPdfFigureTool] ERROR:', error?.message);
-      if (error?.message?.includes('extractPdfFigure')) {
+      if (/extractPdfFigure|renderPdfFigure/.test(error?.message ?? '')) {
         return new vscode.LanguageModelToolResult([
           new vscode.LanguageModelTextPart(
-            'The extractPdfFigure IDE method is not available. This requires a Makerchip server with Live Doc support. Open a Makerchip panel connected to such a server and try again.'
+            `The IDE method is not available (${error.message}). This requires a Makerchip server with Live Doc support. Open a Makerchip panel connected to such a server and try again.`
           )
         ]);
       }

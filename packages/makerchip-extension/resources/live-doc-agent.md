@@ -22,7 +22,7 @@ While the rest of this skill is generic documentation for any Live Doc user, thi
 
 ### Copyright and data sharing with LLM services
 
-Authoring Live Docs as an AI agent inherently shares PDF data with third-party LLMs. Unless/until you have confirmed that the user has the right to share the PDF or that the LLM terms prohibit training and data retention, **avoid opening the PDF file, parsing it with another tool, pulling its bytes into context, taking snapshots of the resulting VIZ**, or anything else that might put copyrighted content in LLM context. The `makerchip_extract_pdf_figure` tool can be used to narrow your data sharing. In addition to its other benefits (exposing exactly the VIZ call results and avoiding context clutter), using it with `includePaths=false` (the default) can avoid the inclusion of the figure's own vector geometry, while other aspects of the figure are less sensitive to copyright.
+Authoring Live Docs as an AI agent inherently shares PDF data with third-party LLMs. Unless/until you have confirmed that the user has the right to share the PDF or that the LLM terms prohibit training and data retention, **avoid opening the PDF file, parsing it with another tool, pulling its bytes into context, taking snapshots of the resulting VIZ or rendering the original (`render`)**, or anything else that might put copyrighted content in LLM context. The `makerchip_extract_pdf_figure` tool can be used to narrow your data sharing. In addition to its other benefits (exposing exactly the VIZ call results and avoiding context clutter), using it with `includePaths=false` (the default) can avoid the inclusion of the figure's own vector geometry, while other aspects of the figure are less sensitive to copyright.
 
 Encourage Live Doc developers to communicate openly with static content authors and to consult legal counsel.
 
@@ -60,6 +60,7 @@ Use it to:
 Tool notes:
 
 - Leave `includePaths` off unless you need exact vector paths: `d` is the drawing itself, not metadata about it.
+- Where sharing is cleared, `render: true` returns the figure as pdf.js draws it. Compare it with a VIZ image of your build to catch what extraction lost or changed (fonts, text, layering).
 - For a large figure (hundreds of primitives), start with `summary: true`, which is usually enough to see what the figure is made of. Then pass `outFile: true` and filter the written JSON with `jq` or `python` in the terminal, reading only the records you need. That keeps context small and the rest of the extraction on the user's machine. If the count comes from fragments (curves as scanline slivers, wires as segments), add `group: true` to see wire nets and pieced-together fills as single records, and name a group's runs in `\viz_js` with `{nth: [{from, to}, ...]}`. When filtering, carry `kind` and style forward from earlier primitives, since they appear only where they change.
 
 **Finding a figure by its caption (experimental).** Instead of `select`, pass `caption: "Figure 3.7"`.

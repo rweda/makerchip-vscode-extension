@@ -717,6 +717,10 @@
               "type": "number",
               "description": "With `caption`, pick among the reported candidates (0 = best match). Use when the best match turns out to be a running header or a cross-reference."
             },
+            "render": {
+              "type": ["boolean", "number"],
+              "description": "Also return an image of the figure box as pdf.js draws it (the original, not the extraction), to check the extraction against: true (2 pixels per px) or a scale. The image is the figure itself, so it is subject to the COPYRIGHT caution even more than the geometry."
+            },
             "includePaths": {
               "type": "boolean",
               "description": "Include each primitive's SVG path `d`. Default false, which keeps the result compact and the figure's own geometry out of context.",
