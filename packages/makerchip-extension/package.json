@@ -700,6 +700,11 @@
               "type": "number",
               "description": "As `extractFigure`'s `gap`: cluster-join distance, px, default 12."
             },
+            "ignore": {
+              "type": "array",
+              "items": { "type": "integer" },
+              "description": "As `extractFigure`'s `ignore`: page primitives that join no cluster, by their index in a `{mode: \"all\"}` extraction (as a survey's `largest` names them). Use it for a frame or backdrop that joins separate figures into one cluster. Only the cluster modes use it, and it changes which primitives a cluster holds, so `\\viz_js` code must pass the same value."
+            },
             "text": {
               "type": "string",
               "enum": ["labels", "all", "none"],
@@ -722,7 +727,7 @@
               "properties": {
                 "scale": { "type": "number", "description": "Pixels per PDF px. Default 2." },
                 "file": { "type": ["boolean", "string"], "description": "Write the PNG to a file instead of returning it: true for an auto-named temp file, or an absolute path (parent directories are created). Only the path is returned, keeping the image out of context (e.g. for the user to view)." },
-                "annotate": { "type": "boolean", "description": "Outline each primitive (red) and label (blue) on the image, tagged with its `id` (`p<N>`, `t<N>`: N is its pool index, as `\\viz_js` selectors name it). Default false." }
+                "annotate": { "type": "boolean", "description": "Outline each primitive (red) and label (blue) on the image, tagged with its `id` (`p<N>`, `t<N>`: N is its pool index, as `\\viz_js` selectors name it). With `group`, each group is outlined once instead of its members (green, `g<N>`). Default false." }
               },
               "description": "Also return an image of the figure box as pdf.js draws it (the original, not the extraction), to check the extraction against: true (inline, scale 2) or {scale, file, annotate}. The image is the figure itself, so it is subject to the COPYRIGHT caution even more than the geometry."
             },
@@ -745,11 +750,11 @@
             },
             "group": {
               "type": "boolean",
-              "description": "Collapse each set of same-paint primitives that reads as one shape into one `groups` entry `{id, kind, count, members, bbox, fill, stroke, strokeWidth}`, omitting the members from `primitives`. Only two kinds join: `line`s whose endpoint lies on another (corners and T-junctions, not crossings), so a set is a wire net; and unstroked filled `rect`s that touch (a shape filled in pieces). `members` are inclusive pool-index runs `[[from, to], ...]`; remaining primitives keep their `id`s, so indices still match the full pool `\\viz_js` code sees. Default false."
+              "description": "Collapse each set of same-paint primitives that reads as one shape into one `groups` entry `{id, kind, count, members, bbox, fill, stroke, strokeWidth}`, omitting the members from `primitives`. Only two kinds join: `line`s whose endpoint lies on another (corners and T-junctions, not crossings), so a set is a wire net; and unstroked filled `rect`s that touch without one mostly covering the other (a shape filled in pieces, not a backdrop). `members` are inclusive pool-index runs `[[from, to], ...]`; remaining primitives keep their `id`s, so indices still match the full pool `\\viz_js` code sees. Default false."
             },
             "summary": {
               "type": "boolean",
-              "description": "Replace the `primitives`, `labels` and `images` pools with `counts` and `rows`: one row per kind and paint, `{kind, fill, stroke, strokeWidth, count, shapes, bbox, members}`, largest first. `shapes` counts each set `group` would join as one; `members` are inclusive pool-index runs. Supersedes `group`. With `select: {mode: \"all\"}` it surveys the page, to choose a figure: also `clusters` (the first 20, `{index, count, bbox}`, as `{mode: \"cluster\", index}` picks them), `images` (bboxes) and `lines` (the page text by line, `{bbox, text}`), all in page coordinates. Default false."
+              "description": "Replace the `primitives`, `labels` and `images` pools with `counts` and `rows`: one row per kind and paint, `{kind, fill, stroke, strokeWidth, count, shapes, bbox, members}`, largest first. `shapes` counts each set `group` would join as one; `members` are inclusive pool-index runs. Supersedes `group`. With `select: {mode: \"all\"}` it surveys the page, to choose a figure: also `clusters` (the first 20, `{index, count, bbox}`, as `{mode: \"cluster\", index}` picks them), `largest` (the 5 biggest primitives, `{id, bbox}`, candidates for `ignore`), `images` (bboxes) and `lines` (the page text by line, `{bbox, text}`), all in page coordinates. Default false."
             },
             "panelName": {
               "type": "string",

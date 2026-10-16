@@ -40,7 +40,6 @@ with plain file edits (AI-friendly).
 - [011 - Feedback from Yashvini](011-yashvini-feedback.md)
 - [012 - An IDE call made while a panel is still connecting times out](012-ide-call-timeout-vs-panel-readiness.md)
 - [013 — Large results from batched `makerchip_invoke_tool` calls overwrite each other](013-batched-large-results-overwrite.md)
-- [014 — `makerchip_extract_pdf_figure` has no cheap way to survey a document](014-extract-pdf-figure-survey-mode.md)
 - [015 — Live Doc gaps found in user-model testing](015-live-doc-gaps-from-eecs151-test.md)
 
 ## Closed
@@ -55,3 +54,7 @@ Trailheads into Git history for removed issue files. Recover full text with
   run serially in-process so the harness sees one call and its one-per-round limit cannot hang;
   per-entry `fatal` (default true), `MAX_BATCH_CALLS`, per-call result headers preserving non-text parts. Rationale now
   lives in the BATCHING note on `InvokeToolTool` in `packages/makerchip-extension/src/makerchipTool.ts`).
+- 2026-10-16 — `014-extract-pdf-figure-survey-mode.md` (implemented: `summary` with
+  `select: {mode: "all"}` surveys a page (`clusters`, `largest`, `images`, `lines`); `ignore` leaves
+  out a frame that joins figures; `render.annotate` tags pool ids, outlining `group` sets once.
+  Documented in the `makerchip_extract_pdf_figure` schema and mono's `live_doc.md`).
