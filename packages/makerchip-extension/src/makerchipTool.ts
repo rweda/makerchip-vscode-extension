@@ -935,10 +935,10 @@ interface ExtractPdfFigureInput {
    */
   pageCoords?: boolean;
   /**
-   * Write the extraction JSON to a file instead of returning it: `true` for an auto-named temp
-   * file, or an absolute path. Only the summary and the path are returned.
+   * The extraction JSON: `true` (default) inline, `false` omitted, or `{file}` written to a file
+   * (`true` for an auto-named temp file, or an absolute path) with only the header returned.
    */
-  outFile?: boolean | string;
+  extraction?: boolean | { file: true | string };
   /**
    * Collapse each set of primitives that reads as one shape (a wire net, a fill drawn in pieces)
    * into one `groups` record, omitting its members from `primitives`. See `analyzePrimitives`.
@@ -958,8 +958,11 @@ interface ExtractPdfFigureInput {
   caption?: string;
   /** With `caption`, pick among reported candidates (0 = best). Default 0. */
   captionIndex?: number;
-  /** Also return the figure box as pdf.js draws it, as a PNG: `true` (2 pixels per px) or a scale. */
-  render?: boolean | number;
+  /**
+   * Also the figure box as pdf.js draws it, as a PNG: `true` (inline, 2 pixels per px), or
+   * `{scale, file}` (`file` as for `extraction`, to write it instead of returning it).
+   */
+  render?: boolean | { scale?: number; file?: true | string };
   /** Optional panel name to target. If not provided, uses the default panel. */
   panelName?: string;
 }
@@ -1123,12 +1126,17 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
     log('[ExtractPdfFigureTool] ========== TOOL INVOKED ==========');
     try {
       const { source, filePath, page, select, gap, text, clip, includePaths = false, pageCoords = false,
-              outFile, group, summary, caption, captionIndex, render, panelName } = options.input;
+              extraction = true, group, summary, caption, captionIndex, render, panelName } = options.input;
+      const outFile = typeof extraction === 'object' ? extraction.file : undefined;
+      const renderOpts = render === true ? {} : render || undefined;
+      const renderFile = renderOpts?.file;
 
-      if (typeof outFile === 'string' && !path.isAbsolute(outFile)) {
-        return new vscode.LanguageModelToolResult([
-          new vscode.LanguageModelTextPart(`outFile must be an absolute path, got: ${outFile}`)
-        ]);
+      for (const [name, p] of [['extraction.file', outFile], ['render.file', renderFile]]) {
+        if (typeof p === 'string' && !path.isAbsolute(p)) {
+          return new vscode.LanguageModelToolResult([
+            new vscode.LanguageModelTextPart(`${name} must be an absolute path, got: ${p}`)
+          ]);
+        }
       }
 
       if (!source && !filePath) {
@@ -1295,7 +1303,7 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
         payload = { ...rest, counts: { primitives: pool.length, labels: labels?.length ?? 0, images: images?.length ?? 0 }, rows };
         groupNote =
           ` Summary only: one row per kind and paint; \`shapes\` counts joined sets once (see \`group\`); ` +
-          `\`members\` are inclusive pool-index runs. Call again without \`summary\` (e.g. with \`outFile\`) for the records.`;
+          `\`members\` are inclusive pool-index runs. Call again without \`summary\` (e.g. with \`extraction: {file: true}\`) for the records.`;
       } else {
         if (group) {
           const groups = sets.map((m, g) => {
@@ -1340,7 +1348,8 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
         `Extracted PDF figure (page ${page ?? 1} of ${meta.numPages ?? '?'}): ` +
         `${result.primitives?.length ?? 0} primitives, ` +
         `${result.labels?.length ?? 0} labels, ${meta.clusterCount ?? '?'} clusters, ` +
-        `${pageCoords ? 'page coordinates (`d` excepted)' : 'figure coordinates'}.` +
+        `${pageCoords ? 'page coordinates (`d` excepted)' : 'figure coordinates'}; ` +
+        `figure box ${JSON.stringify(dev?.map((v: number) => Math.round(v * 10) / 10))} (page coordinates).` +
         (includePaths ? '' : ' (SVG path `d` strings omitted — set includePaths=true to include them.)') +
         groupNote +
         (captionNote ? `\n\n${captionNote}` : '') +
@@ -1348,22 +1357,29 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
         '\n\n';
 
       log('[ExtractPdfFigureTool] Result received:', json.length, 'chars');
-      // `render`: the figure box as pdf.js draws it, inline where the image API exists, else a file.
+      // `render`: the figure box as pdf.js draws it, inline where the image API exists (unless
+      // `render.file`), else a file.
       const ToolResult = (vscode as any).LanguageModelToolResult2 ?? vscode.LanguageModelToolResult;
       const imageParts: any[] = [];
-      if (render) {
+      if (renderOpts) {
         const url = await vscode.commands.executeCommand('makerchip.callIdeMethodWithResult', 'renderPdfFigure',
-          [pdfSource, { page: page ?? 1, rect: result.bbox, scale: render === true ? 2 : render }],
+          [pdfSource, { page: page ?? 1, rect: result.bbox, scale: renderOpts.scale ?? 2 }],
           panelName, false, PDF_EXTRACT_TIMEOUT_MS) as string;
         const png = Buffer.from(url.replace(/^data:image\/png;base64,/, ''), 'base64');
         const DataPart = (vscode as any).LanguageModelDataPart;
-        if ((vscode as any).LanguageModelToolResult2 && DataPart?.image) {
+        if (!renderFile && (vscode as any).LanguageModelToolResult2 && DataPart?.image) {
           imageParts.push(DataPart.image(new Uint8Array(png), 'image/png'));
         } else {
-          const pngPath = path.join(os.tmpdir(), `makerchip-pdf-figure-${Date.now()}.png`);
+          const pngPath = typeof renderFile === 'string'
+            ? renderFile
+            : path.join(os.tmpdir(), `makerchip-pdf-figure-${Date.now()}.png`);
+          fs.mkdirSync(path.dirname(pngPath), { recursive: true });
           fs.writeFileSync(pngPath, png);
           imageParts.push(new vscode.LanguageModelTextPart(`The rendered figure was written to: ${pngPath}\n`));
         }
+      }
+      if (!extraction) {
+        return new ToolResult([new vscode.LanguageModelTextPart(header), ...imageParts]);
       }
       if (outFile) {
         const outPath = typeof outFile === 'string'

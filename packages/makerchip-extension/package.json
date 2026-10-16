@@ -718,8 +718,20 @@
               "description": "With `caption`, pick among the reported candidates (0 = best match). Use when the best match turns out to be a running header or a cross-reference."
             },
             "render": {
-              "type": ["boolean", "number"],
-              "description": "Also return an image of the figure box as pdf.js draws it (the original, not the extraction), to check the extraction against: true (2 pixels per px) or a scale. The image is the figure itself, so it is subject to the COPYRIGHT caution even more than the geometry."
+              "type": ["boolean", "object"],
+              "properties": {
+                "scale": { "type": "number", "description": "Pixels per PDF px. Default 2." },
+                "file": { "type": ["boolean", "string"], "description": "Write the PNG to a file instead of returning it: true for an auto-named temp file, or an absolute path (parent directories are created). Only the path is returned, keeping the image out of context (e.g. for the user to view)." }
+              },
+              "description": "Also return an image of the figure box as pdf.js draws it (the original, not the extraction), to check the extraction against: true (inline, scale 2) or {scale, file}. The image is the figure itself, so it is subject to the COPYRIGHT caution even more than the geometry."
+            },
+            "extraction": {
+              "type": ["boolean", "object"],
+              "properties": {
+                "file": { "type": ["boolean", "string"], "description": "Write the JSON to a file instead of returning it: true for an auto-named temp file, or an absolute path (parent directories are created)." }
+              },
+              "required": ["file"],
+              "description": "The extraction JSON, shaped by includePaths/pageCoords/group/summary: true (default) returns it inline; false omits it (e.g. for an image-only call with `render`); {file} writes it to a file and returns only the header and the path. The header (counts, figure box) is always returned."
             },
             "includePaths": {
               "type": "boolean",
@@ -729,10 +741,6 @@
             "pageCoords": {
               "type": "boolean",
               "description": "Report primitive bboxes and label positions in page coordinates (top-left origin, y down, PDF points), as `select` rects/points are written, instead of figure coordinates, as `\\viz_js` overlays use. Path `d` strings are not converted. Default false."
-            },
-            "outFile": {
-              "type": ["boolean", "string"],
-              "description": "Write the extraction JSON to a file instead of returning it: true for an auto-named temp file, or an absolute path (parent directories are created). Only the summary and the file path are returned. Shaped by includePaths/pageCoords/group/summary like the returned JSON."
             },
             "group": {
               "type": "boolean",
