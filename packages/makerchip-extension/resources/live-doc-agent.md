@@ -54,8 +54,8 @@ Before writing Live Doc code, **inspect the PDF** with the `makerchip_extract_pd
 Use it to:
 
 - **Find anchor coordinates** — read `primitives[].bbox` (wire midpoints, figure coordinates) to position overlay chips, which you add to the group `extractToFabric` returns.
-- **Choose a `select` mode / cluster index** — try `{mode:"largest"}`, `{mode:"cluster", index:N}`, or a `{mode:"region", rect:[…]}` crop (page coordinates) and see which primitives/labels land in the figure. Pass `pageCoords: true` to read positions in page coordinates, as `select` takes them; leave it off when reading anchors for overlays, which are in figure coordinates.
-- **Discover pool indices** — read the `labels` and `primitives` arrays to pick the integer indices you will name in `toFabric`/`extractToFabric`'s `labels`/`primitives` opts.
+- **Choose a `select` mode / cluster index** — to find a figure on a page, survey it first with `select: {mode:"all"}, summary: true`: its clusters, image boxes and text lines, compactly. Then try `{mode:"largest"}`, `{mode:"cluster", index:N}`, or a `{mode:"region", rect:[…]}` crop (page coordinates) and see which primitives/labels land in the figure. Pass `pageCoords: true` to read positions in page coordinates, as `select` takes them; leave it off when reading anchors for overlays, which are in figure coordinates.
+- **Discover pool indices** — read the `labels` and `primitives` arrays to pick the integer indices you will name in `toFabric`/`extractToFabric`'s `labels`/`primitives` opts. `render: {annotate: true}` shows each id on the figure.
 
 Tool notes:
 

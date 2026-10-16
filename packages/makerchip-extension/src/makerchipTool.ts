@@ -946,7 +946,8 @@ interface ExtractPdfFigureInput {
   group?: boolean;
   /**
    * Return one row per (kind, paint) with counts, bbox and member runs, instead of the pools.
-   * Supersedes `group`.
+   * Supersedes `group`. With `select: {mode: "all"}`, also a page survey: clusters, image boxes,
+   * text lines.
    */
   summary?: boolean;
   /**
@@ -960,9 +961,10 @@ interface ExtractPdfFigureInput {
   captionIndex?: number;
   /**
    * Also the figure box as pdf.js draws it, as a PNG: `true` (inline, 2 pixels per px), or
-   * `{scale, file}` (`file` as for `extraction`, to write it instead of returning it).
+   * `{scale, file, annotate}` (`file` as for `extraction`, to write it instead of returning it;
+   * `annotate` to outline each primitive and label, tagged with its id).
    */
-  render?: boolean | { scale?: number; file?: true | string };
+  render?: boolean | { scale?: number; file?: true | string; annotate?: boolean };
   /** Optional panel name to target. If not provided, uses the default panel. */
   panelName?: string;
 }
@@ -1091,6 +1093,63 @@ function unionBox(bbs: number[][]): number[] {
           Math.max(...bbs.map((b) => b[2])), Math.max(...bbs.map((b) => b[3]))];
 }
 
+const round1 = (b: number[]) => b.map((v) => Math.round(v * 10) / 10);
+
+/**
+ * The page's clusters as `extractFigure`'s cluster modes form and order them, so the i-th is
+ * `{mode: "cluster", index: i}`. Mirrors PdfExtractor.js's `clusterPrimitives` and its sort in
+ * `selectPrimitives` (mono_live_doc); keep them in sync.
+ */
+function pageClusters(bbs: number[][], gap: number, pageArea: number): { count: number; bbox: number[] }[] {
+  const area = (b: number[]) => (b[2] - b[0]) * (b[3] - b[1]);
+  const parent = bbs.map((_, i) => i);
+  const ids = parent.filter((i) => area(bbs[i]) < 0.9 * pageArea);
+  const find = (a: number): number => {
+    while (parent[a] !== a) { a = parent[a] = parent[parent[a]]; }
+    return a;
+  };
+  const near = (A: number[], B: number[]) =>
+    A[0] - gap <= B[2] && B[0] - gap <= A[2] && A[1] - gap <= B[3] && B[1] - gap <= A[3];
+  for (let s = 0; s < ids.length; s++) {
+    for (let t = s + 1; t < ids.length; t++) {
+      if (near(bbs[ids[s]], bbs[ids[t]])) { parent[find(ids[s])] = find(ids[t]); }
+    }
+  }
+  const groups = new Map<number, number[]>();
+  for (const i of ids) {
+    if (!groups.has(find(i))) { groups.set(find(i), []); }
+    groups.get(find(i))!.push(i);
+  }
+  return [...groups.values()].map((m) => ({ count: m.length, bbox: unionBox(m.map((i) => bbs[i])) }))
+    .sort((a, b) => b.count - a.count || area(b.bbox) - area(a.bbox));
+}
+
+/**
+ * Labels as lines of text: a label joins a line it overlaps vertically by half its height, unless
+ * more than two heights to one side (a column gutter); members join left to right, spaced where
+ * apart.
+ */
+function textLines(labels: any[]): { bbox: number[]; text: string }[] {
+  const lines: { bbox: number[]; members: any[] }[] = [];
+  for (const l of [...labels].sort((a, b) => a.bbox[1] - b.bbox[1] || a.bbox[0] - b.bbox[0])) {
+    const b = l.bbox, h = b[3] - b[1];
+    const line = lines.find(({ bbox: L }) => Math.min(L[3], b[3]) - Math.max(L[1], b[1]) > h / 2 &&
+      b[0] - L[2] < 2 * h && L[0] - b[2] < 2 * h);
+    if (line) {
+      line.bbox = unionBox([line.bbox, b]);
+      line.members.push(l);
+    } else {
+      lines.push({ bbox: b, members: [l] });
+    }
+  }
+  return lines.map(({ bbox, members }) => {
+    members.sort((a, b) => a.bbox[0] - b.bbox[0]);
+    const text = members.map((l, i) => (i && l.bbox[0] - members[i - 1].bbox[2] > 0.15 * (l.bbox[3] - l.bbox[1])
+      ? ' ' : '') + l.text).join('');
+    return { bbox: round1(bbox), text: text.replace(/\s+/g, ' ').trim() };
+  });
+}
+
 /** JSON with each top-level key, and each record of an array of records, on its own line. */
 function toLineJson(obj: Record<string, any>): string {
   const val = (v: any) => Array.isArray(v) && v.some((e) => e && typeof e === 'object')
@@ -1125,7 +1184,7 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
   ): Promise<vscode.LanguageModelToolResult> {
     log('[ExtractPdfFigureTool] ========== TOOL INVOKED ==========');
     try {
-      const { source, filePath, page, select, gap, text, clip, includePaths = false, pageCoords = false,
+      const { source, filePath, page, select, gap, text, clip, includePaths = false,
               extraction = true, group, summary, caption, captionIndex, render, panelName } = options.input;
       const outFile = typeof extraction === 'object' ? extraction.file : undefined;
       const renderOpts = render === true ? {} : render || undefined;
@@ -1179,7 +1238,7 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
         'extractPdfFigure',
         [pdfSource, o],
         panelName,
-        false,
+        true,  // Open the panel if needed; extraction needs no compiled design.
         PDF_EXTRACT_TIMEOUT_MS
       ) as Promise<any>;
 
@@ -1251,12 +1310,16 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
           `\nResolved to select: ${JSON.stringify(resolvedSelect)} — the nearest vector cluster to that text.`;
       }
 
+      // `summary` of the whole page: a survey, to choose a figure from.
+      const survey = summary && resolvedSelect?.mode === 'all';
+      const pageCoords = options.input.pageCoords || survey;
+
       // Assemble extractFigure opts, omitting undefined fields (so extractFigure defaults apply).
       const opts: Record<string, any> = {};
       if (page !== undefined) { opts.page = page; }
       if (resolvedSelect !== undefined) { opts.select = resolvedSelect; }
       if (gap !== undefined) { opts.gap = gap; }
-      if (text !== undefined) { opts.text = text; }
+      if (text !== undefined || survey) { opts.text = text ?? 'all'; }
       if (clip !== undefined) { opts.clip = clip; }
 
       log('[ExtractPdfFigureTool] Calling extractPdfFigure with source/opts:',
@@ -1266,7 +1329,7 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
       if (!result) {
         return new vscode.LanguageModelToolResult([
           new vscode.LanguageModelTextPart(
-            'PDF extraction returned no result. Ensure a Makerchip panel is open (extraction runs inside the IDE) and, for a `source` URL, that it is reachable.'
+            'PDF extraction returned no result. For a `source` URL, check that it is reachable.'
           )
         ]);
       }
@@ -1281,6 +1344,7 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
         return { id: p.id, kind: kinds[i], ...(includePaths ? p : rest) };
       });
       let groupNote = '';
+      let clusterCount = result.meta?.clusterCount;
       if (summary) {
         const paint = (i: number) => [kinds[i], styles[i].fill, styles[i].stroke, styles[i].strokeWidth].join('|');
         const byPaint = new Map<string, number[]>();
@@ -1304,6 +1368,22 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
         groupNote =
           ` Summary only: one row per kind and paint; \`shapes\` counts joined sets once (see \`group\`); ` +
           `\`members\` are inclusive pool-index runs. Call again without \`summary\` (e.g. with \`extraction: {file: true}\`) for the records.`;
+        if (survey) {
+          const SHOWN = 20;
+          const clusters = pageClusters(primitives.map((p: any) => p.bbox), gap ?? 12,
+            payload.page.width * payload.page.height);
+          clusterCount = clusters.length;
+          payload = {
+            ...payload,
+            clusters: clusters.slice(0, SHOWN).map((c, index) => ({ index, count: c.count, bbox: round1(c.bbox) })),
+            images: images.map((im: any) => round1(im.bbox)),
+            lines: textLines(labels),
+          };
+          groupNote +=
+            ` Survey: \`clusters\` (the first ${Math.min(SHOWN, clusters.length)}) as ` +
+            `\`{mode: "cluster", index}\` would pick them; \`images\` are image boxes; \`lines\` is the page text by line. ` +
+            `Select a figure by its cluster index, or by a \`region\` rect around it.`;
+        }
       } else {
         if (group) {
           const groups = sets.map((m, g) => {
@@ -1347,7 +1427,7 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
       const header =
         `Extracted PDF figure (page ${page ?? 1} of ${meta.numPages ?? '?'}): ` +
         `${result.primitives?.length ?? 0} primitives, ` +
-        `${result.labels?.length ?? 0} labels, ${meta.clusterCount ?? '?'} clusters, ` +
+        `${result.labels?.length ?? 0} labels, ${clusterCount ?? '?'} clusters, ` +
         `${pageCoords ? 'page coordinates (`d` excepted)' : 'figure coordinates'}; ` +
         `figure box ${JSON.stringify(dev?.map((v: number) => Math.round(v * 10) / 10))} (page coordinates).` +
         (includePaths ? '' : ' (SVG path `d` strings omitted — set includePaths=true to include them.)') +
@@ -1362,9 +1442,14 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
       const ToolResult = (vscode as any).LanguageModelToolResult2 ?? vscode.LanguageModelToolResult;
       const imageParts: any[] = [];
       if (renderOpts) {
+        const pc = renderOpts.annotate ? toPageCoords(result) : undefined;
+        const marks = pc && [
+          ...pc.primitives.map((p: any) => ({ bbox: p.bbox, text: p.id, color: 'red' })),
+          ...pc.labels.map((l: any) => ({ bbox: l.bbox, text: l.id, color: 'blue' })),
+        ];
         const url = await vscode.commands.executeCommand('makerchip.callIdeMethodWithResult', 'renderPdfFigure',
-          [pdfSource, { page: page ?? 1, rect: result.bbox, scale: renderOpts.scale ?? 2 }],
-          panelName, false, PDF_EXTRACT_TIMEOUT_MS) as string;
+          [pdfSource, { page: page ?? 1, rect: result.bbox, scale: renderOpts.scale ?? 2, marks }],
+          panelName, true, PDF_EXTRACT_TIMEOUT_MS) as string;
         const png = Buffer.from(url.replace(/^data:image\/png;base64,/, ''), 'base64');
         const DataPart = (vscode as any).LanguageModelDataPart;
         if (!renderFile && (vscode as any).LanguageModelToolResult2 && DataPart?.image) {
@@ -1406,13 +1491,6 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
         return new vscode.LanguageModelToolResult([
           new vscode.LanguageModelTextPart(
             `The IDE method is not available (${error.message}). This requires a Makerchip server with Live Doc support. Open a Makerchip panel connected to such a server and try again.`
-          )
-        ]);
-      }
-      if (error?.message?.includes('Panel') && error?.message?.includes('not found')) {
-        return new vscode.LanguageModelToolResult([
-          new vscode.LanguageModelTextPart(
-            'No Makerchip panel is open. PDF extraction runs inside the IDE. Open one first: Ctrl+Shift+P → "Makerchip: Open Panel".'
           )
         ]);
       }

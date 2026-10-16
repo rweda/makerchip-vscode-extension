@@ -4,20 +4,14 @@
 - Area: `makerchip_extract_pdf_figure` tool
 - Created: 2026-10-12
 
-When the user gives only a URL, the first job is to find a figure worth animating. The tool
-has no compact output, so a survey is expensive:
+When the user gives only a URL, the first job is to find a figure worth animating. `summary`
+with `select: {mode: "all"}` now surveys the page (clusters, image boxes, text lines; see the
+`summary` schema description), and `PdfExtractor`'s clustering leaves out page-covering
+primitives (see `clusterPrimitives`).
 
-- Page 1 of a 6-slides-per-page lecture handout with the default `largest` gave 625 KB, even with
-  path `d` strings omitted: 2202 primitives and 174 labels. A filled page-background rectangle
-  joins everything into one cluster, so "largest" is the whole page.
-- The workaround was a 1×1 `region` with `text: "all"` to get only the labels, then `jq` over
-  the spill file.
+Remaining work:
 
-Remaining work (`summary` gives a compact kind/paint breakdown of one selection, and
-`extraction: {file}` and `group` shrink a figure-level read, but none of them helps choose a figure on a page):
-
-- Report cluster bboxes and sizes, and label text grouped by line, perhaps as part of `summary`
-  with `select: {mode: "all"}`. That is enough to choose a figure and a `region` without the
-  full pools.
-- Consider leaving out the background rectangle, or dropping a primitive that covers ≥ ~90% of
-  the page before clustering.
+- Verify live on page 1 of a 6-slides-per-page lecture handout (previously 625 KB by default:
+  2202 primitives, 174 labels, one page-sized cluster from a background rect): the survey should
+  be compact, the slides should be separate clusters, and `lines` should read sensibly. Then
+  close this issue.

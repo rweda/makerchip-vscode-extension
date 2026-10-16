@@ -667,7 +667,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(file-pdf)",
         "userDescription": "Extract a figure's vector geometry and text labels from a PDF page (for Live Doc VIZ authoring).",
-        "modelDescription": "Inspects a PDF page for Makerchip Live Doc authoring by running the same `this.global.pdf.extractFigure` that `\\viz_js` code runs, inside an open Makerchip panel (no compiled design needed), so selection, coordinates and pool indices match what the VIZ will see. Use it to choose `select`, and to read anchor coordinates and the pool indices to name. Returns the ExtractResult (see the Live Doc skill), shaped by the output options; primitives also carry a tool-only `kind` (`line`, `rect`, `polygon`, `curve`), which, like the style fields, appears only where it changes from the previous primitive. Uses the runtime default `splitSubpaths: true`, so indices hold for `\\viz_js` code that keeps it. COPYRIGHT: the result is a copy of PDF material placed in model context; follow the Live Doc skill's guidance before using it on copy-protected content, and never write extracted `d` strings into `.tlv` source.",
+        "modelDescription": "Inspects a PDF page for Makerchip Live Doc authoring by running the same `this.global.pdf.extractFigure` that `\\viz_js` code runs, inside a Makerchip panel, opened if needed (no compiled design needed), so selection, coordinates and pool indices match what the VIZ will see. Use it to choose `select`, and to read anchor coordinates and the pool indices to name. Returns the ExtractResult (see the Live Doc skill), shaped by the output options; primitives also carry a tool-only `kind` (`line`, `rect`, `polygon`, `curve`), which, like the style fields, appears only where it changes from the previous primitive. Uses the runtime default `splitSubpaths: true`, so indices hold for `\\viz_js` code that keeps it. COPYRIGHT: the result is a copy of PDF material placed in model context; follow the Live Doc skill's guidance before using it on copy-protected content, and never write extracted `d` strings into `.tlv` source.",
         "tags": [
           "makerchip",
           "viz",
@@ -721,9 +721,10 @@
               "type": ["boolean", "object"],
               "properties": {
                 "scale": { "type": "number", "description": "Pixels per PDF px. Default 2." },
-                "file": { "type": ["boolean", "string"], "description": "Write the PNG to a file instead of returning it: true for an auto-named temp file, or an absolute path (parent directories are created). Only the path is returned, keeping the image out of context (e.g. for the user to view)." }
+                "file": { "type": ["boolean", "string"], "description": "Write the PNG to a file instead of returning it: true for an auto-named temp file, or an absolute path (parent directories are created). Only the path is returned, keeping the image out of context (e.g. for the user to view)." },
+                "annotate": { "type": "boolean", "description": "Outline each primitive (red) and label (blue) on the image, tagged with its `id` (`p<N>`, `t<N>`: N is its pool index, as `\\viz_js` selectors name it). Default false." }
               },
-              "description": "Also return an image of the figure box as pdf.js draws it (the original, not the extraction), to check the extraction against: true (inline, scale 2) or {scale, file}. The image is the figure itself, so it is subject to the COPYRIGHT caution even more than the geometry."
+              "description": "Also return an image of the figure box as pdf.js draws it (the original, not the extraction), to check the extraction against: true (inline, scale 2) or {scale, file, annotate}. The image is the figure itself, so it is subject to the COPYRIGHT caution even more than the geometry."
             },
             "extraction": {
               "type": ["boolean", "object"],
@@ -748,7 +749,7 @@
             },
             "summary": {
               "type": "boolean",
-              "description": "Replace the `primitives`, `labels` and `images` pools with `counts` and `rows`: one row per kind and paint, `{kind, fill, stroke, strokeWidth, count, shapes, bbox, members}`, largest first. `shapes` counts each set `group` would join as one; `members` are inclusive pool-index runs. Supersedes `group`. Default false."
+              "description": "Replace the `primitives`, `labels` and `images` pools with `counts` and `rows`: one row per kind and paint, `{kind, fill, stroke, strokeWidth, count, shapes, bbox, members}`, largest first. `shapes` counts each set `group` would join as one; `members` are inclusive pool-index runs. Supersedes `group`. With `select: {mode: \"all\"}` it surveys the page, to choose a figure: also `clusters` (the first 20, `{index, count, bbox}`, as `{mode: \"cluster\", index}` picks them), `images` (bboxes) and `lines` (the page text by line, `{bbox, text}`), all in page coordinates. Default false."
             },
             "panelName": {
               "type": "string",
