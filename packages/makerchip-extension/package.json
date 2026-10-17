@@ -667,7 +667,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(file-pdf)",
         "userDescription": "Extract a figure's vector geometry and text labels from a PDF page (for Live Doc VIZ authoring).",
-        "modelDescription": "Inspects a PDF page for Makerchip Live Doc authoring by running the same `this.global.pdf.extractFigure` that `\\viz_js` code runs, inside a Makerchip panel, opened if needed (no compiled design needed), so selection, coordinates and pool indices match what the VIZ will see. Use it to choose `select`, and to read anchor coordinates and the pool indices to name. Returns the ExtractResult (see the Live Doc skill), shaped by the output options; primitives also carry a tool-only `kind` (`line`, `rect`, `polygon`, `curve`), which, like the style fields, appears only where it changes from the previous primitive. Uses the runtime default `splitSubpaths: true`, so indices hold for `\\viz_js` code that keeps it. COPYRIGHT: the result is a copy of PDF material placed in model context; follow the Live Doc skill's guidance before using it on copy-protected content, and never write extracted `d` strings into `.tlv` source.",
+        "modelDescription": "Inspects a PDF page for Makerchip Live Doc authoring by running the same `this.global.pdf.extractFigure` that `\\viz_js` code runs, inside a Makerchip panel, opened if needed (no compiled design needed), so selection, coordinates and pool indices match what the VIZ will see. Use it to choose `select`, and to read anchor coordinates and the pool indices to name. One extraction yields up to three outputs, each returned inline or written to a file: `extraction`, its records; `summary`, a compact preview of them and of the page; and `render`, an image of the figure. A header (counts, figure box) is always returned. So one call can, e.g., write the records to a file and preview them in context. Uses the runtime default `splitSubpaths: true`, so indices hold for `\\viz_js` code that keeps it. COPYRIGHT: the result is a copy of PDF material placed in model context; follow the Live Doc skill's guidance before using it on copy-protected content, and never write extracted `d` strings into `.tlv` source.",
         "tags": [
           "makerchip",
           "viz",
@@ -703,7 +703,7 @@
             "ignore": {
               "type": "array",
               "items": { "type": "integer" },
-              "description": "As `extractFigure`'s `ignore`: page primitives that join no cluster, by their index in a `{mode: \"all\"}` extraction (as a survey's `largest` names them). Use it for a frame or backdrop that joins separate figures into one cluster. Only the cluster modes use it, and it changes which primitives a cluster holds, so `\\viz_js` code must pass the same value."
+              "description": "As `extractFigure`'s `ignore`: page primitives that join no cluster, by their index in a `{mode: \"all\"}` extraction (as a summary's `largest` gives them). Use it for a frame or backdrop that still joins separate figures into one cluster (clustering leaves out most frames by itself). Only the cluster modes use it, and it changes which primitives a cluster holds, so `\\viz_js` code must pass the same value."
             },
             "text": {
               "type": "string",
@@ -729,32 +729,32 @@
                 "file": { "type": ["boolean", "string"], "description": "Write the PNG to a file instead of returning it: true for an auto-named temp file, or an absolute path (parent directories are created). Only the path is returned, keeping the image out of context (e.g. for the user to view)." },
                 "annotate": { "type": "boolean", "description": "Outline each primitive (red) and label (blue) on the image, tagged with its `id` (`p<N>`, `t<N>`: N is its pool index, as `\\viz_js` selectors name it). With `group`, each group is outlined once instead of its members (green, `g<N>`). Default false." }
               },
-              "description": "Also return an image of the figure box as pdf.js draws it (the original, not the extraction), to check the extraction against: true (inline, scale 2) or {scale, file, annotate}. The image is the figure itself, so it is subject to the COPYRIGHT caution even more than the geometry."
+              "description": "Output: an image of the figure box as pdf.js draws it (the original, not the extraction), to check the extraction against: true (inline, scale 2) or {scale, file, annotate}. The image is the figure itself, so it is subject to the COPYRIGHT caution even more than the geometry. Default false."
             },
             "extraction": {
               "type": ["boolean", "object"],
               "properties": {
-                "file": { "type": ["boolean", "string"], "description": "Write the JSON to a file instead of returning it: true for an auto-named temp file, or an absolute path (parent directories are created)." }
+                "file": { "type": ["boolean", "string"], "description": "Write the JSON to a file instead of returning it: true for an auto-named temp file, or an absolute path (parent directories are created). Only the path is returned." }
               },
               "required": ["file"],
-              "description": "The extraction JSON, shaped by includePaths/pageCoords/group/summary: true (default) returns it inline; false omits it (e.g. for an image-only call with `render`); {file} writes it to a file and returns only the header and the path. The header (counts, figure box) is always returned."
+              "description": "Output: the records, i.e. the ExtractResult (see the Live Doc skill), in figure coordinates as `\\viz_js` code sees them, shaped by `includePaths` and `group`. Primitives also carry a tool-only `kind` (`line`, `rect`, `polygon`, `curve`), which, like the style fields, appears only where it changes from the previous primitive. true returns it inline, false omits it, {file} writes it to a file. Default: inline, or omitted when `summary` is requested."
             },
             "includePaths": {
               "type": "boolean",
-              "description": "Include each primitive's SVG path `d`. Default false, which keeps the result compact and the figure's own geometry out of context.",
+              "description": "Shapes the `extraction` records: include each primitive's SVG path `d`. Default false, which keeps the records compact and the figure's own geometry out of context.",
               "default": false
-            },
-            "pageCoords": {
-              "type": "boolean",
-              "description": "Report primitive bboxes and label positions in page coordinates (top-left origin, y down, PDF points), as `select` rects/points are written, instead of figure coordinates, as `\\viz_js` overlays use. Path `d` strings are not converted. Default false."
             },
             "group": {
               "type": "boolean",
-              "description": "Collapse each set of same-paint primitives that reads as one shape into one `groups` entry `{id, kind, count, members, bbox, fill, stroke, strokeWidth}`, omitting the members from `primitives`. Only two kinds join: `line`s whose endpoint lies on another (corners and T-junctions, not crossings), so a set is a wire net; and unstroked filled `rect`s that touch without one mostly covering the other (a shape filled in pieces, not a backdrop). `members` are inclusive pool-index runs `[[from, to], ...]`; remaining primitives keep their `id`s, so indices still match the full pool `\\viz_js` code sees. Default false."
+              "description": "Shapes the `extraction` records (and `render`'s annotation): collapse each set of same-paint primitives that reads as one shape into one `groups` entry `{id, kind, fill, stroke, strokeWidth, count, members, bbox}`, omitting the members from `primitives`. Only two kinds join: `line`s whose endpoint lies on another (corners and T-junctions, not crossings), so a set is a wire net; and unstroked filled `rect`s that touch without one mostly covering the other (a shape filled in pieces, not a backdrop). `members` are inclusive pool-index runs `[[from, to], ...]`; remaining primitives keep their `id`s, so indices still match the full pool `\\viz_js` code sees. Default false."
             },
             "summary": {
-              "type": "boolean",
-              "description": "Replace the `primitives`, `labels` and `images` pools with `counts` and `rows`: one row per kind and paint, `{kind, fill, stroke, strokeWidth, count, shapes, bbox, members}`, largest first. `shapes` counts each set `group` would join as one; `members` are inclusive pool-index runs. Supersedes `group`. With `select: {mode: \"all\"}` it surveys the page, to choose a figure: also `clusters` (the first 20, `{index, count, bbox}`, as `{mode: \"cluster\", index}` picks them), `largest` (the 5 biggest primitives, `{id, bbox}`, candidates for `ignore`), `images` (bboxes) and `lines` (the page text by line, `{bbox, text}`), all in page coordinates. Default false."
+              "type": ["boolean", "object"],
+              "properties": {
+                "file": { "type": ["boolean", "string"], "description": "As `extraction`'s `file`." }
+              },
+              "required": ["file"],
+              "description": "Output: a compact preview, to settle the options before reading records into context. Of the extraction, in figure coordinates as its records: `rows`, one per kind and paint, `{kind, fill, stroke, strokeWidth, count, members, bbox, shapes}`, largest first (`shapes` counts each set `group` would join as one; `members` are inclusive pool-index runs); `images` (bboxes); and `lines` (the selected text by line, `{bbox, text}`). Of the page, to choose a figure, in page coordinates as `select` takes them: `clusterCount`, `clusters` (the first 20, `{index, count, bbox}`, as `{mode: \"cluster\", index}` picks them) and `largest` (the 5 biggest primitives, `{index, bbox}`, by the index `ignore` takes). Add the figure box's origin to a figure coordinate for its page coordinate. To survey a page, use `select: {mode: \"all\"}`, with `text: \"all\"` for text beyond the vector art. true returns it inline, {file} writes it to a file. Default false."
             },
             "panelName": {
               "type": "string",
