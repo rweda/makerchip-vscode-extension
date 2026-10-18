@@ -273,7 +273,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(symbol-method)",
         "userDescription": "Call any Makerchip IDE method directly.",
-        "modelDescription": "Generic tool for calling any IDE Plugin API method directly, returning the method's result. Many of these methods are explicitly exposed as tools. Methods that return data (e.g. getKeyframe, getCode) have their return value surfaced in the tool result; a Blob return is saved to a file and its path reported. `captureVideo` is not supported here — use the dedicated `makerchip_capture_video` tool instead. For full IDE Plugin details, see `.vscode-makerchip/resources/Makerchip-public/docs/plugin_api/index.html`. Note that methods like onReady, onCodeChange, onCompilationLog are callbacks and should not be called directly.",
+        "modelDescription": "Generic tool for calling any IDE Plugin API method directly, returning the method's result. Many of these methods are explicitly exposed as tools. Methods that return data (e.g. getKeyframe, getCode) have their return value surfaced in the tool result; a Blob return is saved to a file and its path reported. `captureVideo`, `getVizImage` and `extractPdfFigure` are not supported here; use their dedicated tools. For full IDE Plugin details, see `.vscode-makerchip/resources/Makerchip-public/docs/plugin_api/index.html`. Note that methods like onReady, onCodeChange, onCompilationLog are callbacks and should not be called directly.",
         "tags": [
           "makerchip",
           "ide",
@@ -611,7 +611,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(device-camera)",
         "userDescription": "Capture the current VIZ visualization as an image.",
-        "modelDescription": "Captures the current Makerchip VIZ (Visual Debug) view canvas (resulting from compiled/simulated code) and returns it inline as an image for the agent to inspect — use this to iterate on VIZ development and video rendering. It can also return the current view's absolute camera keyframe (scale/focus/size) for reuse in makerchip_capture_video; one call can return the image, the keyframe, or both. The image can additionally be saved to a file for the user, or captured for the user only (skipping the inline image to spend no vision tokens).",
+        "modelDescription": "Captures the current Makerchip VIZ (Visual Debug) view canvas (resulting from compiled/simulated code) and returns it inline as an image for the agent to inspect — use this to iterate on VIZ development and video rendering. It can also return the current view's absolute camera keyframe (scale/focus/size) for reuse in makerchip_capture_video; one call can return the image, the keyframe, or both. The image can additionally be saved to a file for the user, or captured for the user only (skipping the inline image to spend no vision tokens). COPYRIGHT: while the VIZ shows PDF content (Live Doc), it captures only with the user's `clearance`, never for a PDF whose permissions deny copying.",
         "tags": [
           "makerchip",
           "viz",
@@ -642,6 +642,11 @@
               "type": "string",
               "description": "Optional panel name to target. Default: `default`."
             },
+            "clearance": {
+              "type": "string",
+              "enum": ["copy", "chat"],
+              "description": "Needed only while the VIZ shows PDF content (this tool says so): the user's answer to the Live Doc skill's copy question, as for makerchip_extract_pdf_figure. Never assume it. With \"chat\", the capture is not saved to a non-temp path."
+            },
             "saveToFile": {
               "type": ["boolean", "string"],
               "description": "Optional: also save the image to a file for the user to view. If true, saves to a temp file with an auto-generated name; if a string, uses it as the file path. (The image is also returned inline to the model unless `blind` is set.)"
@@ -667,7 +672,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(file-pdf)",
         "userDescription": "Extract a figure's vector geometry and text labels from a PDF page (for Live Doc VIZ authoring).",
-        "modelDescription": "Inspects a PDF page for Makerchip Live Doc authoring by running the same `this.global.pdf.extractFigure` that `\\viz_js` code runs, inside a Makerchip panel, opened if needed (no compiled design needed), so selection, coordinates and pool indices match what the VIZ will see. Use it to choose `select`, and to read anchor coordinates and the pool indices to name. One extraction yields up to three outputs, each returned inline or written to a file: `extraction`, its records; `summary`, a compact preview of them and of the page; and `render`, an image of the figure. A header (counts, figure box) is always returned. So one call can, e.g., write the records to a file and preview them in context. Uses the runtime default `splitSubpaths: true`, so indices hold for `\\viz_js` code that keeps it. COPYRIGHT: the result is a copy of PDF material placed in model context; follow the Live Doc skill's guidance before using it on copy-protected content, and never write extracted `d` strings into `.tlv` source.",
+        "modelDescription": "Inspects a PDF page for Makerchip Live Doc authoring by running the same `this.global.pdf.extractFigure` that `\\viz_js` code runs, inside a Makerchip panel, opened if needed (no compiled design needed), so selection, coordinates and pool indices match what the VIZ will see. Use it to choose `select`, and to read anchor coordinates and the pool indices to name. One extraction yields up to three outputs, each returned inline or written to a temp file: `extraction`, its records; `summary`, a compact preview of them and of the page; and `render`, an image of the figure. A header (counts, figure box, copyright notice) is always returned. So one call can, e.g., write the records to a file and preview them in context. Uses the runtime default `splitSubpaths: true`, so indices hold for `\\viz_js` code that keeps it. COPYRIGHT: without `clearance`, and for a PDF whose permissions deny copying whatever the clearance, it returns only document information (title, pages, permissions, copyright notice); call it so first, and follow the Live Doc skill to get the user's answer.",
         "tags": [
           "makerchip",
           "viz",
@@ -726,22 +731,21 @@
               "type": ["boolean", "object"],
               "properties": {
                 "scale": { "type": "number", "description": "Pixels per PDF px. Default 2." },
-                "file": { "type": ["boolean", "string"], "description": "Write the PNG to a file instead of returning it: true for an auto-named temp file, or an absolute path (parent directories are created). Only the path is returned, keeping the image out of context (e.g. for the user to view)." },
                 "annotate": { "type": "boolean", "description": "Outline each primitive (red) and label (blue) on the image, tagged with its `id` (`p<N>`, `t<N>`: N is its pool index, as `\\viz_js` selectors name it). With `group`, each group is outlined once instead of its members (green, `g<N>`). Default false." }
               },
-              "description": "Output: an image of the figure box as pdf.js draws it (the original, not the extraction), to check the extraction against: true (inline, scale 2) or {scale, file, annotate}. The image is the figure itself, so it is subject to the COPYRIGHT caution even more than the geometry. Default false."
+              "description": "Output: an image of the figure box as pdf.js draws it (the original, not the extraction), to check the extraction against: true (scale 2) or {scale, annotate}. Returned inline where supported, else written to a temp file. Default false."
             },
             "extraction": {
               "type": ["boolean", "object"],
               "properties": {
-                "file": { "type": ["boolean", "string"], "description": "Write the JSON to a file instead of returning it: true for an auto-named temp file, or an absolute path (parent directories are created). Only the path is returned." }
+                "file": { "type": "boolean", "enum": [true], "description": "Write the JSON to an auto-named temp file instead of returning it. Only the path is returned." }
               },
               "required": ["file"],
-              "description": "Output: the records, i.e. the ExtractResult (see the Live Doc skill), in figure coordinates as `\\viz_js` code sees them, shaped by `includePaths` and `group`. Primitives also carry a tool-only `kind` (`line`, `rect`, `polygon`, `curve`), which, like the style fields, appears only where it changes from the previous primitive. true returns it inline, false omits it, {file} writes it to a file. Default: inline, or omitted when `summary` is requested."
+              "description": "Output: the records, i.e. the ExtractResult (see the Live Doc skill), in figure coordinates as `\\viz_js` code sees them, shaped by `includePaths` and `group`. Primitives also carry a tool-only `kind` (`line`, `rect`, `polygon`, `curve`), which, like the style fields, appears only where it changes from the previous primitive. Numbers are to 0.1 px, and an unrotated label omits `left`/`top` (its bbox's top-left). true returns it inline, false omits it, {file: true} writes it to a temp file. Default: inline, or omitted when `summary` is requested."
             },
             "includePaths": {
               "type": "boolean",
-              "description": "Shapes the `extraction` records: include each primitive's SVG path `d`. Default false, which keeps the records compact and the figure's own geometry out of context.",
+              "description": "Shapes the `extraction` records: include each primitive's SVG path `d`. Default false, which keeps the records compact.",
               "default": false
             },
             "group": {
@@ -751,10 +755,15 @@
             "summary": {
               "type": ["boolean", "object"],
               "properties": {
-                "file": { "type": ["boolean", "string"], "description": "As `extraction`'s `file`." }
+                "file": { "type": "boolean", "enum": [true], "description": "As `extraction`'s `file`." }
               },
               "required": ["file"],
-              "description": "Output: a compact preview, to settle the options before reading records into context. Of the extraction, in figure coordinates as its records: `rows`, one per kind and paint, `{kind, fill, stroke, strokeWidth, count, members, bbox, shapes}`, largest first (`shapes` counts each set `group` would join as one; `members` are inclusive pool-index runs); `images` (bboxes); and `lines` (the selected text by line, `{bbox, text}`). Of the page, to choose a figure, in page coordinates as `select` takes them: `clusterCount`, `clusters` (the first 20, `{index, count, bbox}`, as `{mode: \"cluster\", index}` picks them) and `largest` (the 5 biggest primitives, `{index, bbox}`, by the index `ignore` takes). Add the figure box's origin to a figure coordinate for its page coordinate. To survey a page, use `select: {mode: \"all\"}`, with `text: \"all\"` for text beyond the vector art. true returns it inline, {file} writes it to a file. Default false."
+              "description": "Output: a compact preview, to settle the options before requesting the (larger) records. Of the extraction, in figure coordinates as its records: `rows`, one per kind and paint, `{kind, fill, stroke, strokeWidth, count, members, bbox, shapes}`, largest first (`shapes` counts each set `group` would join as one; `members` are inclusive pool-index runs); `images` (bboxes); and `lines` (the selected text by line, `{bbox, text}`). Of the page, to choose a figure, in page coordinates as `select` takes them: `clusterCount`, `clusters` (the first 20, `{index, count, bbox}`, as `{mode: \"cluster\", index}` picks them) and `largest` (the 5 biggest primitives, `{index, bbox}`, by the index `ignore` takes). Add the figure box's origin to a figure coordinate for its page coordinate. To survey a page, use `select: {mode: \"all\"}`, with `text: \"all\"` for text beyond the vector art. true returns it inline, {file: true} writes it to a temp file. Default false."
+            },
+            "clearance": {
+              "type": "string",
+              "enum": ["copy", "chat"],
+              "description": "The user's answer to the Live Doc skill's copy question, given in this conversation: \"copy\" (they may copy this PDF's content) or \"chat\" (their LLM provider neither retains nor trains on this conversation). Never assume it. Omitted: document information only."
             },
             "panelName": {
               "type": "string",
@@ -772,7 +781,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(device-camera-video)",
         "userDescription": "Capture the VIZ simulation across a cycle range as a GIF, MP4, WebM, or APNG video.",
-        "modelDescription": "Captures the Makerchip VIZ (Visual Debug) canvas across a range of simulation cycles and encodes it as a video, from an open Makerchip panel with compiled/simulated code. Use this to produce an animation of a design's behavior over time. Beyond the plain cycle range, it can capture intra-cycle animation, set playback speed, animate a camera pan/zoom, record at a fixed resolution/aspect, and emit GIF, MP4, WebM, or APNG. The result is always written to a file (auto-named in the temp dir unless you pass `filename`) and the path is returned; for image formats (GIF/APNG) you can then view that file to inspect the frame(s). TIP: to calibrate framing before a full render, either (a) for fit-relative framing: do a quick single low-res single-frame render at the target width/height (same aspect ⇒ identical framing) and view it; or (b) for viz-relative framing: call makerchip_get_viz_image (response: 'both') to see the current VIZ view (as an image) and get its absolute keyframe, and reuse it with mode: 'absolute'. The user can also position the view for you to capture.",
+        "modelDescription": "Captures the Makerchip VIZ (Visual Debug) canvas across a range of simulation cycles and encodes it as a video, from an open Makerchip panel with compiled/simulated code. Use this to produce an animation of a design's behavior over time. Beyond the plain cycle range, it can capture intra-cycle animation, set playback speed, animate a camera pan/zoom, record at a fixed resolution/aspect, and emit GIF, MP4, WebM, or APNG. The result is always written to a file (auto-named in the temp dir unless you pass `filename`) and the path is returned; for image formats (GIF/APNG) you can then view that file to inspect the frame(s). TIP: to calibrate framing before a full render, either (a) for fit-relative framing: do a quick single low-res single-frame render at the target width/height (same aspect ⇒ identical framing) and view it; or (b) for viz-relative framing: call makerchip_get_viz_image (response: 'both') to see the current VIZ view (as an image) and get its absolute keyframe, and reuse it with mode: 'absolute'. The user can also position the view for you to capture. COPYRIGHT: while the VIZ shows PDF content (Live Doc), it captures only with the user's `clearance`, never for a PDF whose permissions deny copying.",
         "tags": [
           "makerchip",
           "viz",
@@ -836,6 +845,11 @@
             "panelName": {
               "type": "string",
               "description": "Optional panel name to target. Default: `default`."
+            },
+            "clearance": {
+              "type": "string",
+              "enum": ["copy", "chat"],
+              "description": "Needed only while the VIZ shows PDF content (this tool says so): the user's answer to the Live Doc skill's copy question, as for makerchip_extract_pdf_figure. Never assume it. With \"chat\", the capture is not saved to a non-temp path."
             },
             "filename": {
               "type": "string",

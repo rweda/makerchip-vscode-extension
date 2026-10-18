@@ -22,25 +22,41 @@ While the rest of this skill is generic documentation for any Live Doc user, thi
 
 ### Copyright and data sharing with LLM services
 
-Authoring Live Docs as an AI agent inherently shares PDF data with third-party LLMs. Unless/until you have confirmed that the user has the right to share the PDF or that the LLM terms prohibit training and data retention, **avoid opening the PDF file, parsing it with another tool, pulling its bytes into context, taking snapshots of the resulting VIZ or rendering the original (`render`)**, or anything else that might put copyrighted content in LLM context. The `makerchip_extract_pdf_figure` tool can be used to narrow your data sharing. In addition to its other benefits (exposing exactly the VIZ call results and avoiding context clutter), using it with `includePaths=false` (the default) can avoid the inclusion of the figure's own vector geometry, while other aspects of the figure are less sensitive to copyright.
+Authoring a Live Doc as an AI agent shares PDF content with your LLM provider. DO NOT EXTRACT PDF DATA FOR AUTHORING A LIVE DOC UNLESS/UNTIL THE USER ATTESTS TO THEIR RIGHTS through their response to the copy question (question 1 below). Until authorized, do NOT provide a `clearance` argument to tools. Do not open, parse or otherwise read the PDF any other way, and do not capture the VIZ while it shows the PDF's content. What each answer permits:
+
+| Answer | Tool content | VIZ captures | Files for the user | Copies of content into `.tlv` |
+|---|---|---|---|---|
+| `copy`: they may copy the content | yes | yes | yes | yes |
+| `chat`: their LLM provider neither retains nor trains on this conversation | yes | returned to you only | no | no |
+| neither | document information only | no | no | no |
+
+A PDF whose permissions deny copying is "neither" whatever the answer: the tool enforces this, and you must not capture a VIZ built from it. Temp files the tool writes are exempt, but what you read from them counts as shared.
+
+The built VIZ draws the document's copyright notice below the figure by default (see `build.notice`). If the tool found none, pass the user's terms (question 2 below) as `build.notice`. Remove it (`build.notice: false`) only on the user's word that it is not required.
 
 Encourage Live Doc developers to communicate openly with static content authors and to consult legal counsel.
 
 ### Preparing to work on a Live Doc
 
-When a user asks you to create a Live Doc, it is important to be clear on a few points. If not already evident, ask questions like:
+When a user asks you to create a Live Doc, it is important to be clear on a few points. First, call `makerchip_extract_pdf_figure` without `clearance`: it then returns only document information (title, pages, permissions, copyright notice). If the permissions deny copying, tell the user you cannot author a Live Doc from this PDF, and stop. If the copyright notice is successfully extracted, you may simplify/reframe the questions and guidance below accordingly.
 
-1. "What are the licensing terms of the original content? Are you the author, or do you have the right to copy it? (If you don't, I will provide overlay and set visual properties without copying elements into the VIZ code, but legal review may be needed.) Are there attribution requirements?" The parenthetical is important for two reasons: 1. it reassures the user that progress can be made without copying content to avoid a false affirmative from a user who fears being blocked; 2. it provides a legal disclaimer. In rare cases, there may even be patent consideration that warrant clarification.
+Share pertinent document information with the user, and prepare them for a stream of questions, e.g.:
 
-2. "Do you want me to leverage diagram as is or make improvements?" Without legal rights, direct leverage only (by reference) is a necessity. Alternatively, the diagram can be altered entirely to avoid mimicking any of its design. Direct leverage can be important for companion material to maintain a clear connection to the original. If the original is merely an inspirational starting point, it may be better to create a new diagram that is optimal for animation.
+> "Before authoring a Live Doc, it is important to clarify your goals and constraints, especially regarding copyright and data sharing. If the copyright terms permit copying, things are easy. If not, I will do my best to avoid copying content into the `.tlv` code, instead referencing the PDF and extracting its content when the VIZ runs. But I'm not perfect, so oversight and legal review are highly recommended, and compliance is ultimately up to you, so continue at your own risk. In addition, authorship requires me to exchange data with your LLM provider. You may need to disable any data retention and LLM training settings. Without your authorization to share the PDF data with your LLM provider, I will be unable to author a Live Doc."
 
-3. "How likely it is that subsequent versions of the original diagram will become available?" If uprevving may be necessary, and the original is leveraged by reference, consider the use of filtering features to minimize the likelihood of breaking changes. If copying is an option, mimicking elements as fabric.js code might minimize future maintenance in the face of change.
+Ask (through your question UI if you have one) questions like:
 
-4. "Is there an existing HDL model providing VCD trace data, or should I create HDL code to drive stimulus? Should the stimulus model use TL-Verilog or something else? Should it be structured to run self-contained in Makerchip or to simulate and generate a VCD externally?"
+1. The copy question (always ask; if the extracted notice clearly permits copying, suggest option 1 for the user to confirm): "As discussed above, do the copyright terms: 1. permit copying the PDF's content; 2. not permit copying, but my LLM provider neither retains nor trains on this conversation (check your settings); 3. neither, so we will not author a Live Doc for this PDF?" Options 1 and 2 grant `clearance` `copy` and `chat`; option 3 grants none.
 
-If the user does not have the rights to the original content, also ask:
+2. (Skip if the extracted notice states the terms.) "Do the copyright terms require attribution? If so, what are the specific terms?"
 
-"If the PDF is copy-protected, might your LLM provider for this conversation be authorized to train on conversation data or retain it for an extended period? If so, I need to avoid reading the PDF directly. Your LLM settings may provide an option." Ask **before** the first `makerchip_extract_pdf_figure` call, and carefully avoid reading copyright-protected data from the PDF if protected, reporting your limitations rather than risking infringement.
+3. "Do you want me to leverage the diagram(s) as they are or reimagine them?" Without copy rights, either use the diagram by reference or design a new one that doesn't mimic it. Direct leverage can be important for companion material to maintain a clear connection to the original. If the original is merely an inspirational starting point, it may be better to create new diagrams that are optimal for animation.
+
+4. "How likely is it that subsequent versions of the original diagram will become available?" If uprevving may be necessary, and the original is leveraged by reference, consider the use of filtering features to minimize the likelihood of breaking changes. If copying is an option, mimicking elements as fabric.js code might minimize future maintenance in the face of change.
+
+5. "Is there an existing HDL model providing VCD trace data, or should I create HDL code to drive stimulus? Should the stimulus model use TL-Verilog or something else? Should it be structured to run self-contained in Makerchip or to simulate and generate a VCD externally?"
+
+Subsequently, pass the `clearance` the user's answer grants; never assume it.
 
 ### Addressing hurdles
 
@@ -49,7 +65,7 @@ goals would impose legal risk, stop, and explain the situation.
 
 ### Inspecting a PDF (the `makerchip_extract_pdf_figure` tool)
 
-Before writing Live Doc code, **inspect the PDF** with the `makerchip_extract_pdf_figure` tool. It returns exactly what your `\viz_js` code's `extractFigure` call will see, while keeping the context narrow.
+Before writing Live Doc code, and once cleared (above), **inspect the PDF** with the `makerchip_extract_pdf_figure` tool. It returns exactly what your `\viz_js` code's `extractFigure` call will see, while keeping the context narrow.
 
 Use it to:
 
@@ -59,9 +75,9 @@ Use it to:
 
 Tool notes:
 
-- Leave `includePaths` off unless you need exact vector paths: `d` is the drawing itself, not metadata about it.
-- Where sharing is cleared, `render: true` returns the figure as pdf.js draws it. Compare it with a VIZ image of your build to catch what extraction lost or changed (fonts, text, layering). Add `extraction: false` for the image alone. Where sharing is not cleared, `render: {file: true}` writes the image for the user to compare instead, keeping it out of context.
-- For a large figure (hundreds of primitives), pass `summary: true, extraction: {file: true}`: the summary, usually enough to see what the figure is made of, comes back in context, and the records go to a file. Filter that JSON with `jq` or `python` in the terminal, reading only the records you need. That keeps context small and the rest of the extraction on the user's machine. If the count comes from fragments (curves as scanline slivers, wires as segments), add `group: true` to see wire nets and pieced-together fills as single records, and name a group's runs in `\viz_js` with `{nth: [{from, to}, ...]}`. When filtering, carry `kind` and style forward from earlier primitives, since they appear only where they change.
+- Leave `includePaths` off unless you need exact vector paths: `d` strings are large.
+- `render: true` returns the figure as pdf.js draws it. Compare it with a VIZ image of your build to catch what extraction lost or changed (fonts, text, layering). Add `extraction: false` for the image alone.
+- For a large figure (hundreds of primitives), pass `summary: true, extraction: {file: true}`: the summary, usually enough to see what the figure is made of, comes back in context, and the records go to a temp file. Filter that JSON with `jq` or `python` in the terminal, reading only the records you need. If the count comes from fragments (curves as scanline slivers, wires as segments), add `group: true` to see wire nets and pieced-together fills as single records, and name a group's runs in `\viz_js` with `{nth: [{from, to}, ...]}`. When filtering, carry `kind` and style forward from earlier primitives, since they appear only where they change.
 
 **Finding a figure by its caption (experimental).** Instead of `select`, pass `caption: "Figure 3.7"`.
 

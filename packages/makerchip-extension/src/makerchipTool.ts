@@ -132,31 +132,20 @@ export class IdeFunctionCallTool implements vscode.LanguageModelTool<IdeFunction
     try {
       const { method, args = [], panelName } = options.input;
 
-      // captureVideo has its own tool (makerchip_capture_video) that sizes the render timeout to the
-      // request and saves the result correctly. Routing it through this generic path invites a 30s
-      // timeout on long renders (which keep running, uncancelled) and, if a `filename` is passed, a
-      // browser download / Save dialog. Redirect instead of running it here.
-      if (method === 'captureVideo') {
-        return new vscode.LanguageModelToolResult([
-          new vscode.LanguageModelTextPart(
-            "'captureVideo' is not supported via makerchip_ide_call. Use the dedicated " +
-            'makerchip_capture_video tool, which mirrors the same API and handles render timeouts ' +
-            'and file saving correctly.'
-          )
-        ]);
-      }
-
-      // getVizImage returns a large base64 data-URL string, which this generic path would dump into
-      // the model context as text. Its dedicated tool (makerchip_get_viz_image) returns the image
-      // inline instead (and can also return the keyframe, save to a file, or capture blind).
-      if (method === 'getVizImage') {
-        return new vscode.LanguageModelToolResult([
-          new vscode.LanguageModelTextPart(
-            "'getVizImage' is not supported via makerchip_ide_call. Use the dedicated " +
-            'makerchip_get_viz_image tool, which returns the image inline (instead of dumping a ' +
-            'base64 data URL into the conversation) and can also return the keyframe or save to a file.'
-          )
-        ]);
+      // Methods with dedicated tools, which also gate PDF content (see the Live Doc skill).
+      // captureVideo: its tool sizes the render timeout to the request (here, a 30s timeout leaves
+      // long renders running, uncancelled) and saves correctly (here, `filename` triggers a browser
+      // download / Save dialog). getVizImage: its tool returns the image inline, not as a base64
+      // data URL dumped into the context.
+      const dedicated: Record<string, string> = {
+        captureVideo: 'makerchip_capture_video',
+        getVizImage: 'makerchip_get_viz_image',
+        extractPdfFigure: 'makerchip_extract_pdf_figure',
+      };
+      if (Object.hasOwn(dedicated, method)) {
+        return new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(
+          `'${method}' is not supported via makerchip_ide_call. Use ${dedicated[method]}.`
+        )]);
       }
 
       // Invoke the IDE method and capture its return value. Using the result-returning command
@@ -714,6 +703,30 @@ interface GetVizImageInput {
   blind?: boolean;
   /** What to return: 'image' (image only), 'keyframe' (the current view's absolute keyframe only — no render), or 'both' (default). */
   response?: 'image' | 'keyframe' | 'both';
+  /** See vizCaptureRefusal(). */
+  clearance?: Clearance;
+}
+
+/**
+ * Why the agent may not capture the VIZ, given the PDFs whose content it shows (see the Live Doc
+ * skill), or undefined if it may. `toFile`: the capture would be saved to a non-temp path.
+ */
+async function vizCaptureRefusal(panelName: string | undefined, clearance: Clearance | undefined, toFile: boolean) {
+  // A server predating getVizPdfDocuments cannot say; treat it as showing no PDF content. The
+  // timeout allows for in-flight extractions, which the IDE waits for.
+  const docs: any[] = await (vscode.commands.executeCommand(
+    'makerchip.callIdeMethodWithResult', 'getVizPdfDocuments', [], panelName, false, 120000
+  ) as Promise<any[]>).catch(() => []) ?? [];
+  if (!docs.length) { return undefined; }
+  const shows = `The VIZ shows content from:\n${docs.map(describePdf).join('\n')}\n\n`;
+  if (docs.some((d) => d.rights?.copyDenied)) {
+    return `${shows}A PDF whose permissions deny copying: this VIZ cannot be captured, whatever the clearance. Tell the user.`;
+  }
+  if (!clearance) { return `${shows}Without \`clearance\`, this tool does not capture it. ${ASK_CLEARANCE}`; }
+  if (clearance === 'chat' && toFile) {
+    return `${shows}With "chat" clearance, a capture can come back to you, or go to a temp file, but not to a file for the user.`;
+  }
+  return undefined;
 }
 
 /**
@@ -737,7 +750,7 @@ export class GetVizImageTool implements vscode.LanguageModelTool<GetVizImageInpu
   ): Promise<vscode.LanguageModelToolResult> {
     log('[GetVizImageTool] ========== TOOL INVOKED ==========');
     try {
-      const { format = 'png', quality = 1.0, panelName, saveToFile, blind, response = 'both' } = options.input;
+      const { format = 'png', quality = 1.0, panelName, saveToFile, blind, response = 'both', clearance } = options.input;
       log('[GetVizImageTool] Invoked with:', { format, quality, panelName, saveToFile, blind, response });
 
       // The string "true" is a stringified boolean (a recurring LLM slip), not a real path. Reject
@@ -775,6 +788,11 @@ export class GetVizImageTool implements vscode.LanguageModelTool<GetVizImageInpu
         return new vscode.LanguageModelToolResult([
           new vscode.LanguageModelTextPart(keyframeText)
         ]);
+      }
+
+      const refusal = await vizCaptureRefusal(panelName, clearance, typeof saveToFile === 'string');
+      if (refusal) {
+        return new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(withKeyframe(refusal))]);
       }
 
       // Call the IDE method to get the image
@@ -929,13 +947,13 @@ interface ExtractPdfFigureInput {
   text?: 'labels' | 'all' | 'none';
   /** As `extractFigure`'s `clip`: true (pad 4), a pad in px, or omitted for none. */
   clip?: boolean | number;
-  /** Include each primitive's SVG path `d`. Default false: compact, and the figure's own geometry stays out of context. */
+  /** Include each primitive's SVG path `d`. Default false, keeping the records compact. */
   includePaths?: boolean;
   /**
-   * The extraction's records: `true` inline, `false` omitted, or `{file}` written to a file
-   * (`true` for an auto-named temp file, or an absolute path). Default: inline unless `summary`.
+   * The extraction's records: `true` inline, `false` omitted, or `{file: true}` written to a temp
+   * file. Default: inline unless `summary`.
    */
-  extraction?: boolean | { file: true | string };
+  extraction?: boolean | { file: true };
   /**
    * Collapse each set of primitives that reads as one shape (a wire net, a fill drawn in pieces)
    * into one `groups` record, omitting its members from `primitives`. See `analyzePrimitives` in
@@ -943,7 +961,7 @@ interface ExtractPdfFigureInput {
    */
   group?: boolean;
   /** A compact preview of the extraction, and of the page; see the input schema. As `extraction`. */
-  summary?: boolean | { file: true | string };
+  summary?: boolean | { file: true };
   /**
    * EXPERIMENTAL, AUTHORING ONLY. Find the figure whose caption matches this text (e.g.
    * "Figure 3.7") instead of passing `select`. Resolved here in the extension, not by the VIZ
@@ -954,11 +972,17 @@ interface ExtractPdfFigureInput {
   /** With `caption`, pick among reported candidates (0 = best). Default 0. */
   captionIndex?: number;
   /**
-   * Also the figure box as pdf.js draws it, as a PNG: `true` (inline, 2 pixels per px), or
-   * `{scale, file, annotate}` (`file` as for `extraction`, to write it instead of returning it;
-   * `annotate` to outline each primitive and label, tagged with its id, or each group, with `group`).
+   * Also the figure box as pdf.js draws it, as a PNG: `true` (2 pixels per px), or
+   * `{scale, annotate}` (`annotate` to outline each primitive and label, tagged with its id, or
+   * each group, with `group`).
    */
-  render?: boolean | { scale?: number; file?: true | string; annotate?: boolean };
+  render?: boolean | { scale?: number; annotate?: boolean };
+  /**
+   * The user's answer to the Live Doc skill's copy question: "copy" (they may copy the PDF's
+   * content) or "chat" (their LLM provider neither retains nor trains on this conversation).
+   * Omitted: document information only.
+   */
+  clearance?: Clearance;
   /** Optional panel name to target. If not provided, uses the default panel. */
   panelName?: string;
 }
@@ -972,6 +996,28 @@ function toLineJson(obj: Record<string, any>): string {
     .map(([k, v]) => `  ${JSON.stringify(k)}: ${val(v)}`).join(',\n')}\n}\n`;
 }
 
+/** The user's answer to the Live Doc skill's copy question; see live-doc-agent.md. */
+type Clearance = 'copy' | 'chat';
+const ASK_CLEARANCE =
+  'Share this with the user and ask, as the Live Doc skill describes, whether they may copy this PDF\'s ' +
+  'content ("copy"), or whether their LLM provider neither retains nor trains on this conversation ' +
+  '("chat"). Then end your turn, and pass `clearance` only on their answer.';
+
+/**
+ * A line describing documentInfo() (mono's PdfExtractor.js), or the `{title?, rights}` the IDE's
+ * getVizPdfDocuments gives: what the user needs to answer the copy question.
+ */
+function describePdf(info: any): string {
+  const r = info.rights ?? {};
+  return `PDF${info.title ? ` "${info.title}"` : ''}${info.author ? ` by ${info.author}` : ''}` +
+    `${info.numPages ? `, ${info.numPages} pages` : ''}` +
+    `${info.fingerprints?.[0] ? `, fingerprint ${info.fingerprints[0]}` : ''}. ` +
+    `Its permissions ${r.copyDenied ? 'DENY' : 'allow'} copying. ` +
+    `Copyright notice: ${r.notice ? JSON.stringify(r.notice) : 'none found'}.` +
+    (r.usageTerms ? ` Usage terms: ${JSON.stringify(r.usageTerms)}.` : '') +
+    (r.webStatement ? ` Rights statement: ${r.webStatement}.` : '');
+}
+
 /**
  * Language Model tool that extracts a figure's vector geometry + text labels from a PDF page.
  *
@@ -980,6 +1026,9 @@ function toLineJson(obj: Record<string, any>): string {
  * VIZ overlay will see. Use it to
  * inspect a PDF before writing Live Doc VIZ code (find label positions to anchor overlays, choose
  * a select mode / cluster index, read the figure bbox).
+ *
+ * Content is gated: without `clearance`, or for a PDF whose permissions deny copying, only
+ * document information comes back (enforced by the extractor itself for the latter).
  */
 export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdfFigureInput> {
 
@@ -999,22 +1048,14 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
     log('[ExtractPdfFigureTool] ========== TOOL INVOKED ==========');
     try {
       const { source, filePath, page, select, gap, ignore, text, clip, includePaths = false,
-              extraction, group, summary, caption, captionIndex, render, panelName } = options.input;
+              extraction, group, summary, caption, captionIndex, render, clearance, panelName } = options.input;
       // The three outputs, each undefined if not requested.
-      type Output = { file?: true | string; scale?: number; annotate?: boolean };
+      type Output = { file?: true; scale?: number; annotate?: boolean };
       const output = (spec: boolean | Output | undefined): Output | undefined =>
         spec === true ? {} : spec || undefined;
       const recordsOut = output(extraction ?? !summary);
       const summaryOut = output(summary);
       const renderOut = output(render);
-
-      for (const [name, o] of [['extraction', recordsOut], ['summary', summaryOut], ['render', renderOut]] as const) {
-        if (typeof o?.file === 'string' && !path.isAbsolute(o.file)) {
-          return new vscode.LanguageModelToolResult([
-            new vscode.LanguageModelTextPart(`${name}.file must be an absolute path, got: ${o.file}`)
-          ]);
-        }
-      }
 
       if (!source && !filePath) {
         return new vscode.LanguageModelToolResult([
@@ -1059,6 +1100,17 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
         true,  // Open the panel if needed; extraction needs no compiled design.
         PDF_EXTRACT_TIMEOUT_MS
       ) as Promise<any>;
+      const textResult = (s: string) => new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(s)]);
+
+      if (!clearance) {
+        return textResult(
+          `${describePdf(await callExtract({ page, inspect: { info: true } }))}\n\n` +
+          `Without \`clearance\`, this is all the tool returns. ${ASK_CLEARANCE}`);
+      }
+      // The extractor returns only document information for a PDF whose permissions deny copying.
+      const denied = (info: any) => textResult(
+        `${describePdf(info)}\n\nSo this tool returns no content from it, whatever the clearance. Do not work ` +
+        'around this (e.g. by reading the PDF another way); tell the user.');
 
       // `caption` is resolved HERE rather than in the extractor, deliberately. Matching a caption
       // is a heuristic -- a page's "Figure 2.24" is far more often a cross-reference in body prose
@@ -1075,6 +1127,7 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
         }
         // The page's text by line, `{bbox, text}`, from figure to page coordinates.
         const located = await callExtract({ page, select: { mode: 'all' }, text: 'all', inspect: { summary: true } });
+        if (!located?.counts) return denied(located);
         const [ox, oy] = located?.bbox ?? [0, 0];
         const items: any[] = (located?.summary?.lines ?? [])
           .map((l: any) => ({ text: l.text, bbox: [l.bbox[0] + ox, l.bbox[1] + oy] }));
@@ -1145,9 +1198,14 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
           )
         ]);
       }
+      if (!result.counts) return denied(result);
+      log('[ExtractPdfFigureTool] Content returned under clearance:', clearance);
 
       const { summary: sum, png, ...ext } = result;
-      const notes = [];
+      const notice = ext.rights?.notice;
+      const notes = [
+        `Clearance: ${clearance}. Copyright notice: ${notice ? JSON.stringify(notice) : 'none found'} ` +
+        '(`extractToFabric` draws it below the figure; see `build.notice`).'];
       if (sum) {
         notes.push(
           'Summary: `rows`, `images` and `lines` preview this extraction, in figure coordinates as its records; ' +
@@ -1170,14 +1228,14 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
         ? `\n\nFor the \`.tlv\`, hardcode the equivalent stable selector (\`caption\` is authoring-only ` +
           `and must NOT appear in \`\\viz_js\` code):\n` +
           `    extract: {page: ${page ?? 1}, clip: true, select: {mode: "region", ` +
-          `rect: [${dev.map((v: number) => Math.round(v * 10) / 10).join(', ')}]}}\n` +
+          `rect: [${dev.join(', ')}]}}\n` +
           `Verify it selects the same figure before relying on it.`
         : '';
       const header =
         `Extracted PDF figure (page ${page ?? 1} of ${meta.numPages ?? '?'}): ` +
         `${ext.counts.primitives} primitives, ${ext.counts.labels} labels, ${ext.counts.images} images, ` +
         `${clusterCount != null ? `${clusterCount} clusters, ` : ''}` +
-        `figure box ${JSON.stringify(dev?.map((v: number) => Math.round(v * 10) / 10))} in page coordinates ` +
+        `figure box ${JSON.stringify(dev)} in page coordinates ` +
         `(the records' figure coordinates are relative to its origin).` +
         (!recordsOut || includePaths ? '' : ' (SVG path `d` strings omitted — set includePaths=true to include them.)') +
         notes.map((n) => ` ${n}`).join('') +
@@ -1185,15 +1243,16 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
         stable +
         '\n\n';
 
-      // Each requested output, inline or written to a file.
+      // Each requested output, inline or written to a temp file (for size; what is read from it
+      // counts as returned).
       const ToolResult = (vscode as any).LanguageModelToolResult2 ?? vscode.LanguageModelToolResult;
       const parts: any[] = [new vscode.LanguageModelTextPart(header)];
-      const put = (name: string, file: true | string | undefined, ext: string, data: string | Buffer, inline: () => any[]) => {
+      const put = (name: string, file: true | undefined, ext: string, data: string | Buffer, inline: () => any[]) => {
         if (!file) return parts.push(...inline());
-        const p = typeof file === 'string' ? file : path.join(os.tmpdir(), `makerchip-pdf-${name.replace(/ /g, '-')}-${Date.now()}.${ext}`);
-        fs.mkdirSync(path.dirname(p), { recursive: true });
+        const p = path.join(os.tmpdir(), `makerchip-pdf-${name.replace(/ /g, '-')}-${Date.now()}.${ext}`);
         fs.writeFileSync(p, data);
-        parts.push(new vscode.LanguageModelTextPart(`The ${name} (${data.length} ${ext === 'json' ? 'chars' : 'bytes'}) was written to: ${p}\n`));
+        parts.push(new vscode.LanguageModelTextPart(
+          `The ${name} (${data.length} ${ext === 'json' ? 'chars' : 'bytes'}) was written to: ${p}\n`));
       };
       // JSON in its own, pure-JSON part: when large, Copilot spills it as `content.json` (with a
       // derived schema) that can be queried directly, rather than JSON buried in markdown.
@@ -1212,7 +1271,7 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
         const bytes = Buffer.from(png.replace(/^data:image\/png;base64,/, ''), 'base64');
         const DataPart = (vscode as any).LanguageModelDataPart;
         const canInline = (vscode as any).LanguageModelToolResult2 && DataPart?.image;
-        put('rendered figure', renderOut.file ?? (canInline ? undefined : true), 'png', bytes,
+        put('rendered figure', canInline ? undefined : true, 'png', bytes,
           () => [DataPart.image(new Uint8Array(bytes), 'image/png')]);
       }
       log('[ExtractPdfFigureTool] Returning', parts.length, 'parts');
@@ -1278,6 +1337,8 @@ interface CaptureVideoInput {
   panelName?: string;
   /** Optional output file path. If omitted, a timestamped file is written to the OS temp dir. The video is always saved to a file (never inlined into the conversation). */
   filename?: string;
+  /** See vizCaptureRefusal(). */
+  clearance?: Clearance;
   /**
    * Camera keyframes for pan/zoom motion over the cycle range. Each keyframe is
    * {cycle?, scale?, focus?: {x, y}, width?, height?}. With a single keyframe the camera is
@@ -1338,7 +1399,8 @@ export class CaptureVideoTool implements vscode.LanguageModelTool<CaptureVideoIn
         filename,
         keyframes,
         mode,
-        default: keyframeDefault
+        default: keyframeDefault,
+        clearance
       } = options.input;
 
       // Mirror the IDE's derivation (framesPerCycle = ceil(fps / cyclesPerSecond), else 1) so our
@@ -1355,6 +1417,10 @@ export class CaptureVideoTool implements vscode.LanguageModelTool<CaptureVideoIn
         return new vscode.LanguageModelToolResult([
           new vscode.LanguageModelTextPart('Invalid cycle range. startCyc must be less than or equal to endCyc.')
         ]);
+      }
+      const refusal = await vizCaptureRefusal(panelName, clearance, !!filename);
+      if (refusal) {
+        return new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(refusal)]);
       }
 
       // Build options for IDE method (exclude panelName and filename).
