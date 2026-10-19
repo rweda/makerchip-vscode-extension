@@ -3125,10 +3125,17 @@ interface InvokeToolInput extends InvokeToolCall {
    * top-level `name`/`input`/`describe`. See BATCHING on InvokeToolTool for why this exists.
    */
   calls?: InvokeToolCall[];
+  /**
+   * Hold the result until at least this many ms after the invocation started (capped at
+   * MAX_MIN_DURATION_MS). Lets the agent work around a harness that loses results returned before
+   * it finishes approving the call; see "Lost quick result" in claudeSkill.ts.
+   */
+  minDurationMs?: number;
 }
 
 /** Upper bound on a batch, so a runaway list cannot produce an unbounded single result. */
 const MAX_BATCH_CALLS = 100;
+const MAX_MIN_DURATION_MS = 10000;
 
 /**
  * Universal fallback tool: invoke (or describe) any registered Language Model tool by name —
@@ -3196,12 +3203,27 @@ export class InvokeToolTool implements vscode.LanguageModelTool<InvokeToolInput>
     options: vscode.LanguageModelToolInvocationOptions<InvokeToolInput>,
     token: vscode.CancellationToken
   ): Promise<vscode.LanguageModelToolResult> {
-    const { calls } = options.input;
-    if (calls !== undefined) {
-      return this.invokeBatch(calls, options, token);
+    const start = Date.now();
+    const { calls, minDurationMs } = options.input;
+    // The hold applies to errors too: a quick error is lost just like a quick result.
+    try {
+      if (calls !== undefined && !Array.isArray(calls)) {
+        throw new Error(`\`calls\` must be an array, not a ${typeof calls}. (A JSON string here suggests ` +
+          'your harness had not loaded this tool\'s schema. Load it, e.g. via tool search, and resend.)');
+      }
+      return calls !== undefined
+        ? await this.invokeBatch(calls, options, token)
+        // Single call: return the target's result verbatim, unchanged from before batching existed.
+        : (await this.runCall(options.input, options, token)).result;
+    } finally {
+      const wait = Math.min(minDurationMs ?? 0, MAX_MIN_DURATION_MS) - (Date.now() - start);
+      if (wait > 0) {
+        await new Promise<void>(resolve => {
+          const timer = setTimeout(resolve, wait);
+          token.onCancellationRequested(() => { clearTimeout(timer); resolve(); });
+        });
+      }
     }
-    // Single call: return the target's result verbatim, unchanged from before batching existed.
-    return (await this.runCall(options.input, options, token)).result;
   }
 
   /**

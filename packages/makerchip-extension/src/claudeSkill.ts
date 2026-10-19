@@ -81,9 +81,21 @@
  *      * A newly registered tool likewise became visible in a live chat — name listed, schema and
  *        modelDescription fetchable — but INVOKING it hung on the dead gateway, the stale
  *        tool-provider binding described in the skill body. Visible, not reachable.
- *    So a new chat is still the only reliable remedy for USING tools after an install, update or
- *    host reload, which is what the notification asks for. Note this differs from Copilot, where
- *    the discovery half was also blocked.
+ *    Re-measured 2026-10-18/19 (three extension host restarts): the chat rebinds to the new host's
+ *    clientId at the NEXT user turn (agenthost.log "active client <id>" per turn), and calls
+ *    worked with no new chat. The offered tool schemas, however, can stay stale. So the 09-23 hang
+ *    is unexplained (older harness, or a reload mid-turn); a new chat is the fallback only for a
+ *    hang that persists at the start of a fresh turn. Note this differs from Copilot, where the
+ *    discovery half was also blocked.
+ *  - Quick results are lost (measured 2026-10-18, auto permission mode; 15 of 15 calls fit). The
+ *    client starts a tool on the tool_use (~5 ms), before the harness's permission check lets the
+ *    SDK issue the call. If the client completes first, agenthost.log shows "Forwarding client tool
+ *    completion: source=client-dispatch" but never the matching "source=server-envelope" (normally
+ *    ~5 ms later), and the call hangs. Calls returning in <= 760 ms hung; >= 847 ms succeeded.
+ *    In "Bypass Permissions" mode, 50 ms and similar calls succeeded (2 of 2), so the approval step
+ *    is the slow side of the race. Workaround (verified 2026-10-19): makerchip_invoke_tool's
+ *    top-level `minDurationMs`. Untested
+ *    alternative: an allow rule for mcp__client__makerchip*.
  *  - Skill invocation is a model judgement, not an interlock. The description makes the
  *    common path correct; it cannot make it guaranteed.
  *
@@ -249,7 +261,8 @@ Consequences worth acting on:
 - **Source edits need a host reload to take effect, and a reload breaks tool calls in chats that
   are already open.** Measured: after a reload, new tools become *visible* in an existing chat but
   invoking them hangs on the dead gateway. So the dev loop is: edit → reload → **start a new
-  chat** → test. If you reloaded and a lone serial call hangs, that is the cause; do not retry.
+  chat** → test. If you reloaded and a lone serial call hangs (even a slow one; a
+  quick one may instead be a lost quick result, see Call rules), that is the cause; do not retry.
 - **Report gaps, not just failures.** Missing capabilities, tool descriptions that misled you,
   guidance that was absent when you needed it, and rules you nearly broke are all worth raising —
   you are the consumer of this API, so your confusion is evidence.
@@ -300,6 +313,9 @@ carefully; some result in HANGS.
   from the harness's point of view, so it cannot trip the issue above, and the entries run serially
   inside the extension. It is the supported way to do several Makerchip operations at once. (It
   also avoids the need to enable tools in a separate turn with \`makerchip_enable_tools\`.
+- **Load a deferred tool's schema (e.g. via ToolSearch) before calling it.** Without it, the
+  harness passes \`calls\` as a JSON string, the call fails instantly, and the failure is lost: a HANG
+  (observed with \`makerchip_invoke_tool\`).
 - The Makerchip tools are gated to conserve tool slots, so not all are offered at once. Two
   fallbacks are always available: \`makerchip_enable_tools\` (activate or release a capability
   set) and \`makerchip_invoke_tool\` (call any tool by name, even a gated one).
@@ -313,16 +329,30 @@ carefully; some result in HANGS.
   tool is unsafe: *enabling* lags (fast "No such tool available", above), and *releasing* a set
   then calling one of its still-offered tools that same turn HANGS (the bridge dispatches to a
   now-unregistered tool). Let set changes settle to the next turn, or use \`makerchip_invoke_tool\`.
+- **A call that finishes too quickly can HANG, even issued alone.** The extension starts a call the
+  moment you issue it, while the harness is still approving it (about a second). If the extension
+  answers first, the result is dropped and the call hangs although it ran. Quick queries
+  (\`makerchip_get_cycle\`, \`makerchip_get_viz_image\`, \`makerchip_get_available_panes\`, small
+  extractions: tens to hundreds of ms) hit this; calls of a second or more (compiles, most PDF
+  extractions) did not. The user's "Bypass Permissions" mode avoids it. Otherwise, make any call
+  that may return in under ~1.5 s through \`makerchip_invoke_tool\` with \`minDurationMs\` (e.g.
+  1500; max 10000) as a TOP-LEVEL argument, a sibling of \`calls\`/\`name\`:
+  \`{calls: [...], minDurationMs: 1500}\`. Inside any \`input\` it is silently ignored. It holds the
+  result past the approval, adding nothing to slower calls. Prefer file outputs (\`saveToFile\`, \`{file: true}\`) so a lost result is recoverable.
 
-### Stale tool-provider binding
+### Extension host reloads
 
-The tool-provider clientId is bound at the start of the chat session and stays pinned for the
-whole chat. If the extension host reloads, it comes back with a new gateway and clientId, but the
-chat stays bound to the old one, so every \`mcp__client__makerchip*\` call routes to the dead connection and
-**hangs indefinitely** — it never reaches the extension. If the user skips the command, a "skipped
-from another client" / "Unknown error" is surfaced. The harness may even say *"another active
-client now provides ... you may try calling the tool again"* — but retrying re-routes to the same
-dead connection and hangs again.
+The user may reload the extension host (e.g. to pick up a new extension build) and continue the
+same chat. The chat binds to the extension host's tool-provider connection at the start of each
+user turn, so the turn after a reload reaches the new host; no new chat is needed. But a reload
+DURING your turn leaves your remaining calls routed to the dead connection, where they **hang** (if
+the user skips one, "skipped from another client" / "Unknown error" is surfaced; retrying in the
+same turn hangs again). Wait for the next user turn.
+
+No explicit event tells you of a reload, but signs include a system-reminder that instruction
+files were re-read as the session started, or the agent-type list being re-announced. After one,
+the tool schemas offered to you may predate the new build, and the extension may have changed: do
+not infer a parameter's absence from the offered schema, and expect panels to need a recompile.
 
 ### Diagnosing a hang
 
@@ -334,9 +364,14 @@ Try to avoid hangs, but if you slip and hit one, rule out the turn-local causes 
   returned, a later one hung). Fix: re-issue serially, one at a time. No fresh chat.
 - **Same-turn set change** — HANGS; you released a set and called one of its tools in the same
   turn. Fix: let it settle to the next turn, or use \`makerchip_invoke_tool\`. No fresh chat.
-- **Stale provider** — a LONE, serial call still HANGS (until skipped), with no gating change this
-  turn, after a reload, an extension update/enable/disable, or an extension host crash; retrying
-  keeps hanging. Fix: direct the user to start a fresh chat.
+- **Lost quick result** — a LONE call that should return in under a second HANGS, yet its work
+  WAS done (file written, cycle set, ...). The user must cancel it. Do not redo it blindly: check
+  the side effect, and use \`minDurationMs\` from then on (see the call rules), or raise it if you
+  already did. Slow calls still work. No fresh chat.
+- **Reload mid-turn** — a LONE, serial call HANGS, even a slow one like a compile, with no gating
+  change this turn, after the extension host reloaded, updated or crashed; retrying this turn keeps
+  hanging. Fix: stop and ask the user to reply (the next turn rebinds). Only if it still hangs at
+  the start of a fresh turn, direct the user to start a fresh chat.
 
 ## Further guidance
 

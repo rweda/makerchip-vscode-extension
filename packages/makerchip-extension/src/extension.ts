@@ -274,8 +274,8 @@ export function activate(ctx: vscode.ExtensionContext) {
   }, claudeExtensionInstalled()).then(result => {
     log(`Claude skill ${result.action}: ${result.skillPath}`);
     // Measured 2026-09-23: an already-open chat DOES pick up a newly installed skill, and even
-    // sees newly registered tools — but invoking them hangs on the stale tool-provider binding
-    // (see KNOWN LIMITS in claudeSkill.ts). So the guidance arrives on its own and needs no
+    // sees newly registered tools — but invoking them hung (cause unresolved; host reloads
+    // since rebind at the next turn; see KNOWN LIMITS in claudeSkill.ts). So the guidance arrives on its own and needs no
     // announcement; what the user has to be told is that the TOOLS will not work until they
     // start a new chat, because the failure mode is a hang rather than an error. Only on
     // 'created', which is the install case.
