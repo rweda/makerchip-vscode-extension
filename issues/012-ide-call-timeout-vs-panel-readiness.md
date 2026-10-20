@@ -38,3 +38,8 @@ caller whether retrying is sensible.
 caller that wants a panel has to compile something first to create it. That is defensible, but it is
 a second way to arrive at "my first call failed and I do not know why"; worth considering alongside
 this.
+
+`makerchip_compile` reports this timeout as an ordinary result (`makerchipTool.ts`, "Failed to launch
+Makerchip: ..."), not a failure, so a `makerchip_invoke_tool` batch counts it "ok" and runs its
+dependent entries (fit, set_cycle, capture) against a stale or blank pane. Observed: reload_panels
+then compile in one batch. The fix should also make such errors fail the entry.
