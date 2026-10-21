@@ -35,19 +35,18 @@ VS Code extension for Makerchip IDE integration and AI-collaborative Verilog/TL-
 ### With AI Agents
 
 AI Agents can:
-- Author, compile, and visualize TL-Verilog files directly in Makerchip
-- Create custom visualizations (Visual Debug) to explain its work
-- Layout and activate the IDE views
+- Author and compile TL-Verilog files directly in Makerchip, within VS Code
+- Create and debug custom visualizations (Visual Debug) that explain their work
+- Layout and activate IDE views
 - Author and load third-party content into Makerchip views that interacts with the IDE
-- Highlight signals, scopes, and pipeline stages to guide exploration
+- Highlight relevant signals, scopes, and pipeline stages
 
 Example prompts:
-- "Show me a simple counter in Makerchip"
-- "Open this CPU in Makerchip and show the waveform and live logic diagram at cycle 20, highlighting signals related to the bypass logic."
+- "Show me how a UART controller works."
+- "Open my CPU in Makerchip and show the waveform and live logic diagram at the time of the first memory write, highlighting the write data signal."
 - "Demonstrate a pipeline design in TL-Verilog"
 - "Create a tic-tac-toe game in TL-Verilog with VIZ and show it in Makerchip"
-- "Which signal are you talking about?"
-- "I'm having trouble understanding 'when' conditions. Create a simple course with exercises to step me through it and open it in Makerchip."
+- "I'm having trouble understanding 'when' conditions. Create a simple course with exercises to step me through it interactively in Makerchip."
 
 ## Agent Resources
 
@@ -59,6 +58,8 @@ The extension manages `~/.vscode-makerchip/` containing reference data for AI as
 ## Contributing
 
 Development setup, the `./launch` workflow, the Copilot tool architecture and the release process are in [CONTRIBUTING.md](CONTRIBUTING.md).
+
+Contribute content to the Makerchip community, such as Plugin Views and TL-Verilog models by submitting pull requests to [this repository](https://github.com/stevehoover/makerchip-community-contributions).
 
 ## License
 

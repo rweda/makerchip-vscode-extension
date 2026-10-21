@@ -25,6 +25,7 @@ import { registerMakerchipTool } from './makerchipTool';
 import { initToolActivation, getToolActivation } from './toolActivation';
 import { registerMakerchipParticipant } from './makerchipParticipant';
 import { reconcileClaudeSkill } from './claudeSkill';
+import { initTerms, ensureTermsAccepted, requireTermsAccepted } from './terms';
 import { installLiveDocSkill } from './liveDocSkill';
 import { log } from './logger';
 import * as compileCache from './compileCache';
@@ -127,7 +128,9 @@ async function ensurePanelReady(name?: string, createIfNeeded: boolean = false, 
     throw new Error(`Makerchip panel '${panelKey}' is not open. Available panels: ${panelList}. Use makerchip_compile to open a new panel.`);
   }
 
-  // Open new panel and track the ready promise
+  // Open new panel and track the ready promise. Gate first, so a decline leaves no rejected
+  // promise tracked for the panel.
+  await requireTermsAccepted();
   const readyPromise = openMakerchipPanel(panelKey, serverUrl);
   panelReadyPromises.set(panelKey, readyPromise);
   return readyPromise;
@@ -215,6 +218,7 @@ export function activate(ctx: vscode.ExtensionContext) {
   context = ctx;  // Store context globally
   log('Makerchip extension activating...');
   logDevDiagnostics(context);
+  initTerms(context);
 
   // Activation graph (see toolActivation.ts): gates tool availability so the Makerchip suite doesn't
   // pressure the request tool cap. Must init before any env signal or the enable tool is used.
@@ -304,10 +308,15 @@ export function activate(ctx: vscode.ExtensionContext) {
       `Live Doc skill ${result.action}: ${result.skillPath}` + (result.reason ? ` (${result.reason})` : '')))
     .catch(error => log(`⚠ Live Doc skill not installed: ${error?.message ?? error}`));
 
-  // Initialize resources (clone/update repos and install skill)
-  initializeResources(context)
-    .catch(error => {
-      console.error('Failed to initialize Makerchip reference data:', error);
+  // Initialize resources (clone/update repos and install skill), once the terms are accepted
+  // (see terms.ts). The Live Doc skill fetches from the server, so it waits for them too.
+  ensureTermsAccepted(true)
+    .then(async accepted => {
+      if (!accepted) { return; }
+      await initializeResources(context).catch(error => {
+        console.error('Failed to initialize Makerchip reference data:', error);
+      });
+      await refreshLiveDocSkill();
     })
     // ...then again once the detailed guidance files are on disk, because the skill body
     // indexes them dynamically and the first pass may have found nothing to index. This runs
@@ -318,7 +327,7 @@ export function activate(ctx: vscode.ExtensionContext) {
     // starting both together leaves the index missing Live Doc -- the fetch loses that race every
     // time. An index that silently omits one topic is worse than a missing one, which renderSkill
     // has a fallback for.
-    .finally(() => refreshLiveDocSkill().then(refreshClaudeSkill));
+    .finally(refreshClaudeSkill);
 
   // Cleanup old cache entries on activation
   compileCache.cleanupOldEntries().catch(error => {
@@ -333,6 +342,7 @@ export function activate(ctx: vscode.ExtensionContext) {
       async deserializeWebviewPanel(panel: vscode.WebviewPanel, state: any) {
         const panelKey = state?.panelKey || 'default';
         log(`Restoring Makerchip panel '${panelKey}' after reload`);
+        if (!await ensureTermsAccepted()) { panel.dispose(); return; }
         // Keep auto-generated names ('Panel N') unique across reloads: advance the
         // counter past any restored panel so a later compileNew won't collide.
         const numbered = /^Panel (\d+)$/.exec(panelKey);
@@ -429,6 +439,7 @@ export function activate(ctx: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('makerchip.updateResources', async () => {
       try {
+        await requireTermsAccepted();
         await vscode.window.withProgress(
           {
             location: vscode.ProgressLocation.Notification,

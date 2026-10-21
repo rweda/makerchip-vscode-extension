@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { log } from './logger';
+import { requireTermsAccepted } from './terms';
 
 /**
  * Headless Compiler Explorer (CE) compile client — see issues/005-headless-ce-api-compile.md.
@@ -405,6 +406,7 @@ export class CeCompileTool implements vscode.LanguageModelTool<CeCompileToolInpu
     const ac = new AbortController();
     const sub = token.onCancellationRequested(() => ac.abort());
     try {
+      await requireTermsAccepted();  // ce.makerchip.com is a Makerchip service
       const lang = input.lang ?? DEFAULT_LANG;
       const { compilerId, options: userArguments } = resolveLangDefaults(lang, input.compilerId, input.options);
       const result = await compileOnCe({
