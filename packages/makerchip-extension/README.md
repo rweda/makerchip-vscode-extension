@@ -8,6 +8,16 @@ VS Code extension for Makerchip IDE integration and AI-collaborative Verilog/TL-
 - **AI Agent Integration**: Language Model tools enable AI agents to work interactively in Makerchip with designers and learners
 - **AI RAG Knowledge Base**: AI Agents are upskilled for TL-Verilog and Makerchip development
 
+![Makerchip](./images/screenshot.png)
+
+## Before You Begin
+
+> This extension is early, experimental software, provided **as is**, without warranty of any kind. Features, tools and settings may change or disappear without notice. Expect rough edges, and please [report them](https://github.com/rweda/makerchip-vscode-extension/issues) or submit pull requests.
+>
+> **Makerchip is built for open-source development only.** Your code is compiled on Makerchip servers and communication is insecure. **Do not share proprietary code or sensitive information.** Various features including third-party plugins may exchange data with third-party servers. **Develop with trusted code only.**
+>
+> **Terms.** Your use of the Makerchip service is governed by the Makerchip [Terms of Service](https://makerchip.com/terms/) and [Privacy Policy](https://makerchip.com/privacy/). The extension itself is MIT-licensed and provided as is (see [License](#license)). To the fullest extent permitted by law, Redwood EDA, LLC accepts no liability for any loss or damage arising from its use.
+
 ## Requirements
 
 - VS Code 1.110.0 or higher
@@ -17,28 +27,18 @@ VS Code extension for Makerchip IDE integration and AI-collaborative Verilog/TL-
 
 ### Manual Usage
 
+**Compiling, Simulating, and Debugging:**
 1. Open a `.tlv` file
-2. Press `Ctrl+Shift+Enter` or run "Makerchip: Compile/Simulate" from the command palette
+2. Press `Ctrl+Shift+Enter`, click the Makerchip icon, or run "Makerchip: Compile/Simulate" from the command palette. (Use "Makerchip: Compile/Simulate in Panel..." to select or create named panels.)
 3. View compilation results, circuit diagrams, and waveforms in the webview panel
 
-**Working with Multiple Panels:**
-- Use "Makerchip: Compile/Simulate in Panel..." to select or create named panels
-- Compare different designs side-by-side
-- Quick panel selection from existing panels or create new ones
+### With AI Agents
 
-**Highlighting Signals and Entities:**
-- Use "Makerchip: Highlight Entity" to highlight signals, scopes, or pipeline stages across all views
-- Use "Makerchip: Clear All Highlights" to remove all highlights
-- Enter TL-Verilog paths like `/cpu|decode$valid`, `|fetch@1`, or `/cpu`
-
-### With GitHub Copilot
-
-Copilot can:
-- Compile and visualize TL-Verilog files directly in Makerchip
-- Show examples directly in the Makerchip IDE (not just in chat)
-- Layout the IDE panes.
-- Switch between different IDE panes (Diagram, Waveform, Nav-TLV, etc.)
-- Load third-party content like HTML, PDF, etc. into panes
+AI Agents can:
+- Author, compile, and visualize TL-Verilog files directly in Makerchip
+- Create custom visualizations (Visual Debug) to explain its work
+- Layout and activate the IDE views
+- Author and load third-party content into Makerchip views that interacts with the IDE
 - Highlight signals, scopes, and pipeline stages to guide exploration
 
 Example prompts:
@@ -49,17 +49,16 @@ Example prompts:
 - "Which signal are you talking about?"
 - "I'm having trouble understanding 'when' conditions. Create a simple course with exercises to step me through it and open it in Makerchip."
 
-## Contributing
-
-Development setup, the `./launch` sandhost workflow, the Copilot tool
-architecture and the release process are in [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## RAG Data
+## Agent Resources
 
 The extension manages `~/.vscode-makerchip/` containing reference data for AI assistants:
 - **resources/**: Documentation, examples, and specifications
+- **skills/**: AI agent skills including [tlv-ecosystem.md](resources/skills/tlv-ecosystem.md)
 - **compile-cache/**: Compilation results for debugging - see [compile-cache/README.md](resources/compile-cache-README.md)
-- **skills/**: Copilot skills including [tlv-ecosystem.md](resources/skills/tlv-ecosystem.md)
+
+## Contributing
+
+Development setup, the `./launch` workflow, the Copilot tool architecture and the release process are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
