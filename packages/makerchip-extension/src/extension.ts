@@ -24,7 +24,7 @@ import { registerMakerchipTool } from './makerchipTool';
 import { initToolActivation, getToolActivation } from './toolActivation';
 import { registerMakerchipParticipant } from './makerchipParticipant';
 import { reconcileClaudeSkill } from './claudeSkill';
-import { initTerms, ensureTermsAccepted, requireTermsAccepted } from './terms';
+import { initTerms, ensureTermsAccepted, requireTermsAccepted, termsAcceptedAt, recordTermsAccepted } from './terms';
 import { log } from './logger';
 import * as compileCache from './compileCache';
 
@@ -216,7 +216,7 @@ export function activate(ctx: vscode.ExtensionContext) {
   context = ctx;  // Store context globally
   log('Makerchip extension activating...');
   logDevDiagnostics(context);
-  initTerms(context);
+  initTerms(context, getServerUrl);
 
   // Activation graph (see toolActivation.ts): gates tool availability so the Makerchip suite doesn't
   // pressure the request tool cap. Must init before any env signal or the enable tool is used.
@@ -722,6 +722,7 @@ function buildWebviewHtml(panel: vscode.WebviewPanel, panelKey: string, serverUr
   html = html.replace(/{{scriptUri}}/g, scriptUri.toString());
   html = html.replace(/{{serverUrl}}/g, serverUrl);
   html = html.replace(/{{defaultDarkMode}}/g, isDarkTheme.toString());
+  html = html.replace(/{{termsAcceptedAt}}/g, JSON.stringify(termsAcceptedAt() ?? null));
   html = html.replace(/{{panelKey}}/g, panelKey);
   return html;
 }
@@ -869,6 +870,10 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string, isRestore: boo
       if (msg.type === 'ready') {
         log(`✓ Connected to ${serverUrl}`);
         settleResolve();   // 🔹 resolve when IDE is ready
+      }
+
+      if (msg.type === 'termsAccepted') {
+        void recordTermsAccepted(msg.acceptedAt);
       }
 
       if (msg.type === 'initError') {

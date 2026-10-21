@@ -72,6 +72,8 @@ declare global {
   interface Window {
     MAKERCHIP_SERVER_URL: string;
     DEFAULT_DARK_MODE: boolean;
+    /** ISO time the user accepted the Makerchip terms (see terms.ts); null if never. */
+    TERMS_ACCEPTED_AT: string | null;
     /** Stable key identifying this panel, used to persist/restore state across reloads. */
     MAKERCHIP_PANEL_KEY: string;
   }
@@ -229,7 +231,13 @@ interface RestoreDataMessage {
   source?: string | { files: Record<string, string>; top: string };
 }
 
-type ToExtensionMessage = IdeResultMessage | IdeErrorMessage | ReadyMessage | CompileFileChunkMessage | CompileStartMessage | CompileErrorMessage | CompileExitStatusMessage | CompileDeniedMessage | NotificationMessage | InitErrorMessage | RestoreRequestMessage;
+/** Sent when the user accepts revised Makerchip terms in the IDE (which asks when TERMS_ACCEPTED_AT is stale). */
+interface TermsAcceptedMessage {
+  type: 'termsAccepted';
+  acceptedAt: string;
+}
+
+type ToExtensionMessage = IdeResultMessage | IdeErrorMessage | ReadyMessage | CompileFileChunkMessage | CompileStartMessage | CompileErrorMessage | CompileExitStatusMessage | CompileDeniedMessage | NotificationMessage | InitErrorMessage | RestoreRequestMessage | TermsAcceptedMessage;
 
 const vscode = acquireVsCodeApi();
 
@@ -331,6 +339,10 @@ import(`${serverUrl}/dist/makerchip-plugin.js`).then((module: any) => {
     // Resolved when the extension replies to 'restoreRequest' with 'restoreData'.
     private _resolveRestoreData!: (data: RestoreDataMessage) => void;
     private _restoreDataReceived = new Promise<RestoreDataMessage>(r => { this._resolveRestoreData = r; });
+
+    onTermsAccepted(acceptedAt: string) {
+      vscode.postMessage({ type: 'termsAccepted', acceptedAt } as TermsAcceptedMessage);
+    }
 
     onReady() {
       console.log("Makerchip ready");
@@ -640,7 +652,7 @@ import(`${serverUrl}/dist/makerchip-plugin.js`).then((module: any) => {
   // propagate to the outer .catch() below (otherwise onReady never fires and the
   // extension hangs).
   // @ts-ignore - VSCodeMakerchip derives from an `any`-typed IdePlugin base
-  return VSCodeMakerchip.create('webview-makerchip', { hasEditor: false, defaultDarkMode: window.DEFAULT_DARK_MODE }).then((ide: VSCodeMakerchip) => {
+  return VSCodeMakerchip.create('webview-makerchip', { hasEditor: false, defaultDarkMode: window.DEFAULT_DARK_MODE, termsAcceptedAt: window.TERMS_ACCEPTED_AT }).then((ide: VSCodeMakerchip) => {
     // Forward a resize into the IDE iframe so jQuery Layout and the VizPane canvas re-fit. VS Code
     // webviews don't propagate these automatically, and unlike the CSS-driven panes the VizPane's
     // Fabric canvas is sized in JS (fixed pixel width/height), so it keeps stale dimensions until
