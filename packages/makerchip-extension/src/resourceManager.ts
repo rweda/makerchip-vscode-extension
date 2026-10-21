@@ -2,7 +2,12 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as os from 'os';
-import { populateResources, MAKERCHIP_DIR, RESOURCES_DIR, RESOURCES_VERSION } from './populateResources';
+import { populateResources, MAKERCHIP_DIR, MANAGED_ENTRIES, RESOURCES_DIR, RESOURCES_VERSION } from './populateResources';
+import { installLiveDocSkill } from './liveDocSkill';
+import { log } from './logger';
+
+/** Resolves the connected Makerchip server's base URL. */
+type ServerUrlFn = () => Promise<string>;
 
 interface ResourcesMetadata {
   updated: string;
@@ -13,26 +18,23 @@ interface ResourcesMetadata {
 /**
  * Initialize Makerchip reference data on extension activation
  */
-export async function initializeResources(context: vscode.ExtensionContext): Promise<void> {
+export async function initializeResources(context: vscode.ExtensionContext, serverUrl: ServerUrlFn): Promise<void> {
   const config = vscode.workspace.getConfiguration('makerchip');
   const autoUpdate = config.get<boolean>('autoUpdateResources', true);
 
-  if (!autoUpdate) {
-    console.log('Makerchip: Auto-update reference data disabled');
-    return;
-  }
-
   try {
-    const needsUpdate = await checkResourcesNeedUpdate();
-    
-    if (needsUpdate) {
-      await updateResourcesWithProgress(context);
+    if (autoUpdate && await checkResourcesNeedUpdate()) {
+      await updateResourcesWithProgress(context, serverUrl);
     } else {
-      console.log('Makerchip reference data is up to date');
+      console.log(autoUpdate ? 'Makerchip reference data is up to date' : 'Makerchip: Auto-update reference data disabled');
+      // Refresh the Live Doc skill regardless, to track the server we are connected to now.
+      await composeLiveDocSkill(context, serverUrl);
     }
 
     // Optionally add to workspace
-    await maybeAddResourcesToWorkspace(context);
+    if (autoUpdate) {
+      await maybeAddResourcesToWorkspace(context);
+    }
   } catch (error) {
     console.error('Failed to initialize Makerchip reference data:', error);
     // Don't block extension activation on resource failure
@@ -62,7 +64,7 @@ async function checkResourcesNeedUpdate(): Promise<boolean> {
 /**
  * Update resources by running the populate logic
  */
-export async function updateResources(context: vscode.ExtensionContext): Promise<void> {
+export async function updateResources(context: vscode.ExtensionContext, serverUrl: ServerUrlFn): Promise<void> {
   const outputChannel = vscode.window.createOutputChannel('Makerchip Reference Data');
   outputChannel.show(true);
 
@@ -86,13 +88,16 @@ export async function updateResources(context: vscode.ExtensionContext): Promise
     console.error('Failed to update reference data:', error);
     vscode.window.showErrorMessage(`Failed to update Makerchip reference data: ${error.message}`);
     throw error;
+  } finally {
+    // Populating clears the skills directory, even when it then fails.
+    await composeLiveDocSkill(context, serverUrl);
   }
 }
 
 /**
  * Update resources with progress indicator
  */
-async function updateResourcesWithProgress(context: vscode.ExtensionContext): Promise<void> {
+async function updateResourcesWithProgress(context: vscode.ExtensionContext, serverUrl: ServerUrlFn): Promise<void> {
   return vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
@@ -102,11 +107,28 @@ async function updateResourcesWithProgress(context: vscode.ExtensionContext): Pr
     async (progress) => {
       progress.report({ message: 'Cloning repositories...' });
       
-      await updateResources(context);
+      await updateResources(context, serverUrl);
       
       progress.report({ message: 'Complete!' });
     }
   );
+}
+
+/**
+ * Compose the Live Doc skill from the connected server's API reference (see liveDocSkill.ts), into
+ * the skills directory that populating clears. Never fails: a missing skill is only logged.
+ */
+async function composeLiveDocSkill(context: vscode.ExtensionContext, serverUrl: ServerUrlFn): Promise<void> {
+  try {
+    const result = await installLiveDocSkill({
+      extensionPath: context.extensionPath,
+      skillsDir: path.join(MAKERCHIP_DIR, MANAGED_ENTRIES.vscode, 'skills'),
+      serverUrl: await serverUrl(), log,
+    });
+    log(`Live Doc skill ${result.action}: ${result.skillPath}` + (result.reason ? ` (${result.reason})` : ''));
+  } catch (error: any) {
+    log(`⚠ Live Doc skill not installed: ${error?.message ?? error}`);
+  }
 }
 
 /**
