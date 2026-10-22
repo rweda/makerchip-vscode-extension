@@ -5,7 +5,7 @@
   "version": "0.0.1",
   "preview": true,
   "license": "MIT",
-  "publisher": "redwood-eda",
+  "publisher": "RedwoodEDA",
   "repository": {
     "type": "git",
     "url": "https://github.com/rweda/makerchip-vscode-extension"
@@ -30,7 +30,7 @@
   ],
   "main": "./out/extension.js",
   "extensionDependencies": [
-    "redwood-eda.tl-verilog"
+    "RedwoodEDA.tl-verilog"
   ],
   "contributes": {
     "commands": [

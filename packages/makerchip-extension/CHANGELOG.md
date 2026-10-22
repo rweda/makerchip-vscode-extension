@@ -7,7 +7,7 @@ uses [semantic versioning](https://semver.org/).
 ## [0.0.1] — unreleased
 
 Initial pre-release. Requires the
-[TL-Verilog](https://marketplace.visualstudio.com/items?itemName=redwood-eda.tl-verilog)
+[TL-Verilog](https://marketplace.visualstudio.com/items?itemName=RedwoodEDA.tl-verilog)
 extension, which VS Code installs automatically.
 
 ### Added

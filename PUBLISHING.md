@@ -10,7 +10,7 @@ Nothing durable belongs here.
 
 ## Remaining before the first publish
 
-- Confirm the `redwood-eda` publisher and its Entra ID federated credential.
+- Confirm the `RedwoodEDA` publisher and its Entra ID federated credential.
 - Enable the publish steps in `.github/workflows/publish.yml` (the
   `ENABLE PUBLISHING` markers) and publish in order: grammar, `tl-verilog`,
   `makerchip`.

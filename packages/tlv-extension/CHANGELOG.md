@@ -6,7 +6,7 @@ uses [semantic versioning](https://semver.org/).
 
 ## [2.0.0] — unreleased
 
-First release published by Redwood EDA as `redwood-eda.tl-verilog`, continuing
+First release published by Redwood EDA as `RedwoodEDA.tl-verilog`, continuing
 the version line of the original TL-Verilog extension. Now developed in the
 [`makerchip-vscode-extension`](https://github.com/rweda/makerchip-vscode-extension)
 monorepo alongside the Makerchip extension.

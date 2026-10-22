@@ -3,7 +3,7 @@
 	"description": "TL-Verilog support for VS Code",
 	"version": "2.0.0",
 	"license": "MIT",
-	"publisher": "redwood-eda",
+	"publisher": "RedwoodEDA",
 	"displayName": "TL-Verilog",
 	"icon": "images/icon.png",
 	"keywords": ["tl-verilog", "verilog", "hdl", "fpga"],

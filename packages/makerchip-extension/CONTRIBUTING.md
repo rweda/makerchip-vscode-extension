@@ -7,7 +7,7 @@ installing in this directory.
 
 Release process: [Releasing](../../README.md#releasing). Bump this manifest,
 then push a `makerchip-vX.Y.Z` tag. Note that `makerchip` cannot be installed
-from the Marketplace until `redwood-eda.tl-verilog` is published, because of the
+from the Marketplace until `RedwoodEDA.tl-verilog` is published, because of the
 hard `extensionDependencies`.
 
 ## Development
@@ -44,7 +44,7 @@ npm run compile    # repo root; builds all workspaces
   flag vsce walks `../` and fails with
   `invalid relative path: extension/../../package.json`.
 - **This extension cannot be installed before `tl-verilog` is published.**
-  `extensionDependencies: ["redwood-eda.tl-verilog"]` is a bare extension id
+  `extensionDependencies: ["RedwoodEDA.tl-verilog"]` is a bare extension id
   with no version range, so VS Code installs whatever is latest and there is no
   way to require a minimum. Publish `tl-verilog` first; nothing enforces it.
   For local development the `./launch` script loads both extensions from source,

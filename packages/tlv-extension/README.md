@@ -8,7 +8,7 @@ Works in desktop VS Code and in the browser (vscode.dev, github.dev). It is
 fully offline and standalone: no Makerchip server and no network required.
 
 > **Want the full Makerchip IDE?** Install the
-> [**Makerchip**](https://marketplace.visualstudio.com/items?itemName=redwood-eda.makerchip)
+> [**Makerchip**](https://marketplace.visualstudio.com/items?itemName=RedwoodEDA.makerchip)
 > extension instead — it adds compile and simulate, circuit diagrams, waveforms
 > and GitHub Copilot integration, and it **installs this extension
 > automatically**. You don't need both; installing Makerchip gets you everything

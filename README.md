@@ -5,8 +5,8 @@ This is an **npm workspaces monorepo** containing three published/publishable pa
 | Package | npm / VS Code id | Purpose |
 |---------|-----------------|---------|
 | `packages/tlv-grammar` | `@rweda/tlv-grammar` | TL-Verilog TextMate grammar and language configuration. Framework-neutral — reused by VS Code, Monaco, Shiki, and GitHub Linguist. No runtime code. |
-| `packages/tlv-extension` | `redwood-eda.tl-verilog` | **TL-Verilog language extension**: `.tlv`/`.TLV` registration, grammar, snippets, semantic tokens, hovers, and (desktop-only) module instantiation. Grammar files are **copied from `tlv-grammar` at build time** — edit only in `tlv-grammar/`. |
-| `packages/makerchip-extension` | `redwood-eda.makerchip` | **Makerchip IDE integration**: server-connected webview (compile/simulate, diagram, waveform, Nav-TLV, VIZ), GitHub Copilot LM tools, `@makerchip` chat participant, local compile cache. |
+| `packages/tlv-extension` | `RedwoodEDA.tl-verilog` | **TL-Verilog language extension**: `.tlv`/`.TLV` registration, grammar, snippets, semantic tokens, hovers, and (desktop-only) module instantiation. Grammar files are **copied from `tlv-grammar` at build time** — edit only in `tlv-grammar/`. |
+| `packages/makerchip-extension` | `RedwoodEDA.makerchip` | **Makerchip IDE integration**: server-connected webview (compile/simulate, diagram, waveform, Nav-TLV, VIZ), GitHub Copilot LM tools, `@makerchip` chat participant, local compile cache. |
 
 ## Supported use models
 
@@ -23,7 +23,7 @@ Three use models drive architectural decisions:
 
 ## Package coupling
 
-`makerchip` declares a hard `extensionDependencies` on `redwood-eda.tl-verilog`. VS Code
+`makerchip` declares a hard `extensionDependencies` on `RedwoodEDA.tl-verilog`. VS Code
 auto-installs `tl-verilog` alongside Makerchip and won't activate Makerchip without it.
 `makerchip` contributes no language definition or grammar itself — it only references the
 `tlverilog` language id in `when` clauses.
@@ -55,8 +55,8 @@ publishes. Remaining pre-publish cleanup is tracked in [PUBLISHING.md](PUBLISHIN
 | # | Package | Name | Registry |
 |---|---------|------|----------|
 | 1 | `packages/tlv-grammar` | `@rweda/tlv-grammar` | npm |
-| 2 | `packages/tlv-extension` | `redwood-eda.tl-verilog` | Marketplace / Open VSX |
-| 3 | `packages/makerchip-extension` | `redwood-eda.makerchip` | Marketplace / Open VSX |
+| 2 | `packages/tlv-extension` | `RedwoodEDA.tl-verilog` | Marketplace / Open VSX |
+| 3 | `packages/makerchip-extension` | `RedwoodEDA.makerchip` | Marketplace / Open VSX |
 
 Grammar first (it is the source of truth, and is not yet on npm), then `tl-verilog`, then
 `makerchip` — which cannot install until `tl-verilog` is live. The grammar being absent
@@ -116,7 +116,7 @@ the workflow level and there is no long-lived publish token.
   (an Entra ID app registration, which needs no Azure subscription) and
   `AZURE_TENANT_ID`. The credential trusts the `marketplace` GitHub environment that
   the publish jobs run in; the workflow's `azure-check` target verifies it and prints
-  the identity to add to the `redwood-eda` publisher's members.
+  the identity to add to the `RedwoodEDA` publisher's members.
 - **npm** — npm trusted publishing, matching the sibling repo
   `@rweda/makerchip-view-client`. No `NPM_TOKEN`. Configure at npmjs.com -> the package's
   Settings -> Trusted Publisher, pointing at this repo and
