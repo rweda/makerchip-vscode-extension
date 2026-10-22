@@ -10,9 +10,8 @@ Nothing durable belongs here.
 
 ## Remaining before the first publish
 
-- Publish `tlverilog` (tag `tlv-v0.0.1`), then, once it is live on the
-  Marketplace, `makerchip` (tag `makerchip-v0.0.1`). The grammar's npm release
-  can follow; it blocks neither.
+- Publish `makerchip` (tag `makerchip-v0.0.1`). `tlverilog` is live on the
+  Marketplace. The grammar's npm release can follow; it blocks neither.
 - Settle `engines.vscode` against the README: the manifest says `^1.95.0`, the
   README says 1.110. Raising `engines` blocks older VS Code and possibly
   Cursor, whose VS Code base lags; lowering the README is only safe if the

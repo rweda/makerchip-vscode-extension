@@ -1,0 +1,14 @@
+<!-- Source for icon.png (rendered at 256x256 with Roboto Black). -->
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="40" y1="60" x2="216" y2="210">
+      <stop offset="0" stop-color="#42a5f5"/><stop offset="1" stop-color="#26e0d0"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="256" height="256" rx="44" fill="#2d435a"/>
+  <text x="128" y="150" text-anchor="middle" font-family="Roboto, sans-serif" font-weight="900" font-size="112"
+        letter-spacing="-3" fill="url(#g)">TLV</text>
+  <g stroke="url(#g)" stroke-width="7" stroke-linecap="round" fill="none">
+      <line x1="44" y1="190" x2="212" y2="190"/>
+      <line x1="100" y1="178" x2="100" y2="202"/><line x1="156" y1="178" x2="156" y2="202"/></g>
+</svg>

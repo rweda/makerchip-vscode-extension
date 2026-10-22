@@ -4,6 +4,13 @@ All notable changes to the **TL-Verilog** extension are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); this project
 uses [semantic versioning](https://semver.org/).
 
+## [0.0.2] — 2026-10-22
+
+### Changed
+
+- New icon. The previous one embedded the VS Code logo.
+- Marked as a preview (pre-release) extension.
+
 ## [0.0.1] — 2026-10-22
 
 First release published by Redwood EDA, as `RedwoodEDA.tlverilog`. It succeeds
