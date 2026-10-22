@@ -14,6 +14,8 @@ releases work, see [Releasing](README.md#releasing).
 
 ### Prerequisites
 
+- **Linux or macOS** (on Windows, use WSL). Native Windows is not supported; one known
+  reason is under [Notes for agents](#notes-for-agents-working-in-this-repo).
 - Node.js ≥ 18, npm (workspaces used for shared deps)
 - Install all dependencies: `npm install` from the repo root
 
@@ -72,6 +74,11 @@ Things that are easy to get wrong here and cost a debugging session:
   the repo root, so plain `vsce package` walks `../` and dies with
   `invalid relative path: extension/../../package.json`. Both `package` scripts already
   pass the flag — don't "clean it up".
+- **The `package` scripts need a POSIX shell**, one reason native Windows is unsupported
+  (see Prerequisites). They expand `${GITHUB_REF_NAME:-main}` to pin each README's
+  Marketplace links to the release tag (see [README.md](README.md#releasing)). On Windows,
+  npm runs scripts in `cmd` by default, which leaves that text unexpanded and packages a
+  listing with broken links.
 - **`packages/tlv-extension/syntaxes/` and
   `packages/tlv-extension/language-configuration.json` are generated and gitignored.**
   `copy-grammar.mjs` overwrites them from `packages/tlv-grammar/` on every build. Edits

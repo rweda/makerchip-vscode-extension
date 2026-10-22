@@ -70,6 +70,9 @@ export async function updateResources(context: vscode.ExtensionContext, serverUr
 
   try {
     const result = await populateResources(context, outputChannel);
+    if (result.gitMissing) {
+      return;  // populateResources has told the user; the summary below would only mislead.
+    }
     
     let message = `Makerchip reference data updated: ${result.success}/${result.total} repositories`;
     if (result.localChanges.length > 0) {

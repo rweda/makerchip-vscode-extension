@@ -2,13 +2,13 @@
 
 VS Code extension for Makerchip IDE integration and AI-collaborative Verilog/TL-Verilog development, debug, and visualization.
 
+![Makerchip](./images/screenshot.png)
+
 ## Features
 
 - **Compile/Simulate Verilog, TL-Verilog, and Other HDLs**: Compile and visualize circuit simulations directly in VS Code
 - **AI Agent Integration**: Language Model tools enable AI agents to work interactively in Makerchip with designers and learners
 - **AI RAG Knowledge Base**: AI Agents are upskilled for TL-Verilog and Makerchip development
-
-![Makerchip](./images/screenshot.png)
 
 ## Before You Begin
 
@@ -20,8 +20,12 @@ VS Code extension for Makerchip IDE integration and AI-collaborative Verilog/TL-
 
 ## Requirements
 
-- VS Code 1.110.0 or higher
+- Desktop VS Code 1.110.0 or higher (not vscode.dev or github.dev)
+- An internet connection to Makerchip (and GitHub, for agent reference data)
+- `git`, to download agent reference data
 - GitHub Copilot or Microsoft's Claude/Codex harness (for AI features)
+
+VS Code also installs the companion [TL-Verilog](https://marketplace.visualstudio.com/items?itemName=redwood-eda.tl-verilog) language extension, for syntax highlighting of `.tlv` files.
 
 ## Usage
 
@@ -30,7 +34,7 @@ VS Code extension for Makerchip IDE integration and AI-collaborative Verilog/TL-
 **Compiling, Simulating, and Debugging:**
 1. Open a `.tlv` file
 2. Press `Ctrl+Shift+Enter`, click the Makerchip icon, or run "Makerchip: Compile/Simulate" from the command palette. (Use "Makerchip: Compile/Simulate in Panel..." to select or create named panels.)
-3. View compilation results, circuit diagrams, and waveforms in the webview panel
+3. Explore the results in the Makerchip panel's views: Log, Diagram (a live logic diagram), Waveform, Nav-TLV (navigable, expanded source), and VIZ (custom visualizations)
 
 ### With AI Agents
 
@@ -40,6 +44,9 @@ AI Agents can:
 - Layout and activate IDE views
 - Author and load third-party content into Makerchip views that interacts with the IDE
 - Highlight relevant signals, scopes, and pipeline stages
+- Capture images and videos (GIF, MP4, WebM, APNG) of simulation visualizations, with camera pan and zoom
+- Compile C, C++, or assembly through Compiler Explorer and run it on a configurable [WARP-V](https://warp-v.org) RISC-V CPU
+- Build Live Docs: extract a figure from a PDF, such as a slide or a textbook diagram, and animate it with simulation values (asking first about your rights to the document)
 
 Example prompts:
 - "Show me how a UART controller works."
@@ -54,6 +61,8 @@ The extension manages `~/.vscode-makerchip/` containing reference data for AI as
 - **resources/**: Documentation, examples, and specifications
 - **skills/**: AI agent skills including [tlv-ecosystem.md](resources/skills/tlv-ecosystem.md)
 - **compile-cache/**: Compilation results for debugging - see [compile-cache/README.md](resources/compile-cache-README.md)
+
+If Claude Code is installed, the extension also writes a Makerchip skill to `~/.claude/skills/makerchip/`, so that Claude learns the rules for Makerchip tools before its first call. It is removed when the extension is uninstalled.
 
 ## Contributing
 

@@ -1661,7 +1661,7 @@
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src",
     "test": "vscode-test",
-    "package": "npm run compile && vsce package --no-dependencies --baseContentUrl https://github.com/rweda/makerchip-vscode-extension/blob/main/packages/makerchip-extension --baseImagesUrl https://github.com/rweda/makerchip-vscode-extension/raw/main/packages/makerchip-extension"
+    "package": "npm run compile && vsce package --no-dependencies --baseContentUrl https://github.com/rweda/makerchip-vscode-extension/blob/${GITHUB_REF_NAME:-main}/packages/makerchip-extension --baseImagesUrl https://github.com/rweda/makerchip-vscode-extension/raw/${GITHUB_REF_NAME:-main}/packages/makerchip-extension"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",

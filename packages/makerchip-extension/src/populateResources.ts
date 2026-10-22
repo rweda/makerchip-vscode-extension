@@ -108,6 +108,8 @@ interface PopulateResult {
   localChanges: string[];
   /** Absolute paths of entries blocking a clone that we declined to delete. */
   strays: string[];
+  /** git could not be run, so no repository was cloned or updated (the user has been told). */
+  gitMissing?: boolean;
 }
 
 /**
@@ -145,8 +147,17 @@ export async function populateResources(context: vscode.ExtensionContext, output
   // offered to the user once, at the end, together with strays found by the other sweeps.
   const strays: string[] = await cleanupUnexpectedResources(log);
 
-  // Clone or update repositories
-  const result = await updateRepositories(log);
+  // Clone or update repositories. Without git, skip just that (everything else here works
+  // without it) and say why, rather than reporting every repository as failed.
+  const gitMissing = (await git(['--version'], os.homedir())).code !== 0;
+  if (gitMissing) {
+    log('git not found: skipping repositories.');
+    vscode.window.showWarningMessage('Makerchip needs git to download agent reference data. Install git, ' +
+      'then run "Makerchip: Update Reference Data", or disable `makerchip.autoUpdateResources`.');
+  }
+  const result: PopulateResult = gitMissing
+    ? { success: 0, total: 0, failed: [], localChanges: [], strays: [], gitMissing }
+    : await updateRepositories(log);
   strays.push(...result.strays);
 
   // Copy READMEs
@@ -162,8 +173,10 @@ export async function populateResources(context: vscode.ExtensionContext, output
   // Copy the minimal scratch design used to open panels without creating clutter.
   await copyResourceFile(context, 'minimal.tlv', RESOURCES_DIR, log);
 
-  // Create version metadata
-  await createVersionMetadata();
+  // Create version metadata (not without git, so that the next startup tries again)
+  if (!gitMissing) {
+    await createVersionMetadata();
+  }
 
   // Mark reference data read-only to prevent accidental edits (repos are now clean)
   await makeResourcesReadOnly(log);

@@ -55,6 +55,6 @@ makerchip.com, serving `/terms/updated`).
       agent highlighting signals, and an animated GIF of a VIZ or Live Doc (e.g.
       the MYTH slides) made with `makerchip_capture_video`. Put them in
       `packages/<ext>/images/` and reference them relatively; the `package`
-      scripts' `--baseImagesUrl` rewrites them to `main` on GitHub, so they must
-      be **pushed to `main` before publishing** or the listing shows broken
-      images. PNG or GIF, ~1200-1600px wide, under ~1MB.
+      scripts' `--baseImagesUrl` points them at the release tag on GitHub, so
+      they must be in the tagged commit. PNG or GIF, ~1200-1600px wide, under
+      ~1MB.

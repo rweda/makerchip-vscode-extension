@@ -65,8 +65,9 @@ from npm does *not* block building `tl-verilog`; see Package coupling above.
 Each extension's README is its Marketplace listing, which fetches images over HTTPS rather
 than from the .vsix. vsce resolves relative links against `repository.url`, ignoring
 `repository.directory`, so the `package` scripts pass `--baseContentUrl`/`--baseImagesUrl`
-pointing at the package's directory on `main`. Keep README links relative, and push
-images to `main` before publishing.
+pointing at the package's directory at the release tag (`$GITHUB_REF_NAME` in CI; `main`
+when packaging locally). Keep README links relative: the listing then shows the tagged
+commit's images and docs, whatever later happens on `main`.
 
 ### Versioning policy
 

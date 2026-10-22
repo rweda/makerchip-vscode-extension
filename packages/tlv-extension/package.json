@@ -296,7 +296,7 @@
 		"watch-web": "node ./esbuild.mjs --watch",
 		"clean": "node -e \"for (const d of ['out','dist']) require('fs').rmSync(d,{recursive:true,force:true})\"",
 		"vscode:prepublish": "npm run clean && npm run copy-grammar && tsc -p ./ && node ./esbuild.mjs --production",
-		"package": "npm run compile && vsce package --no-dependencies --baseContentUrl https://github.com/rweda/makerchip-vscode-extension/blob/main/packages/tlv-extension --baseImagesUrl https://github.com/rweda/makerchip-vscode-extension/raw/main/packages/tlv-extension",
+		"package": "npm run compile && vsce package --no-dependencies --baseContentUrl https://github.com/rweda/makerchip-vscode-extension/blob/${GITHUB_REF_NAME:-main}/packages/tlv-extension --baseImagesUrl https://github.com/rweda/makerchip-vscode-extension/raw/${GITHUB_REF_NAME:-main}/packages/tlv-extension",
 		"run-in-browser": "vscode-test-web --browserType=chromium --extensionDevelopmentPath=. ."
 	},
 	"devDependencies": {
