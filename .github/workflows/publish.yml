@@ -23,9 +23,11 @@ name: Publish
 #   [ ] a. Confirm the pre-publish cleanup is done (see PUBLISHING.md).
 #   [ ] b. Azure Entra ID federated credential is registered for the
 #          `redwood-eda` publisher, and these repo secrets exist:
-#            AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID
+#            AZURE_CLIENT_ID (an Entra ID app registration, which needs no
+#            Azure subscription), AZURE_TENANT_ID
 #          (`vsce publish --azure-credential` uses the OIDC token from
-#           azure/login -- no VSCE_PAT required.)
+#           azure/login -- no VSCE_PAT required.) Verify by running this
+#          workflow with target `azure-check` (see that job).
 #   [ ] c. For npm: no secret needed. The grammar uses npm trusted publishing
 #          (OIDC), the same approach as @rweda/makerchip-view-client.
 #          Configure it at npmjs.com -> the package's Settings -> Trusted
@@ -59,6 +61,7 @@ on:
           - grammar
           - tlv
           - makerchip
+          - azure-check
 
 # `id-token: write` is what lets azure/login mint an OIDC token for
 # `vsce publish --azure-credential`. Inert while publishing is commented out.
@@ -67,6 +70,30 @@ permissions:
   id-token: write
 
 jobs:
+  # ===========================================================================
+  # Azure check (manual, publishes nothing): proves the Azure federated
+  # credential accepts this workflow, and prints the managed identity's Azure
+  # DevOps profile `id`, which must be a member of the `redwood-eda` publisher
+  # (marketplace.visualstudio.com/manage/publishers/redwood-eda -> Members).
+  # The credential must trust subject
+  #   repo:rweda/makerchip-vscode-extension:environment:marketplace
+  # (the publish jobs below run in that environment, so one credential covers
+  # every release tag; a branch- or tag-scoped credential would not).
+  # ===========================================================================
+  azure-check:
+    if: ${{ github.event.inputs.target == 'azure-check' }}
+    runs-on: ubuntu-latest
+    environment: marketplace
+    steps:
+      - name: Azure login (OIDC federated credential)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+      - name: Marketplace identity (add its `id` to the publisher's members)
+        run: az rest -u https://app.vssps.visualstudio.com/_apis/profile/profiles/me --resource 499b84ac-1321-427f-aa17-267ca6975798
+
   # ===========================================================================
   # 1. @rweda/tlv-grammar -> npm
   # ===========================================================================
@@ -132,6 +159,7 @@ jobs:
   publish-tlv:
     if: ${{ startsWith(github.ref, 'refs/tags/tlv-v') || github.event.inputs.target == 'tlv' }}
     runs-on: ubuntu-latest
+    environment: marketplace  # Trusted by the Azure federated credential (see azure-check)
     defaults:
       run:
         working-directory: packages/tlv-extension
@@ -173,7 +201,6 @@ jobs:
       #   with:
       #     client-id: ${{ secrets.AZURE_CLIENT_ID }}
       #     tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-      #     subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       #     allow-no-subscriptions: true
       #
       # - name: Publish to VS Code Marketplace
@@ -196,6 +223,7 @@ jobs:
   publish-makerchip:
     if: ${{ startsWith(github.ref, 'refs/tags/makerchip-v') || github.event.inputs.target == 'makerchip' }}
     runs-on: ubuntu-latest
+    environment: marketplace  # Trusted by the Azure federated credential (see azure-check)
     defaults:
       run:
         working-directory: packages/makerchip-extension
@@ -234,7 +262,6 @@ jobs:
       #   with:
       #     client-id: ${{ secrets.AZURE_CLIENT_ID }}
       #     tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-      #     subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       #     allow-no-subscriptions: true
       #
       # - name: Publish to VS Code Marketplace

@@ -1,13 +1,18 @@
 {
   "name": "makerchip",
   "displayName": "Makerchip",
-  "description": "VS Code extension for Makerchip IDE integration",
+  "description": "Design, simulate, and visualize TL-Verilog and Verilog circuits in the Makerchip IDE, together with AI agents (GitHub Copilot, Claude). Pre-release; for open-source development.",
   "version": "0.0.1",
+  "preview": true,
   "license": "MIT",
   "publisher": "redwood-eda",
   "repository": {
     "type": "git",
     "url": "https://github.com/rweda/makerchip-vscode-extension"
+  },
+  "homepage": "https://makerchip.com",
+  "bugs": {
+    "url": "https://github.com/rweda/makerchip-vscode-extension/issues"
   },
   "engines": {
     "vscode": "^1.95.0"
@@ -18,6 +23,7 @@
     "AI",
     "Education"
   ],
+  "keywords": ["makerchip", "tl-verilog", "verilog", "systemverilog", "hdl", "rtl", "fpga", "asic", "risc-v", "simulation", "waveform", "eda", "hardware", "copilot", "claude", "ai-agents"],
   "activationEvents": [
     "onStartupFinished",
     "onWebviewPanel:makerchip"
@@ -1655,7 +1661,7 @@
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src",
     "test": "vscode-test",
-    "package": "npm run compile && vsce package --no-dependencies"
+    "package": "npm run compile && vsce package --no-dependencies --baseContentUrl https://github.com/rweda/makerchip-vscode-extension/blob/main/packages/makerchip-extension --baseImagesUrl https://github.com/rweda/makerchip-vscode-extension/raw/main/packages/makerchip-extension"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",

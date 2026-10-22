@@ -62,6 +62,12 @@ Grammar first (it is the source of truth, and is not yet on npm), then `tl-veril
 `makerchip` — which cannot install until `tl-verilog` is live. The grammar being absent
 from npm does *not* block building `tl-verilog`; see Package coupling above.
 
+Each extension's README is its Marketplace listing, which fetches images over HTTPS rather
+than from the .vsix. vsce resolves relative links against `repository.url`, ignoring
+`repository.directory`, so the `package` scripts pass `--baseContentUrl`/`--baseImagesUrl`
+pointing at the package's directory on `main`. Keep README links relative, and push
+images to `main` before publishing.
+
 ### Versioning policy
 
 Each package versions independently — they are already out of lockstep (grammar 2.0.0,
@@ -105,8 +111,11 @@ Both registries authenticate over OIDC, so `permissions: id-token: write` is dec
 the workflow level and there is no long-lived publish token.
 
 - **Marketplace** — Azure Entra ID federated credential (`azure/login@v2` +
-  `vsce publish --azure-credential`), not a `VSCE_PAT`. Needs `AZURE_CLIENT_ID`,
-  `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`.
+  `vsce publish --azure-credential`), not a `VSCE_PAT`. Needs `AZURE_CLIENT_ID`
+  (an Entra ID app registration, which needs no Azure subscription) and
+  `AZURE_TENANT_ID`. The credential trusts the `marketplace` GitHub environment that
+  the publish jobs run in; the workflow's `azure-check` target verifies it and prints
+  the identity to add to the `redwood-eda` publisher's members.
 - **npm** — npm trusted publishing, matching the sibling repo
   `@rweda/makerchip-view-client`. No `NPM_TOKEN`. Configure at npmjs.com -> the package's
   Settings -> Trusted Publisher, pointing at this repo and

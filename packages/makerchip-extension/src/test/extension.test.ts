@@ -61,6 +61,8 @@ suite('Live Doc skill composition', () => {
 
 	const install = (serverUrl: string) =>
 		installLiveDocSkill({ extensionPath, skillsDir, serverUrl, log: () => { } });
+	// The skill without its frontmatter, whose description may name the tool too, for position checks.
+	const body = (out: string) => out.slice(out.indexOf('\n---\n', 4) + 5);
 
 	test('splices the bundled guidance into the fetched reference at the marker', async () => {
 		const result = await install(await serve(reference));
@@ -69,8 +71,9 @@ suite('Live Doc skill composition', () => {
 		assert.ok(out.startsWith('---\n'), 'frontmatter must lead the file');
 		assert.ok(out.includes('makerchip_extract_pdf_figure'), 'agent guidance must be present');
 		assert.ok(!out.includes('insert: agent-guidance'), 'the marker itself is consumed');
-		assert.ok(out.indexOf('Concepts.') < out.indexOf('makerchip_extract_pdf_figure')
-			&& out.indexOf('makerchip_extract_pdf_figure') < out.indexOf('## API Reference'),
+		const b = body(out);
+		assert.ok(b.indexOf('Concepts.') < b.indexOf('makerchip_extract_pdf_figure')
+			&& b.indexOf('makerchip_extract_pdf_figure') < b.indexOf('## API Reference'),
 			'guidance lands between the concepts and the API details');
 		assert.ok(out.includes('## API Reference') && out.includes('Details.'),
 			'the rest of the reference survives the splice');
@@ -86,7 +89,7 @@ suite('Live Doc skill composition', () => {
 		assert.strictEqual(result.action, 'composed', result.reason);
 		const out = fs.readFileSync(result.skillPath, 'utf-8');
 		assert.ok(out.includes('makerchip_extract_pdf_figure'), 'guidance is never dropped');
-		assert.ok(out.indexOf('## API Reference') < out.indexOf('makerchip_extract_pdf_figure'),
+		assert.ok(body(out).indexOf('## API Reference') < body(out).indexOf('makerchip_extract_pdf_figure'),
 			'only its position degrades');
 	});
 

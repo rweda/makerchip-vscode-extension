@@ -8,16 +8,34 @@ credentials — lives in [README.md](README.md#releasing). Build gotchas live in
 [CONTRIBUTING.md](CONTRIBUTING.md) and the per-package contributor guides.
 Nothing durable belongs here.
 
-Not all of the below blocks a release. The minimum set before the first real
-publish:
+## Remaining before the first publish
 
-- `tl-verilog`: fix `repository.url` (currently points at the old repo).
-- `makerchip`: add an `icon`, settle the version (still `0.0.1`), and write a
-  real `CHANGELOG.md`.
 - Confirm the `redwood-eda` publisher and its Entra ID federated credential.
-- Install-test both .vsix artifacts, makerchip last.
+- Enable the publish steps in `.github/workflows/publish.yml` (the
+  `ENABLE PUBLISHING` markers) and publish in order: grammar, `tl-verilog`,
+  `makerchip`.
+- Set the `CHANGELOG.md` dates (both extensions say "unreleased").
+- Settle `engines.vscode` against the README: the manifest says `^1.95.0`, the
+  README says 1.110. Raising `engines` blocks older VS Code and possibly
+  Cursor, whose VS Code base lags; lowering the README is only safe if the
+  extension works there.
+- After publishing, install `makerchip` from the Marketplace in a clean
+  profile and check that `tl-verilog` comes with it. (A `.vsix` install does
+  not pull dependencies: makerchip installs alone but won't activate.)
 
-The rest is polish or a decision to record.
+Done: version (`0.0.1`, pre-release via `"preview": true`), changelog content,
+manifest description/homepage/bugs/keywords, `npm test` (uses the in-repo
+`tl-verilog`), install test of both `.vsix` files, and the Terms (deployed to
+makerchip.com, serving `/terms/updated`).
+
+## Decisions to record
+
+- Dev-only surface is public: the `makerchip.devServerUrls` setting and the
+  `serverUrl` parameter of `makerchip_compile` (the README omits both). Hide
+  them, or accept them as documented developer hooks.
+- The Terms and Privacy Policy get legal review in mono's next version. The
+  extension asks users again when either `**Last updated:**` date moves, so
+  bump the dates only for changes users should re-accept.
 
 ## `tl-verilog`
 
@@ -28,44 +46,15 @@ The rest is polish or a decision to record.
       safe today, but re-enabling the SandPiper compile button would ship an
       extension that crashes on load. Either drop axios, or bundle the desktop
       entry with esbuild the way `browser` already is.
-
-## `makerchip`
-
-- [ ] `CHANGELOG.md` is drafted but every entry is dated "unreleased"; set real
-      dates at release time. Same for `tl-verilog`.
-
-## Documentation
-
-Both extension READMEs are rendered verbatim as the **Marketplace listing page**,
-so they are a publishing blocker, not just housekeeping.
-
 - [ ] The `tlv-grammar` README's "not on npm yet" banner should be dropped once
       it ships.
-- [ ] **Screenshots.** Neither listing has any; Marketplace pages lean heavily
-      on them. Requirements, verified by unpacking a .vsix:
 
-      - **Format/size:** PNG (animated GIF also renders). Aim for ~1200-1600px
-        wide, under ~1MB each. No fixed limit, but the page scales them down.
-      - **Where to put them:** `packages/<ext>/images/`, alongside `icon.png`.
-      - **How to reference them — this is the trap.** Marketplace does *not*
-        serve images from the .vsix; it fetches them over HTTPS. vsce rewrites
-        relative image paths against `repository.url` and **ignores the
-        `directory` field**, so `![x](images/shot.png)` in a package README
-        becomes `.../raw/HEAD/images/shot.png` — a path that does not exist in
-        this monorepo, and a broken image on the listing.
+## Listing polish
 
-        So use an absolute URL in the README:
-
-        ```
-        ![Compiling a design](https://github.com/rweda/makerchip-vscode-extension/raw/main/packages/makerchip-extension/images/compile.png)
-        ```
-
-      - The images must be **committed and pushed to `main`** before publishing,
-        or the listing shows broken images even though the .vsix is fine.
-      - The icon is separate and *is* shipped in the .vsix:
-        `images/icon.png`, 128x128 PNG, referenced by the `icon` manifest field.
-
-## Both extensions
-
-- [ ] Do a real install test from the built .vsix artifacts before enabling
-      anything, especially the makerchip -> tl-verilog dependency.
+- [ ] More screenshots. makerchip has one; `tl-verilog` has none. Ideas: an
+      agent highlighting signals, and an animated GIF of a VIZ or Live Doc (e.g.
+      the MYTH slides) made with `makerchip_capture_video`. Put them in
+      `packages/<ext>/images/` and reference them relatively; the `package`
+      scripts' `--baseImagesUrl` rewrites them to `main` on GitHub, so they must
+      be **pushed to `main` before publishing** or the listing shows broken
+      images. PNG or GIF, ~1200-1600px wide, under ~1MB.
