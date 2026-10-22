@@ -2,7 +2,7 @@ name: Publish
 
 # Publish pipeline for the three packages in this monorepo.
 #
-# STATUS: Marketplace publishing is LIVE for tl-verilog and makerchip. npm
+# STATUS: Marketplace publishing is LIVE for tlverilog and makerchip. npm
 #   (grammar) and Open VSX publishing are still commented out, behind the
 #   `ENABLE PUBLISHING` markers. Every job also builds, version-checks and
 #   uploads an artifact you can download and install by hand.
@@ -12,9 +12,9 @@ name: Publish
 # ---------------------------------------------------------------------------
 #   1. grammar    @rweda/tlv-grammar    -> npm
 #        Source of truth for the TextMate grammar. Not yet on npm (404).
-#   2. tlv        RedwoodEDA.tl-verilog -> Marketplace / Open VSX
+#   2. tlv        RedwoodEDA.tlverilog -> Marketplace / Open VSX
 #        makerchip declares this in `extensionDependencies`, so VS Code will
-#        refuse to install makerchip until tl-verilog is live on the Marketplace.
+#        refuse to install makerchip until tlverilog is live on the Marketplace.
 #   3. makerchip  RedwoodEDA.makerchip  -> Marketplace / Open VSX
 #
 # ---------------------------------------------------------------------------
@@ -154,7 +154,7 @@ jobs:
       # ------------------------------------------------------------------
 
   # ===========================================================================
-  # 2. RedwoodEDA.tl-verilog -> Marketplace / Open VSX
+  # 2. RedwoodEDA.tlverilog -> Marketplace / Open VSX
   # ===========================================================================
   publish-tlv:
     if: ${{ startsWith(github.ref, 'refs/tags/tlv-v') || github.event.inputs.target == 'tlv' }}
@@ -217,7 +217,7 @@ jobs:
 
   # ===========================================================================
   # 3. RedwoodEDA.makerchip -> Marketplace / Open VSX
-  #    Requires RedwoodEDA.tl-verilog to already be live (extensionDependencies).
+  #    Requires RedwoodEDA.tlverilog to already be live (extensionDependencies).
   # ===========================================================================
   publish-makerchip:
     if: ${{ startsWith(github.ref, 'refs/tags/makerchip-v') || github.event.inputs.target == 'makerchip' }}

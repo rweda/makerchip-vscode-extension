@@ -5,7 +5,7 @@
 - Created: 2026-09-28
 
 TL-Verilog is a superset of SystemVerilog: `.tlv` files embed SV in `\SV`,
-`\SV_plus`, and (via SandPiper output) generated-SV regions. The `tl-verilog`
+`\SV_plus`, and (via SandPiper output) generated-SV regions. The `tlverilog`
 extension deliberately provides only the TL-Verilog *layer* (semantic
 highlighting, M4/M5, pipe signals, stages). It has **no** SV language services
 (hover-to-declaration, go-to-definition, completion, formatting, lint).

@@ -23,7 +23,7 @@ there is nothing to `import` directly.
 
 ### In this monorepo: build-time copy
 
-The `tl-verilog` VS Code extension does **not** resolve this package from
+The `tlverilog` VS Code extension does **not** resolve this package from
 `node_modules`. `packages/tlv-extension/scripts/copy-grammar.mjs` copies both
 files in by relative path at build time, and the copies are gitignored. Always
 edit the sources here, never the copies under `tlv-extension/`.
@@ -61,7 +61,7 @@ Edit `tlverilog.tmLanguage` here. To see the change in the extension, rebuild
 `packages/tlv-extension/`).
 
 Note that the grammar handles *lexical* scopes only. Most of the TL-Verilog
-color scheme is applied on top of it by `tl-verilog`'s semantic token provider,
+color scheme is applied on top of it by `tlverilog`'s semantic token provider,
 so a highlighting change may belong there rather than here.
 
 ### Notes for agents
@@ -72,7 +72,7 @@ so a highlighting change may belong there rather than here.
 - **Publishing this package to npm ships nothing to VS Code users.** The files
   are copied in at build time, so a published extension carries a *snapshot*.
   Getting a grammar fix to editor users takes two releases — grammar first, then
-  `tl-verilog`.
+  `tlverilog`.
 - **The first npm publish will likely have to be manual.** A trusted publisher
   is configured on a package that already exists, and this one does not yet. The
   sibling repo `@rweda/makerchip-view-client` published its 0.1.0 by hand for

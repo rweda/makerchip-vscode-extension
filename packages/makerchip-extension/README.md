@@ -25,7 +25,7 @@ VS Code extension for Makerchip IDE integration and AI-collaborative Verilog/TL-
 - `git`, to download agent reference data
 - GitHub Copilot or Microsoft's Claude/Codex harness (for AI features)
 
-VS Code also installs the companion [TL-Verilog](https://marketplace.visualstudio.com/items?itemName=RedwoodEDA.tl-verilog) language extension, for syntax highlighting of `.tlv` files.
+VS Code also installs the companion [TL-Verilog](https://marketplace.visualstudio.com/items?itemName=RedwoodEDA.tlverilog) language extension, for syntax highlighting of `.tlv` files.
 
 ## Usage
 

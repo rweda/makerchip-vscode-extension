@@ -7,7 +7,7 @@ installing in this directory.
 
 Release process: [Releasing](../../README.md#releasing). Bump this manifest,
 then push a `makerchip-vX.Y.Z` tag. Note that `makerchip` cannot be installed
-from the Marketplace until `RedwoodEDA.tl-verilog` is published, because of the
+from the Marketplace until `RedwoodEDA.tlverilog` is published, because of the
 hard `extensionDependencies`.
 
 ## Development
@@ -43,10 +43,10 @@ npm run compile    # repo root; builds all workspaces
   script). npm workspaces hoist dependencies to the repo root, so without the
   flag vsce walks `../` and fails with
   `invalid relative path: extension/../../package.json`.
-- **This extension cannot be installed before `tl-verilog` is published.**
-  `extensionDependencies: ["RedwoodEDA.tl-verilog"]` is a bare extension id
+- **This extension cannot be installed before `tlverilog` is published.**
+  `extensionDependencies: ["RedwoodEDA.tlverilog"]` is a bare extension id
   with no version range, so VS Code installs whatever is latest and there is no
-  way to require a minimum. Publish `tl-verilog` first; nothing enforces it.
+  way to require a minimum. Publish `tlverilog` first; nothing enforces it.
   For local development the `./launch` script loads both extensions from source,
   which satisfies the dependency without any Marketplace publish.
 - **`resources/` ships inside the .vsix** and is populated into
@@ -69,7 +69,7 @@ with breakpoints, or with the `./launch` script pointed at a deployed server:
 ./launch https://makerchip.com/v123  # Deployed server at an explicit URL
 ```
 
-Both load this extension and `tl-verilog` from source. See the monorepo
+Both load this extension and `tlverilog` from source. See the monorepo
 [CONTRIBUTING.md](../../CONTRIBUTING.md#launching-the-extension-development-host)
 for the full comparison.
 

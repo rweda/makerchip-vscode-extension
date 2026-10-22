@@ -10,7 +10,7 @@ Nothing durable belongs here.
 
 ## Remaining before the first publish
 
-- Publish `tl-verilog` (tag `tlv-v2.0.0`), then, once it is live on the
+- Publish `tlverilog` (tag `tlv-v0.0.1`), then, once it is live on the
   Marketplace, `makerchip` (tag `makerchip-v0.0.1`). The grammar's npm release
   can follow; it blocks neither.
 - Settle `engines.vscode` against the README: the manifest says `^1.95.0`, the
@@ -18,12 +18,12 @@ Nothing durable belongs here.
   Cursor, whose VS Code base lags; lowering the README is only safe if the
   extension works there.
 - After publishing, install `makerchip` from the Marketplace in a clean
-  profile and check that `tl-verilog` comes with it. (A `.vsix` install does
+  profile and check that `tlverilog` comes with it. (A `.vsix` install does
   not pull dependencies: makerchip installs alone but won't activate.)
 
 Done: version (`0.0.1`, pre-release via `"preview": true`), changelog content,
 manifest description/homepage/bugs/keywords, `npm test` (uses the in-repo
-`tl-verilog`), install test of both `.vsix` files, and the Terms (deployed to
+`tlverilog`), install test of both `.vsix` files, and the Terms (deployed to
 makerchip.com, serving `/terms/updated`).
 
 ## Decisions to record
@@ -35,7 +35,7 @@ makerchip.com, serving `/terms/updated`).
   extension asks users again when either `**Last updated:**` date moves, so
   bump the dates only for changes users should re-accept.
 
-## `tl-verilog`
+## `tlverilog`
 
 - [ ] **axios.** It is a declared runtime dependency, but its only importers
       (`src/experimental/sandpiperClient.ts`, `src/experimental/sandpiperCompile.ts`)
@@ -49,7 +49,7 @@ makerchip.com, serving `/terms/updated`).
 
 ## Listing polish
 
-- [ ] More screenshots. makerchip has one; `tl-verilog` has none. Ideas: an
+- [ ] More screenshots. makerchip has one; `tlverilog` has none. Ideas: an
       agent highlighting signals, and an animated GIF of a VIZ or Live Doc (e.g.
       the MYTH slides) made with `makerchip_capture_video`. Put them in
       `packages/<ext>/images/` and reference them relatively; the `package`

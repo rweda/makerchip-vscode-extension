@@ -4,10 +4,11 @@ All notable changes to the **TL-Verilog** extension are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); this project
 uses [semantic versioning](https://semver.org/).
 
-## [2.0.0] — 2026-10-22
+## [0.0.1] — 2026-10-22
 
-First release published by Redwood EDA as `RedwoodEDA.tl-verilog`, continuing
-the version line of the original TL-Verilog extension. Now developed in the
+First release published by Redwood EDA, as `RedwoodEDA.tlverilog`. It succeeds
+the original [TL Verilog](https://marketplace.visualstudio.com/items?itemName=Dmytro.TL-Verilog)
+extension (`Dmytro.TL-Verilog`), and is developed in the
 [`makerchip-vscode-extension`](https://github.com/rweda/makerchip-vscode-extension)
 monorepo alongside the Makerchip extension.
 

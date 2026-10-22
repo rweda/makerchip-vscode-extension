@@ -86,7 +86,7 @@ Things that are easy to get wrong here and cost a debugging session:
 - **`vscode:prepublish` runs `npm run clean` first, on purpose.** `tsc` never removes
   output for deleted sources, so without it a locally built .vsix ships dead code from
   files that no longer exist. Don't drop the clean step.
-- **axios is a declared dependency of `tl-verilog` that is not shipped.** Its only
+- **axios is a declared dependency of `tlverilog` that is not shipped.** Its only
   importers are commented out of the graph in `src/experimental/index.ts`, and
   `--no-dependencies` leaves it out of the .vsix. Re-enabling the SandPiper compile button
   without bundling axios ships an extension that fails to load.

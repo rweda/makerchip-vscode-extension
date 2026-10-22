@@ -473,7 +473,7 @@ fi
 
 # ---------------------------------------------------------------------------
 # Build the `code` invocation and verify the extension is compiled.
-# makerchip declares a hard extensionDependencies on tl-verilog, so we also load
+# makerchip declares a hard extensionDependencies on tlverilog, so we also load
 # the language extension from source (satisfies the dependency without a
 # published build and lets both be co-developed; reload the window to pick up
 # edits to either). No --new-window is needed: the guard above has already
@@ -490,7 +490,7 @@ fi
 # (webview.ts is excluded from the main tsconfig, so check it too).
 check_build "Makerchip extension" "$SCRIPT_DIR/src" \
   "$SCRIPT_DIR/out/extension.js" "$SCRIPT_DIR/out/webview.js"
-# tl-verilog extension: a common blind spot because the makerchip watch task
+# tlverilog extension: a common blind spot because the makerchip watch task
 # does NOT build it.
 check_build "TL-Verilog extension" "$SCRIPT_DIR/../tlv-extension/src" \
   "$SCRIPT_DIR/../tlv-extension/out/src/extension.js"

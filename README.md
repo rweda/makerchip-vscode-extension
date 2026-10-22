@@ -5,7 +5,7 @@ This is an **npm workspaces monorepo** containing three published/publishable pa
 | Package | npm / VS Code id | Purpose |
 |---------|-----------------|---------|
 | `packages/tlv-grammar` | `@rweda/tlv-grammar` | TL-Verilog TextMate grammar and language configuration. Framework-neutral — reused by VS Code, Monaco, Shiki, and GitHub Linguist. No runtime code. |
-| `packages/tlv-extension` | `RedwoodEDA.tl-verilog` | **TL-Verilog language extension**: `.tlv`/`.TLV` registration, grammar, snippets, semantic tokens, hovers, and (desktop-only) module instantiation. Grammar files are **copied from `tlv-grammar` at build time** — edit only in `tlv-grammar/`. |
+| `packages/tlv-extension` | `RedwoodEDA.tlverilog` | **TL-Verilog language extension**: `.tlv`/`.TLV` registration, grammar, snippets, semantic tokens, hovers, and (desktop-only) module instantiation. Grammar files are **copied from `tlv-grammar` at build time** — edit only in `tlv-grammar/`. |
 | `packages/makerchip-extension` | `RedwoodEDA.makerchip` | **Makerchip IDE integration**: server-connected webview (compile/simulate, diagram, waveform, Nav-TLV, VIZ), GitHub Copilot LM tools, `@makerchip` chat participant, local compile cache. |
 
 ## Supported use models
@@ -18,13 +18,13 @@ Three use models drive architectural decisions:
    features; no local FS or tool spawning.
 3. **Editor-only TL-Verilog** — highlighting, semantic tokens, snippets, and hovers with
    no Makerchip server or network, fully offline, both hosts. Served by the standalone
-   `tl-verilog` extension. The grammar is also consumed outside VS Code entirely (GitHub
+   `tlverilog` extension. The grammar is also consumed outside VS Code entirely (GitHub
    Linguist, Shiki, Monaco).
 
 ## Package coupling
 
-`makerchip` declares a hard `extensionDependencies` on `RedwoodEDA.tl-verilog`. VS Code
-auto-installs `tl-verilog` alongside Makerchip and won't activate Makerchip without it.
+`makerchip` declares a hard `extensionDependencies` on `RedwoodEDA.tlverilog`. VS Code
+auto-installs `tlverilog` alongside Makerchip and won't activate Makerchip without it.
 `makerchip` contributes no language definition or grammar itself — it only references the
 `tlverilog` language id in `when` clauses.
 
@@ -33,20 +33,20 @@ editor-only TL-Verilog (use model 3) remains viable without pulling in the Maker
 
 Two consequences that shape every release:
 
-- **`tl-verilog` does not consume `@rweda/tlv-grammar` from npm.** `copy-grammar.mjs`
+- **`tlverilog` does not consume `@rweda/tlv-grammar` from npm.** `copy-grammar.mjs`
   copies the grammar in from `../tlv-grammar` at build time, so a published extension
   carries a *snapshot*. Publishing the grammar to npm changes nothing for VS Code users —
-  a grammar fix reaches them only when `tl-verilog` is rebuilt and re-published. Grammar
+  a grammar fix reaches them only when `tlverilog` is rebuilt and re-published. Grammar
   releases otherwise serve external consumers (Monaco, Shiki, Linguist).
 - **`extensionDependencies` takes a bare extension id, with no version range.** There is
-  no way to express "makerchip needs tl-verilog >= 2.1"; VS Code installs the latest. If
-  makerchip starts relying on a new tl-verilog feature, publish `tl-verilog` first —
+  no way to express "makerchip needs tlverilog >= 0.2"; VS Code installs the latest. If
+  makerchip starts relying on a new tlverilog feature, publish `tlverilog` first —
   nothing enforces it.
 
 ## Releasing
 
 `.github/workflows/publish.yml` builds, version-checks and uploads artifacts for all three
-packages, and publishes `tl-verilog` and `makerchip` to the Marketplace. npm (grammar) and
+packages, and publishes `tlverilog` and `makerchip` to the Marketplace. npm (grammar) and
 Open VSX publishing are still commented out behind `ENABLE PUBLISHING` markers. `ci.yml` is
 the separate build-and-lint workflow and never publishes. Remaining pre-publish cleanup is tracked in [PUBLISHING.md](PUBLISHING.md).
 
@@ -55,12 +55,12 @@ the separate build-and-lint workflow and never publishes. Remaining pre-publish 
 | # | Package | Name | Registry |
 |---|---------|------|----------|
 | 1 | `packages/tlv-grammar` | `@rweda/tlv-grammar` | npm |
-| 2 | `packages/tlv-extension` | `RedwoodEDA.tl-verilog` | Marketplace / Open VSX |
+| 2 | `packages/tlv-extension` | `RedwoodEDA.tlverilog` | Marketplace / Open VSX |
 | 3 | `packages/makerchip-extension` | `RedwoodEDA.makerchip` | Marketplace / Open VSX |
 
-Grammar first (it is the source of truth, and is not yet on npm), then `tl-verilog`, then
-`makerchip` — which cannot install until `tl-verilog` is live. The grammar being absent
-from npm does *not* block building `tl-verilog`; see Package coupling above.
+Grammar first (it is the source of truth, and is not yet on npm), then `tlverilog`, then
+`makerchip` — which cannot install until `tlverilog` is live. The grammar being absent
+from npm does *not* block building `tlverilog`; see Package coupling above.
 
 Each extension's README is its Marketplace listing, which fetches images over HTTPS rather
 than from the .vsix. vsce resolves relative links against `repository.url`, ignoring
@@ -71,17 +71,16 @@ commit's images and docs, whatever later happens on `main`.
 
 ### Versioning policy
 
-Each package versions independently — they are already out of lockstep (grammar 2.0.0,
-tl-verilog 2.0.0, makerchip 0.0.1) and should stay that way. A makerchip fix has no
-business bumping the grammar.
+Each package versions independently; they need not move in lockstep, and should not. A
+makerchip fix has no business bumping the grammar.
 
 The policy is **bump by hand in the repo, publish on the tag**:
 
 ```bash
-npm version minor --workspace tl-verilog   # bumps that manifest only
+npm version minor --workspace tlverilog   # bumps that manifest only
 #   ...update the package's CHANGELOG.md...
-git commit -am "tl-verilog 2.1.0"
-git tag tlv-v2.1.0
+git commit -am "tlverilog 0.1.0"
+git tag tlv-v0.1.0
 git push --follow-tags
 ```
 
