@@ -2,10 +2,10 @@ name: Publish
 
 # Publish pipeline for the three packages in this monorepo.
 #
-# STATUS: packaging is LIVE, publishing is COMMENTED OUT.
-#   Every job builds, version-checks and uploads a artifact you can download and
-#   install by hand. Nothing is pushed to npm, the VS Code Marketplace or Open VSX
-#   until the blocks marked `ENABLE PUBLISHING` below are uncommented.
+# STATUS: Marketplace publishing is LIVE for tl-verilog and makerchip. npm
+#   (grammar) and Open VSX publishing are still commented out, behind the
+#   `ENABLE PUBLISHING` markers. Every job also builds, version-checks and
+#   uploads an artifact you can download and install by hand.
 #
 # ---------------------------------------------------------------------------
 # PUBLISH ORDER (matters -- do not skip ahead)
@@ -192,19 +192,18 @@ jobs:
           name: tlv-extension-vsix
           path: packages/tlv-extension/*.vsix
 
-      # --- ENABLE PUBLISHING (Marketplace) ------------------------------
+      # --- PUBLISHING (Marketplace), enabled ----------------------------
       # Publishes the exact .vsix built above rather than re-packaging, so
       # what ships is what was uploaded as the artifact.
-      #
-      # - name: Azure login (OIDC federated credential)
-      #   uses: azure/login@v2
-      #   with:
-      #     client-id: ${{ secrets.AZURE_CLIENT_ID }}
-      #     tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-      #     allow-no-subscriptions: true
-      #
-      # - name: Publish to VS Code Marketplace
-      #   run: npx --no-install vsce publish --azure-credential --packagePath *.vsix
+      - name: Azure login (OIDC federated credential)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+
+      - name: Publish to VS Code Marketplace
+        run: npx --no-install vsce publish --azure-credential --packagePath *.vsix
       # ------------------------------------------------------------------
 
       # --- ENABLE PUBLISHING (Open VSX, optional) -----------------------
@@ -256,16 +255,16 @@ jobs:
           name: makerchip-extension-vsix
           path: packages/makerchip-extension/*.vsix
 
-      # --- ENABLE PUBLISHING (Marketplace) ------------------------------
-      # - name: Azure login (OIDC federated credential)
-      #   uses: azure/login@v2
-      #   with:
-      #     client-id: ${{ secrets.AZURE_CLIENT_ID }}
-      #     tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-      #     allow-no-subscriptions: true
-      #
-      # - name: Publish to VS Code Marketplace
-      #   run: npx --no-install vsce publish --azure-credential --packagePath *.vsix
+      # --- PUBLISHING (Marketplace), enabled ----------------------------
+      - name: Azure login (OIDC federated credential)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+
+      - name: Publish to VS Code Marketplace
+        run: npx --no-install vsce publish --azure-credential --packagePath *.vsix
       # ------------------------------------------------------------------
 
       # --- ENABLE PUBLISHING (Open VSX, optional) -----------------------

@@ -45,10 +45,10 @@ Two consequences that shape every release:
 
 ## Releasing
 
-**Nothing publishes today.** `.github/workflows/publish.yml` builds, version-checks and
-uploads artifacts for all three packages, but every publish step is commented out behind
-an `ENABLE PUBLISHING` marker. `ci.yml` is the separate build-and-lint workflow and never
-publishes. Remaining pre-publish cleanup is tracked in [PUBLISHING.md](PUBLISHING.md).
+`.github/workflows/publish.yml` builds, version-checks and uploads artifacts for all three
+packages, and publishes `tl-verilog` and `makerchip` to the Marketplace. npm (grammar) and
+Open VSX publishing are still commented out behind `ENABLE PUBLISHING` markers. `ci.yml` is
+the separate build-and-lint workflow and never publishes. Remaining pre-publish cleanup is tracked in [PUBLISHING.md](PUBLISHING.md).
 
 ### Publish order
 

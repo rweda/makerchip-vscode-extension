@@ -4,7 +4,7 @@ All notable changes to the **Makerchip** extension are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); this project
 uses [semantic versioning](https://semver.org/).
 
-## [0.0.1] — unreleased
+## [0.0.1] — 2026-10-22
 
 Initial pre-release. Requires the
 [TL-Verilog](https://marketplace.visualstudio.com/items?itemName=RedwoodEDA.tl-verilog)

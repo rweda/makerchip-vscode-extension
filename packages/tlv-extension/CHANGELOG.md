@@ -4,7 +4,7 @@ All notable changes to the **TL-Verilog** extension are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); this project
 uses [semantic versioning](https://semver.org/).
 
-## [2.0.0] — unreleased
+## [2.0.0] — 2026-10-22
 
 First release published by Redwood EDA as `RedwoodEDA.tl-verilog`, continuing
 the version line of the original TL-Verilog extension. Now developed in the

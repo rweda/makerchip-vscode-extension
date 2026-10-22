@@ -10,11 +10,9 @@ Nothing durable belongs here.
 
 ## Remaining before the first publish
 
-- Confirm the `RedwoodEDA` publisher and its Entra ID federated credential.
-- Enable the publish steps in `.github/workflows/publish.yml` (the
-  `ENABLE PUBLISHING` markers) and publish in order: grammar, `tl-verilog`,
-  `makerchip`.
-- Set the `CHANGELOG.md` dates (both extensions say "unreleased").
+- Publish `tl-verilog` (tag `tlv-v2.0.0`), then, once it is live on the
+  Marketplace, `makerchip` (tag `makerchip-v0.0.1`). The grammar's npm release
+  can follow; it blocks neither.
 - Settle `engines.vscode` against the README: the manifest says `^1.95.0`, the
   README says 1.110. Raising `engines` blocks older VS Code and possibly
   Cursor, whose VS Code base lags; lowering the README is only safe if the
