@@ -63,7 +63,7 @@
  * The skill is self-contained: it is the single artifact carrying these rules.
  *
  * WHY THE BODY ENUMERATES THE OTHER GUIDANCE FILES (readSkillIndex)
- * The extension also installs detailed guidance as `~/.vscode-makerchip/.vscode/skills/*.md`.
+ * The extension also installs detailed guidance as `<data folder>/.vscode/skills/*.md` (see makerchipDirFor).
  * Copilot discovers those by itself — they carry `applyTo` / `triggerWords` frontmatter it acts
  * on, so they are self-describing to it. Claude has no equivalent discovery for that directory:
  * it only scans its own skill locations, so those files are invisible to it however well they
@@ -135,11 +135,15 @@ const OWNERS_FILE = path.join(SKILL_DIR, '.owners.json');
 const LOCK_DIR = path.join(SKILL_DIR, '.lock');
 
 /**
- * The detailed guidance files our skill body indexes. Duplicated from populateResources.ts
- * rather than imported: that module pulls in `vscode`, and this one must stay importable from
- * the `vscode:uninstall` script, which runs as plain Node.
+ * The Makerchip data folder of an install: `~/.vscode-makerchip`, except that a development
+ * install (running from a checkout) keeps its own git-ignored copy inside the checkout, so it never
+ * shares state with a Marketplace install or another checkout. Defined here rather than in
+ * populateResources.ts (which imports it) because this module must stay importable from the
+ * `vscode:uninstall` script, which runs as plain Node.
  */
-const MAKERCHIP_SKILLS_DIR = path.join(os.homedir(), '.vscode-makerchip', '.vscode', 'skills');
+export function makerchipDirFor(extensionPath: string, devMode: boolean): string {
+  return devMode ? path.join(extensionPath, '.vscode-makerchip') : path.join(os.homedir(), '.vscode-makerchip');
+}
 
 /**
  * The shared workspace-hygiene intro, bundled under `<extension>/resources/`. We append it to the
@@ -216,10 +220,10 @@ function extractFrontmatterDescription(content: string): string {
  * down by the version/age-gated populate path while we run on every activation. The caller
  * renders a directory pointer instead, and reconciling again after populate fills the list in.
  */
-async function readSkillIndex(): Promise<string[]> {
+async function readSkillIndex(skillsDir: string): Promise<string[]> {
   let files: string[];
   try {
-    files = (await fs.readdir(MAKERCHIP_SKILLS_DIR))
+    files = (await fs.readdir(skillsDir))
       .filter(file => file.endsWith('.md') && file !== 'README.md')
       .sort();
   } catch {
@@ -231,7 +235,7 @@ async function readSkillIndex(): Promise<string[]> {
     let description = '';
     try {
       description = extractFrontmatterDescription(
-        await fs.readFile(path.join(MAKERCHIP_SKILLS_DIR, file), 'utf-8')
+        await fs.readFile(path.join(skillsDir, file), 'utf-8')
       );
     } catch {
       // Unreadable: list it without a blurb rather than dropping it.
@@ -242,11 +246,13 @@ async function readSkillIndex(): Promise<string[]> {
 }
 
 /**
- * Render SKILL.md. Content is a pure function of (`version`, `skillIndex`), so an install whose
- * inputs have not changed rewrites nothing. Owner paths are deliberately NOT inlined: that would
- * churn the file whenever a sibling install appears or goes away.
+ * Render SKILL.md. Content is a pure function of its arguments, so an install whose inputs have
+ * not changed rewrites nothing. Owner paths are deliberately NOT inlined (beyond dev installs and
+ * the rendering install's data folder): that would churn the file whenever a sibling install
+ * appears or goes away.
  */
-function renderSkill(version: string, skillIndex: string[], intro: string, devPaths: string[]): string {
+function renderSkill(version: string, makerchipDir: string, skillIndex: string[], intro: string, devPaths: string[]): string {
+  const skillsDir = path.join(makerchipDir, '.vscode', 'skills');
   const devSection = devPaths.length === 0 ? '' : `## You are working against a development build
 
 An Extension Development Host is running this extension from source, at:
@@ -276,7 +282,7 @@ Consequences worth acting on:
   you touch — not only to the task you were given. Experimental features in particular want
   feedback: where a tool's description says so, that is an explicit invitation.
 - Extension logs go to the \`Makerchip\` output channel; compilation artifacts to
-  \`~/.vscode-makerchip/compile-cache/\`.
+  \`${makerchipDir}/compile-cache/\`.
 
 `;
   return `---
@@ -376,21 +382,21 @@ Try to avoid hangs, but if you slip and hit one, rule out the turn-local causes 
 ## Further guidance
 
 ${skillIndex.length > 0
-    ? `Read the relevant file in \`${MAKERCHIP_SKILLS_DIR}/\` when its topic comes up:\n\n${skillIndex.join('\n')}`
-    : `Detailed guidance is installed in \`${MAKERCHIP_SKILLS_DIR}/\`. List that directory and read the file whose topic matches your task. (It is populated by the Makerchip extension; if it is missing or empty, the extension has not finished setting up its reference data yet.)`}
+    ? `Read the relevant file in \`${skillsDir}/\` when its topic comes up:\n\n${skillIndex.join('\n')}`
+    : `Detailed guidance is installed in \`${skillsDir}/\`. List that directory and read the file whose topic matches your task. (It is populated by the Makerchip extension; if it is missing or empty, the extension has not finished setting up its reference data yet.)`}
 
 ${devSection}${intro === '' ? '' : `## The Makerchip data folder
 
-What follows is the extension's own note about \`~/.vscode-makerchip/\`, shared verbatim with
+What follows is the extension's own note about \`${makerchipDir}/\`, shared verbatim with
 Copilot so the two cannot drift. It is phrased for that folder opened as a workspace; the part
 that matters to you is that the folder is extension-managed — do not create files there, and read
-its paths as relative to \`~/.vscode-makerchip/\`.
+its paths as relative to \`${makerchipDir}/\`.
 
-**If a write under \`~/.vscode-makerchip/resources/\` fails with EACCES / "permission denied",
+**If a write under \`${makerchipDir}/resources/\` fails with EACCES / "permission denied",
 that is deliberate.** The extension write-protects its reference data so a stray file cannot be
 created there. Do NOT \`chmod\` it, \`sudo\`, or otherwise work around the denial — the write was
 the mistake, not the permission. Put the file in the user's own workspace instead, or in
-\`~/.vscode-makerchip/tmp/\` for scratch work, and mention the denial so the user knows what
+\`${makerchipDir}/tmp/\` for scratch work, and mention the denial so the user knows what
 happened.
 
 ${intro}
@@ -434,6 +440,19 @@ function compareVersions(a: string, b: string): number {
   return 0;
 }
 
+/**
+ * Which owner renders the skill. A dev install beats a released one, so a checkout under test
+ * drives the shared skill without a manual version bump; among dev installs the most recently
+ * activated wins (the checkout being worked on). Among released installs the newest version
+ * wins, so a stale install cannot downgrade the content.
+ */
+function outranks(a: OwnerRecord, b: OwnerRecord): boolean {
+  if (!!a.devMode !== !!b.devMode) {
+    return !!a.devMode;
+  }
+  return a.devMode ? a.lastSeen > b.lastSeen : compareVersions(a.version, b.version) > 0;
+}
+
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
@@ -473,7 +492,10 @@ async function readOwners(): Promise<OwnersFile> {
   try {
     const parsed = JSON.parse(await fs.readFile(OWNERS_FILE, 'utf-8'));
     if (parsed && typeof parsed === 'object' && parsed.owners && typeof parsed.owners === 'object') {
-      return { format: 1, owners: parsed.owners };
+      // Re-key by normalized path: an editor may report `extensionPath` with a trailing separator.
+      const owners = Object.fromEntries(
+        Object.entries(parsed.owners as Record<string, OwnerRecord>).map(([key, record]) => [path.resolve(key), record]));
+      return { format: 1, owners };
     }
   } catch {
     // Missing or corrupt: rebuild from scratch rather than failing activation.
@@ -531,7 +553,7 @@ async function reconcile(
     const state = await readOwners();
 
     if (owner) {
-      state.owners[owner.extensionPath] = {
+      state.owners[path.resolve(owner.extensionPath)] = {
         version: owner.version,
         host: owner.host,
         lastSeen: new Date().toISOString(),
@@ -539,7 +561,7 @@ async function reconcile(
       };
     }
     if (removePath) {
-      delete state.owners[removePath];
+      delete state.owners[path.resolve(removePath)];
     }
 
     await pruneDeadOwners(state.owners);
@@ -551,11 +573,12 @@ async function reconcile(
       return { action: 'removed', skillPath: SKILL_FILE };
     }
 
-    // Newest live owner renders the content, so a stale install cannot downgrade it. We take the
-    // bundled intro from that same install's extensionPath (the owners key) so body and version
-    // always come from one place.
+    // One owner renders the content (see outranks). We take the bundled intro and data folder from
+    // that same install's extensionPath (the owners key) so body, paths and version always come
+    // from one place.
     const [winnerPath, winner] = Object.entries(state.owners)
-      .reduce((best, candidate) => (compareVersions(candidate[1].version, best[1].version) > 0 ? candidate : best));
+      .reduce((best, candidate) => (outranks(candidate[1], best[1]) ? candidate : best));
+    const winnerDir = makerchipDirFor(winnerPath, !!winner.devMode);
 
     // Dev guidance keys off ANY live owner being a dev install, not just the rendering one: a
     // developer with both a released install and a checkout still wants it.
@@ -566,7 +589,8 @@ async function reconcile(
 
     const desired = renderSkill(
       winner.version,
-      await readSkillIndex(),
+      winnerDir,
+      await readSkillIndex(path.join(winnerDir, '.vscode', 'skills')),
       await readIntro(winnerPath),
       devPaths,
     );

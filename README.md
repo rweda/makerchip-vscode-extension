@@ -48,7 +48,8 @@ Two consequences that shape every release:
 `.github/workflows/publish.yml` builds, version-checks and uploads artifacts for all three
 packages, and publishes `tlverilog` and `makerchip` to the Marketplace. npm (grammar) and
 Open VSX publishing are still commented out behind `ENABLE PUBLISHING` markers. `ci.yml` is
-the separate build-and-lint workflow and never publishes. Remaining pre-publish cleanup is tracked in [PUBLISHING.md](PUBLISHING.md).
+the separate build-and-lint workflow and never publishes. Open release work is tracked in
+[PUBLISHING.md](PUBLISHING.md).
 
 ### Publish order
 
@@ -61,6 +62,10 @@ the separate build-and-lint workflow and never publishes. Remaining pre-publish 
 Grammar first (it is the source of truth, and is not yet on npm), then `tlverilog`, then
 `makerchip` — which cannot install until `tlverilog` is live. The grammar being absent
 from npm does *not* block building `tlverilog`; see Package coupling above.
+
+Marketplace extension `name`s are unique across *all* publishers, case-insensitively. That
+is why the language extension is `tlverilog`: `tl-verilog` belongs to the original
+`Dmytro.TL-Verilog`.
 
 Each extension's README is its Marketplace listing, which fetches images over HTTPS rather
 than from the .vsix. vsce resolves relative links against `repository.url`, ignoring
@@ -83,6 +88,10 @@ git commit -am "tlverilog 0.1.0"
 git tag tlv-v0.1.0
 git push --follow-tags
 ```
+
+The tag's publish run then waits for a reviewer: on the run's page, **Review deployments**
+-> `marketplace` -> **Approve and deploy** (see Credentials). A new version takes a few
+minutes to appear on its listing.
 
 `npm version --workspace` deliberately does not commit or tag (unlike a single-package
 repo), which is what lets us attach our own prefixed tag:
@@ -110,12 +119,25 @@ publish for. Revisit if the package count grows; the clean upgrade path is Chang
 Both registries authenticate over OIDC, so `permissions: id-token: write` is declared at
 the workflow level and there is no long-lived publish token.
 
-- **Marketplace** — Azure Entra ID federated credential (`azure/login@v2` +
-  `vsce publish --azure-credential`), not a `VSCE_PAT`. Needs `AZURE_CLIENT_ID`
-  (an Entra ID app registration, which needs no Azure subscription) and
-  `AZURE_TENANT_ID`. The credential trusts the `marketplace` GitHub environment that
-  the publish jobs run in; the workflow's `azure-check` target verifies it and prints
-  the identity to add to the `RedwoodEDA` publisher's members.
+- **Marketplace** — Azure Entra ID workload identity (`azure/login@v2` +
+  `vsce publish --azure-credential`), not a `VSCE_PAT`. The pieces, all of which must agree:
+  - **Publisher** `RedwoodEDA` (marketplace.visualstudio.com/manage). Its members include
+    the app registration's Azure DevOps identity, as **Contributor**.
+  - **Entra ID app registration** (not a managed identity: it needs no Azure subscription,
+    so billing cannot disable it). Under Certificates & secrets -> Federated credentials, it
+    trusts issuer `https://token.actions.githubusercontent.com`, audience
+    `api://AzureADTokenExchange`, subject
+    `repo:rweda@21044133/makerchip-vscode-extension@1221948596:environment:marketplace`.
+  - **Repo OIDC setting** `use_immutable_subject: true` (the `@<id>` subject format above;
+    `gh api repos/rweda/makerchip-vscode-extension/actions/oidc/customization/sub`).
+  - **Repo secrets** `AZURE_CLIENT_ID` (the app's Application (client) ID) and
+    `AZURE_TENANT_ID`.
+  - **GitHub environment** `marketplace`, which the publish jobs run in: a required
+    reviewer, and deployment refs limited to tags `tlv-v*` and `makerchip-v*` (type *tag*,
+    not branch) plus branch `main`.
+
+  To verify the chain, or to find the identity to add as a publisher member, run the
+  workflow with target `azure-check`.
 - **npm** — npm trusted publishing, matching the sibling repo
   `@rweda/makerchip-view-client`. No `NPM_TOKEN`. Configure at npmjs.com -> the package's
   Settings -> Trusted Publisher, pointing at this repo and

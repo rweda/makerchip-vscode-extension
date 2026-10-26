@@ -1,29 +1,24 @@
 # Pre-publish cleanup — TODO
 
-**Temporary.** This is the punch list standing between us and the first real
-release. Delete this file once each package has shipped once.
+**Temporary.** Open release work. Delete this file once the grammar has shipped
+and the items below are resolved.
 
 How releases actually work — publish order, versioning policy, tag conventions,
 credentials — lives in [README.md](README.md#releasing). Build gotchas live in
 [CONTRIBUTING.md](CONTRIBUTING.md) and the per-package contributor guides.
 Nothing durable belongs here.
 
-## Remaining before the first publish
+## Remaining
 
-- Publish `makerchip` (tag `makerchip-v0.0.1`). `tlverilog` is live on the
-  Marketplace. The grammar's npm release can follow; it blocks neither.
+Both extensions are live on the Marketplace (`RedwoodEDA.tlverilog` 0.0.2,
+`RedwoodEDA.makerchip` 0.0.1). The grammar's first npm release is still to do.
+
 - Settle `engines.vscode` against the README: the manifest says `^1.95.0`, the
   README says 1.110. Raising `engines` blocks older VS Code and possibly
   Cursor, whose VS Code base lags; lowering the README is only safe if the
   extension works there.
-- After publishing, install `makerchip` from the Marketplace in a clean
-  profile and check that `tlverilog` comes with it. (A `.vsix` install does
-  not pull dependencies: makerchip installs alone but won't activate.)
-
-Done: version (`0.0.1`, pre-release via `"preview": true`), changelog content,
-manifest description/homepage/bugs/keywords, `npm test` (uses the in-repo
-`tlverilog`), install test of both `.vsix` files, and the Terms (deployed to
-makerchip.com, serving `/terms/updated`).
+- If you can reach the `Dmytro` publisher, deprecate `Dmytro.TL-Verilog` with
+  `RedwoodEDA.tlverilog` as its replacement.
 
 ## Decisions to record
 

@@ -20,6 +20,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { initializeResources, updateResources } from './resourceManager';
+import { initMakerchipDir } from './populateResources';
 import { registerMakerchipTool } from './makerchipTool';
 import { initToolActivation, getToolActivation } from './toolActivation';
 import { registerMakerchipParticipant } from './makerchipParticipant';
@@ -214,6 +215,7 @@ function logDevDiagnostics(context: vscode.ExtensionContext): void {
 
 export function activate(ctx: vscode.ExtensionContext) {
   context = ctx;  // Store context globally
+  initMakerchipDir(context);  // Before anything touches the data folder.
   log('Makerchip extension activating...');
   logDevDiagnostics(context);
   initTerms(context, getServerUrl);

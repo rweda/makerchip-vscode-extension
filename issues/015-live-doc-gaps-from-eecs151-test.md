@@ -29,5 +29,10 @@ deck.
 5. **`makerchip_compile` gives a false "unsaved changes" warning.** After a file was edited with the
    agent's edit tools, compile warned about unsaved changes even though the edits were on disk and
    were compiled.
+6. **`makerchip_get_viz_image` captures at the pane's on-screen size.** With a narrow VIZ pane, a
+   slide-sized figure came back about 320 px wide, too small to read overlay values. The workaround
+   is a one-frame `makerchip_capture_video` (`startCyc == endCyc`, `format: "gif"`, explicit
+   `width`/`height`, `mode: "fit-relative"`). Give `get_viz_image` `width`/`height` too, or point
+   to that workaround in its description.
 
 Embedded images from a `{view}` source and Type3 font styles are mono `027` and `026`.

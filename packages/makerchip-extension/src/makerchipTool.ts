@@ -4,7 +4,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { log } from './logger';
 import * as compileCache from './compileCache';
-import { MAKERCHIP_DIR, RESOURCES_DIR, CACHE_DIR } from './populateResources';
+import { RESOURCES_DIR, CACHE_DIR } from './populateResources';
 import { CeCompileTool } from './ceCompile';
 import { EnableToolsTool, getToolActivation } from './toolActivation';
 
@@ -17,7 +17,7 @@ interface MakerchipToolInput {
   /**
    * Inline TL-Verilog code to compile (or `true` for default code). If a string is provided,
    * creates a new unsaved document with this code. Pass `true` to instead open the bundled
-   * minimal scratch design (`~/.vscode-makerchip/minimal.tlv`) — the easy way to just open a
+   * minimal scratch design (`resources/minimal.tlv` in the Makerchip data folder) — the easy way to just open a
    * panel (e.g. to work with custom panes, the layout, or IDE tooling) without creating a
    * throwaway `.tlv` file.
    */
@@ -372,21 +372,20 @@ async function fetchAndSummarizeIntermediateFiles(compileId: string, panelName?:
   return lines.join('\n');
 }
 
-/** Path to the bundled minimal scratch design deployed by `populateResources`. */
-const MINIMAL_SCRATCH_PATH = path.join(RESOURCES_DIR, 'minimal.tlv');
-
 /**
  * Read the bundled minimal scratch design (loaded when `makerchip_compile` is
  * called with `code: true`). Throws a clear, actionable error if the reference
  * data has not been populated yet.
  */
 async function readMinimalScratchDesign(): Promise<string> {
+  // Deployed by `populateResources`.
+  const scratchPath = path.join(RESOURCES_DIR, 'minimal.tlv');
   try {
-    const bytes = await vscode.workspace.fs.readFile(vscode.Uri.file(MINIMAL_SCRATCH_PATH));
+    const bytes = await vscode.workspace.fs.readFile(vscode.Uri.file(scratchPath));
     return Buffer.from(bytes).toString('utf-8');
   } catch {
     throw new Error(
-      `Minimal scratch design not found at ${MINIMAL_SCRATCH_PATH}. ` +
+      `Minimal scratch design not found at ${scratchPath}. ` +
       `Run "Makerchip: Update Reference Data" to populate it, or pass explicit code/filePath.`
     );
   }
@@ -709,7 +708,8 @@ interface GetVizImageInput {
 
 /**
  * Why the agent may not capture the VIZ, given the PDFs whose content it shows (see the Live Doc
- * skill), or undefined if it may. `toFile`: the capture would be saved to a non-temp path.
+ * skill), or undefined if it may. `toFile`: the capture would be saved to a caller-named path (any
+ * path, even a temp one; only auto-named temp files are allowed under "chat" clearance).
  */
 async function vizCaptureRefusal(panelName: string | undefined, clearance: Clearance | undefined, toFile: boolean) {
   // A server predating getVizPdfDocuments cannot say; treat it as showing no PDF content. The
@@ -724,7 +724,7 @@ async function vizCaptureRefusal(panelName: string | undefined, clearance: Clear
   }
   if (!clearance) { return `${shows}Without \`clearance\`, this tool does not capture it. ${ASK_CLEARANCE}`; }
   if (clearance === 'chat' && toFile) {
-    return `${shows}With "chat" clearance, a capture can come back to you, or go to a temp file, but not to a file for the user.`;
+    return `${shows}With "chat" clearance, a capture can come back to you, or go to an auto-named temp file, but not to a file you name (even in a temp dir). Omit the file name.`;
   }
   return undefined;
 }

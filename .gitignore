@@ -3,3 +3,5 @@ dist
 node_modules
 .vscode-test/
 *.vsix
+# Development installs keep their Makerchip data folder in the checkout (see makerchipDirFor).
+.vscode-makerchip/

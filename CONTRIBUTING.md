@@ -56,6 +56,18 @@ Redwood-internal flow; see
 [DEVELOPMENT-INTERNAL.md](DEVELOPMENT-INTERNAL.md). You can also point any EDH at
 a specific server with the `makerchip.serverUrl` setting.
 
+An EDH coexists with a Marketplace install of the same extension:
+
+- It keeps its Makerchip data folder in the checkout, at
+  `packages/makerchip-extension/.vscode-makerchip/` (git-ignored), not in
+  `~/.vscode-makerchip`. The first launch clones its resources there.
+- It wins the shared Claude skill (`~/.claude/skills/makerchip/`) without a
+  version bump.
+
+The resource clones are write-protected, so run
+`chmod -R u+w packages/makerchip-extension/.vscode-makerchip` before
+`git clean -fdx`.
+
 ### Co-developing both extensions
 
 The "Run Extension" launch config (F5) and the `./launch` script both pass two

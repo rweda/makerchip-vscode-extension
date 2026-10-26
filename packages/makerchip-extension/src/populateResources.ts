@@ -1,7 +1,7 @@
 /*
- * For populating resources and skill(s) in ~/.vscode-makerchip/resources/.
+ * For populating resources and skill(s) in MAKERCHIP_DIR/resources/ (see initMakerchipDir).
  * This directory may be added to a workspace (by the Makerchip extension) as available RAG data for AI coding assistants.
- * Also creates ~/.vscode-makerchip/compile-cache/ for compilation results.
+ * Also creates MAKERCHIP_DIR/compile-cache/ for compilation results.
  */
 
 import * as vscode from 'vscode';
@@ -9,10 +9,23 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import { spawn } from 'child_process';
 import * as os from 'os';
-import { INTRO_TEMPLATE } from './claudeSkill';
+import { INTRO_TEMPLATE, makerchipDirFor } from './claudeSkill';
 
-// Directory structure
-export const MAKERCHIP_DIR = path.join(os.homedir(), '.vscode-makerchip');
+// Directory structure. Set once, first thing in activate(), by initMakerchipDir. Importers must read
+// these at use time, not capture them at module load.
+export let MAKERCHIP_DIR: string;
+export let RESOURCES_DIR: string;
+export let CACHE_DIR: string;
+export let HISTORY_FILE: string;
+export let TMP_DIR: string;
+
+export function initMakerchipDir(context: vscode.ExtensionContext): void {
+  MAKERCHIP_DIR = makerchipDirFor(context.extensionPath, context.extensionMode === vscode.ExtensionMode.Development);
+  RESOURCES_DIR = path.join(MAKERCHIP_DIR, MANAGED_ENTRIES.resources);
+  CACHE_DIR = path.join(MAKERCHIP_DIR, MANAGED_ENTRIES.compileCache);
+  HISTORY_FILE = path.join(MAKERCHIP_DIR, MANAGED_ENTRIES.compileHistory);
+  TMP_DIR = path.join(MAKERCHIP_DIR, MANAGED_ENTRIES.tmp);
+}
 
 /**
  * Every entry the extension manages directly under MAKERCHIP_DIR, and the single source of truth
@@ -68,10 +81,6 @@ const DEPRECATED_ARTIFACTS: ReadonlySet<string> = new Set([
  */
 const KEPT_FOREIGN_KEY = 'makerchip.keptForeignEntries';
 
-export const RESOURCES_DIR = path.join(MAKERCHIP_DIR, MANAGED_ENTRIES.resources);
-export const CACHE_DIR = path.join(MAKERCHIP_DIR, MANAGED_ENTRIES.compileCache);
-export const HISTORY_FILE = path.join(MAKERCHIP_DIR, MANAGED_ENTRIES.compileHistory);
-export const TMP_DIR = path.join(MAKERCHIP_DIR, MANAGED_ENTRIES.tmp);
 // Bump whenever a populate run must happen on existing installs — the path is otherwise gated to
 // a version change or 7 days (see checkResourcesNeedUpdate).
 export const RESOURCES_VERSION = '2.2.0';
@@ -790,7 +799,7 @@ async function copyResourceFile(
   const targetPath = path.join(targetDir, targetFilename);
 
   try {
-    await fs.copyFile(templatePath, targetPath);
+    await copyTemplate(templatePath, targetPath);
   } catch (error) {
     log(`  Warning: Failed to copy file to ${targetPath}: ${error}`);
   }
@@ -824,9 +833,18 @@ async function copyDirectory(src: string, dest: string): Promise<void> {
     if (entry.isDirectory()) {
       await copyDirectory(srcPath, destPath);
     } else {
-      await fs.copyFile(srcPath, destPath);
+      await copyTemplate(srcPath, destPath);
     }
   }
+}
+
+/**
+ * Copy a bundled text file, filling in the actual data folder for its `~/.vscode-makerchip`
+ * mentions (it differs for a development install; see makerchipDirFor).
+ */
+async function copyTemplate(src: string, dest: string): Promise<void> {
+  const content = await fs.readFile(src, 'utf-8');
+  await fs.writeFile(dest, content.replaceAll('~/.vscode-makerchip', MAKERCHIP_DIR), 'utf-8');
 }
 
 /**

@@ -62,6 +62,8 @@ The extension manages `~/.vscode-makerchip/` containing reference data for AI as
 - **skills/**: AI agent skills including [tlv-ecosystem.md](resources/skills/tlv-ecosystem.md)
 - **compile-cache/**: Compilation results for debugging - see [compile-cache/README.md](resources/compile-cache-README.md)
 
+`~/.vscode-makerchip/` can be large. It is left intact for future use when the extension is uninstalled, but it can be removed manually.
+
 If Claude Code is installed, the extension also writes a Makerchip skill to `~/.claude/skills/makerchip/`, so that Claude learns the rules for Makerchip tools before its first call. It is removed when the extension is uninstalled.
 
 ## Contributing
