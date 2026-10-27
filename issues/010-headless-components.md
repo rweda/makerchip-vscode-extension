@@ -42,8 +42,8 @@ Agent-authored code has no origin of its own, but that is not new here and not s
 Components — it is the same for an agent-authored third-party *pane*, and the identity model already
 covers it. The IDE stamps **`platform.<agent>`** (e.g. `platform.ai`) when the host relays an action
 on behalf of a less-trusted agent, distinguishing it from first-hand `platform` events, and it cannot
-forge the reserved `ide` identity. See `doc-src/plugin/Third_Party_Pane_API.md` in mono ("Mnemonics
-and identities"). What such an identity is *allowed* to do is the trust model's business, i.e. mono
+forge the reserved `ide` identity. See `doc-src/plugin/Third_Party_Pane_API.md` in mono ("Identities").
+What such an identity is *allowed* to do is the trust model's business, i.e. mono
 `issues/006-pane-api-trust-model.md` — not a new policy to invent here.
 
 What is genuinely specific to the one-shot agent case is lifetime, not identity:

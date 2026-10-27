@@ -22,16 +22,15 @@ map (derived from the top-file base name) can't enumerate them a priori.
 
 ## Remaining work
 
-- **Server (`mono_example_videos/sandhost/sandpiper-compiler`):** allow the results wildcard route
-  to serve `m4_include_url_file.*` and `sv_inc_url/*` (confirm they aren't excluded), and add the
-  resolved include set to the compile response/events so clients can enumerate them. This likely
-  means extending the `newcompile`/completion payload with the include listing.
-- **Extension:** on `compileStart`/completion, merge any announced includes into
-  `metadata.intermediateFiles` (with fetch URLs + a description), and pull them under
-  `fetchIntermediateFiles` like the other intermediates.
+- **Server (mono `sandhost/sandpiper-compiler`):** the results wildcard route (`Routing.coffee`)
+  already serves any file in the compile directory, includes included. Add the resolved include set
+  to the `sp-exitstatus` artifacts manifest (`SandPiperCompiler.coffee` `modelArtifacts`, emitted by
+  `CompileSocket.coffee`) so clients can enumerate them.
+- **Extension:** consume that manifest (the `sp-exitstatus` listener in `webview.ts` currently
+  ignores its `artifacts` argument), merge announced includes into `metadata.intermediateFiles`
+  (with fetch URLs + a description), and pull them under `fetchIntermediateFiles` like the other
+  intermediates.
 
 ## Notes
 
-- No `faas-mono` changes required; this is the active `mono_example_videos` server plus the
-  extension.
 - Keep the top-level intermediates working without this — includes are additive.

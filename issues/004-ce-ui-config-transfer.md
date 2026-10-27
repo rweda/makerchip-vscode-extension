@@ -11,7 +11,7 @@ settings (language, compiler, args, source) into the live CE UI so a user can wa
 compilation — triggered over the pane RPC channel (the `runOnWarpV`-style method), **without a full
 pane reload** (which destroys GoldenLayout state and any other panes).
 
-This is **deferred**. The headless CE-API path (see issue 005) covers compile-for-result and testing
+This is **deferred**. The headless CE-API path (`makerchip_ce_compile`, `ceCompile.ts`) covers compile-for-result and testing
 without any CE pane. This UI-transfer path is only needed when we specifically want the CE GUI itself
 to update, and is worth doing later once the environment has user momentum.
 
@@ -78,8 +78,7 @@ for the target compiler pane, emit `sourceAsm` with `build:true`, and return the
 
 ## Notes
 
-- Shared transforms extracted for the headless path (issue 005) — `toAsmRows`, `detectEntry`,
-  `SourceAsmPayload` — are reusable here for building the emitted `sourceAsm`.
+- `toAsmRows`, `detectEntry` and `SourceAsmPayload` already live in `parent-bridge.ts` (mirrored in
+  the extension's `ceCompile.ts`; see 016) and are reusable here for building the emitted `sourceAsm`.
 - Deployed CE runs the built bundle: any `parent-bridge.ts` change needs a rebuild+redeploy
   (`make prebuild` via `ce-update`) to take effect on `ce.makerchip.com`.
-- `parent-bridge.ts` has uncommitted edits from prior work — don't clobber.

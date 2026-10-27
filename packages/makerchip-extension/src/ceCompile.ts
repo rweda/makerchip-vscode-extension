@@ -3,7 +3,7 @@ import { log } from './logger';
 import { requireTermsAccepted } from './terms';
 
 /**
- * Headless Compiler Explorer (CE) compile client — see issues/005-headless-ce-api-compile.md.
+ * Headless Compiler Explorer (CE) compile client.
  *
  * Compiles a program through the CE HTTP API (`POST /api/compiler/<id>/compile`) with **no
  * dependency on the CE GUI pane**. The CE `/api/*` surface is fully CORS-open and this runs in the
@@ -11,8 +11,7 @@ import { requireTermsAccepted } from './terms';
  * the returned assembly is what WARP-V's `~assemble` consumes.
  *
  * The `toAsmRows` / `detectEntry` transforms mirror those in the CE fork's
- * `static/parent-bridge.ts` (the pane path); they are re-implemented here (~20 lines) rather than
- * shared cross-repo.
+ * `static/parent-bridge.ts` (the pane path); keep the two in sync. See issues/016-share-ce-sourceasm-helpers.md.
  */
 
 /** Deployed CE origin (dev override: http://localhost:10240). */
@@ -249,7 +248,13 @@ export async function compileOnCe(options: CompileOnCeOptions): Promise<CeCompil
 // loads and runs the program. `detectEntry` GENERATES the entry label for WARP-V's crt0 preamble;
 // a null entry is valid (hand-written asm), so delivery is not gated on it.
 
-/** Deployed WARP-V configurator origin (dev override: http://localhost:3009). */
+/**
+ * Deployed WARP-V configurator origin. For a dev configurator (http://localhost:3009) under a
+ * clone-mode IDE (served over an HTTPS tunnel), the pane cannot frame plain http (mixed content:
+ * it never signals `ready` and `callPane` times out). Tunnel it instead:
+ * `cloudflared tunnel --url http://localhost:3009 --http-host-header localhost:3009`, pass that URL
+ * as `warpvUrl`, and use a fresh `warpvPane` (existing panes are reused by mnemonic, broken or not).
+ */
 export const DEFAULT_WARPV_URL = 'https://warp-v.org';
 
 /** The `sourceAsm` payload WARP-V consumes (mirrors CE's pane emit). */
@@ -382,7 +387,7 @@ interface CeCompileToolInput {
 
 /**
  * Headless CE compile tool: compiles source via the CE API (no CE pane) and returns the assembly
- * plus a compile summary. See issues/005-headless-ce-api-compile.md.
+ * plus a compile summary.
  */
 export class CeCompileTool implements vscode.LanguageModelTool<CeCompileToolInput> {
   async prepareInvocation(

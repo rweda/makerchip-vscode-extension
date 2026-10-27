@@ -34,21 +34,28 @@ with plain file edits (AI-friendly).
 ## Index
 
 - [001: LM tool to open/restore a webview from the compile cache](001-restore-webview-from-compile-cache.md)
-- [002: Restore/waveform VCD parser rejects valid batch (non-monotonic) VCDs](002-vcd-parser-nonmonotonic-batch.md)
 - [003: Associate a compiled file with its Makerchip panel and reuse it](003-associate-file-with-makerchip-panel.md)
 - [004: Transfer programs/settings into the CE UI pane (in-place, no reload)](004-ce-ui-config-transfer.md)
-- [005: Headless CE-API compile path (no CE pane)](005-headless-ce-api-compile.md)
 - [007: Serve and announce compile include files](007-serve-announce-include-files.md)
 - [009: SystemVerilog language features inside TL-Verilog](009-sv-features-in-tlv.md)
 - [010: Agent one-shot tasks via a headless IDE Component](010-headless-components.md)
 - [012: An IDE call made while a panel is still connecting times out](012-ide-call-timeout-vs-panel-readiness.md)
 - [013: Large results from batched `makerchip_invoke_tool` calls overwrite each other](013-batched-large-results-overwrite.md)
 - [015: Live Doc gaps found in user-model testing](015-live-doc-gaps-from-eecs151-test.md)
+- [016: Share CE `sourceAsm` helpers between the CE pane and headless compile](016-share-ce-sourceasm-helpers.md)
 
 ## Closed
 
 Older entries link to deleted files; recover those with `git log --follow -- issues/NNN-slug.md`.
 
+- [002: Waveform VCD parser rejects valid batch (non-monotonic) VCDs](https://github.com/rweda/makerchip-vscode-extension/blob/f8c7db3/issues/002-vcd-parser-nonmonotonic-batch.md)
+  Closed 2026-10-27: misdiagnosed; batch VCDs are monotonic. Concurrent `fs.appendFile` calls
+  reordered cached VCD chunks, so only restore saw backward time. Fixed by 17ae536 (serialized
+  `compileCache.appendFile`).
+- [005: Headless CE-API compile path (no CE pane)](https://github.com/rweda/makerchip-vscode-extension/blob/f8c7db3/issues/005-headless-ce-api-compile.md)
+  Closed 2026-10-27: shipped as `makerchip_ce_compile` (`ceCompile.ts`), with the WARP-V delivery
+  handlers deployed (mono, warp-v.org). Helper sharing with CE moved to 016; the visible-CE-UI
+  variant remains in 004.
 - [011: Feedback from Yashvini](https://github.com/rweda/makerchip-vscode-extension/blob/2751c293/issues/011-yashvini-feedback.md)
   Closed 2026-10-23
 - [014: `makerchip_extract_pdf_figure` has no cheap way to survey a document](014-extract-pdf-figure-survey-mode.md)
