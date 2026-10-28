@@ -39,15 +39,19 @@ with plain file edits (AI-friendly).
 - [007: Serve and announce compile include files](007-serve-announce-include-files.md)
 - [009: SystemVerilog language features inside TL-Verilog](009-sv-features-in-tlv.md)
 - [010: Agent one-shot tasks via a headless IDE Component](010-headless-components.md)
-- [012: An IDE call made while a panel is still connecting times out](012-ide-call-timeout-vs-panel-readiness.md)
-- [013: Large results from batched `makerchip_invoke_tool` calls overwrite each other](013-batched-large-results-overwrite.md)
 - [015: Live Doc gaps found in user-model testing](015-live-doc-gaps-from-eecs151-test.md)
 - [016: Share CE `sourceAsm` helpers between the CE pane and headless compile](016-share-ce-sourceasm-helpers.md)
+- [017: Tool errors are returned as ordinary results, so batches count them ok](017-tool-errors-returned-as-results.md)
 
 ## Closed
 
 Older entries link to deleted files; recover those with `git log --follow -- issues/NNN-slug.md`.
 
+- [013: Large results from batched `makerchip_invoke_tool` calls overwrite each other](https://github.com/rweda/makerchip-vscode-extension/blob/7a1e27b/issues/013-batched-large-results-overwrite.md)
+  Closed 2026-10-27: verified; a 5-entry, 78 KB batch returned one merged text part, spilled to one file.
+- [012: An IDE call made while a panel is still connecting times out](https://github.com/rweda/makerchip-vscode-extension/blob/7a1e27b/issues/012-ide-call-timeout-vs-panel-readiness.md)
+  Closed 2026-10-27: likely a red herring (a panel connects in under 3 s; probably the Microsoft
+  harness hang). Its errors-reported-as-results point moved to `017`.
 - [002: Waveform VCD parser rejects valid batch (non-monotonic) VCDs](https://github.com/rweda/makerchip-vscode-extension/blob/f8c7db3/issues/002-vcd-parser-nonmonotonic-batch.md)
   Closed 2026-10-27: misdiagnosed; batch VCDs are monotonic. Concurrent `fs.appendFile` calls
   reordered cached VCD chunks, so only restore saw backward time. Fixed by 17ae536 (serialized
