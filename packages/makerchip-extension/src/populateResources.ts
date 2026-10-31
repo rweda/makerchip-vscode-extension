@@ -18,9 +18,18 @@ export let RESOURCES_DIR: string;
 export let CACHE_DIR: string;
 export let HISTORY_FILE: string;
 export let TMP_DIR: string;
+/**
+ * Whether this install is an Extension Development Host (F5 / ./launch) running from source.
+ * THE central home for this bit — set here alongside the other activate()-time state so every
+ * consumer agrees. claudeSkill.ts is the one module that cannot import it (it must stay
+ * vscode-free for the uninstall script, and it is imported BY this module), so it takes
+ * devMode as a parameter instead; callers pass DEV_MODE.
+ */
+export let DEV_MODE: boolean;
 
 export function initMakerchipDir(context: vscode.ExtensionContext): void {
-  MAKERCHIP_DIR = makerchipDirFor(context.extensionPath, context.extensionMode === vscode.ExtensionMode.Development);
+  DEV_MODE = context.extensionMode === vscode.ExtensionMode.Development;
+  MAKERCHIP_DIR = makerchipDirFor(context.extensionPath, DEV_MODE);
   RESOURCES_DIR = path.join(MAKERCHIP_DIR, MANAGED_ENTRIES.resources);
   CACHE_DIR = path.join(MAKERCHIP_DIR, MANAGED_ENTRIES.compileCache);
   HISTORY_FILE = path.join(MAKERCHIP_DIR, MANAGED_ENTRIES.compileHistory);
@@ -923,7 +932,26 @@ applyTo:
     log('  Generated makerchip-api-features.md from Makerchip-public docs');
   } catch (error) {
     log(`  Warning: Could not generate makerchip-api-features.md: ${error}`);
-    log('  (Makerchip-public repository may not be available or docs may not be built)');
+    // Distinguish "clone missing" (clone/update failed; the repository flow already told the
+    // user) from "clone present but the doc is absent". The latter means Makerchip-public's
+    // docs publishing regressed upstream — it happened once (mono gitignored docs/plugin_api/,
+    // so CI's `git add` silently skipped it) and nothing but these log lines surfaced it, so
+    // make it loud here, in the consumer that depends on the file.
+    const repoPresent = await fs.stat(path.join(RESOURCES_DIR, 'Makerchip-public'))
+      .then(s => s.isDirectory(), () => false);
+    if (repoPresent) {
+      log('  Makerchip-public is cloned but docs/plugin_api/Plugin_API.md is missing:');
+      log('  its docs publishing is likely broken upstream.');
+      // Popup only in dev mode: an end user cannot act on this, but a developer must see it.
+      if (DEV_MODE) {
+        vscode.window.showWarningMessage(
+          'Makerchip reference data is missing the plugin API docs ' +
+          '(Makerchip-public/docs/plugin_api/Plugin_API.md), so the makerchip-api-features ' +
+          'skill was not generated. Makerchip-public docs publishing is likely broken.');
+      }
+    } else {
+      log('  (Makerchip-public repository is not available; see repository update messages above.)');
+    }
   }
 }
 

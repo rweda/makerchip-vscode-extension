@@ -20,7 +20,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { initializeResources, updateResources } from './resourceManager';
-import { initMakerchipDir } from './populateResources';
+import { initMakerchipDir, DEV_MODE } from './populateResources';
 import { registerMakerchipTool } from './makerchipTool';
 import { initToolActivation, getToolActivation } from './toolActivation';
 import { registerMakerchipParticipant } from './makerchipParticipant';
@@ -188,7 +188,7 @@ function claudeExtensionInstalled(): boolean {
  * logged separately by getServerUrl). Gated on Development mode so production users see none of it.
  */
 function logDevDiagnostics(context: vscode.ExtensionContext): void {
-  if (context.extensionMode !== vscode.ExtensionMode.Development) { return; }
+  if (!DEV_MODE) { return; }
 
   // context.logUri is this extension's per-ext log dir; its parent (the window's `exthost` dir)
   // also holds output_logging_<ts>/<n>-Makerchip.log — the OutputChannel's backing file. Resolve
@@ -274,7 +274,7 @@ export function activate(ctx: vscode.ExtensionContext) {
     extensionPath: context.extensionPath,
     version: context.extension.packageJSON.version,
     host: vscode.env.appName,
-    devMode: context.extensionMode === vscode.ExtensionMode.Development,
+    devMode: DEV_MODE,
   }, claudeExtensionInstalled()).then(result => {
     log(`Claude skill ${result.action}: ${result.skillPath}`);
     // Measured 2026-09-23: an already-open chat DOES pick up a newly installed skill, and even
