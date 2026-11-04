@@ -20,7 +20,7 @@
  *        - Invokes IDE methods via ide.api[method](...args) so only the public
  *          IdePlugin API surface is reachable from the extension.
  *
- *   3. IDE iframe (Makerchip IDE: editor-less panes, layout, waveform, ...)
+ *   3. IDE iframe (Makerchip IDE: editor-less views, layout, waveform, ...)
  *        - Loaded from the server; the actual UI the user interacts with.
  *
  * These are separate contexts with no shared memory; all coordination is by
@@ -36,7 +36,7 @@
  *   a. Reload with a cached compile:
  *        webview posts 'restoreRequest'  ->  extension reads cached result files
  *        + metadata from disk, posts 'restoreData'  ->  webview applies the saved
- *        layout (ide.api.setLayoutState) so the restored panes exist, injects the
+ *        layout (ide.api.setLayoutState) so the restored views exist, injects the
  *        payloads into the IDE (ide...ideMethods.compilation*), then restores the
  *        saved current cycle (ide.api.setCycle). Falls back to recompiling cached
  *        source if the cache was pruned.
@@ -271,6 +271,33 @@ async function serializeIdeResult(result: any): Promise<any> {
   return result;
 }
 
+// Servers predating the Pane->View rename (IdePlugin < 2.1.0, mono issues/035-view-nomenclature.md)
+// use "pane" names. Adapt their api in place so the extension uses current names everywhere.
+// Remove once supported servers are all >= 2.1.0.
+function adaptPreViewServerApi(api: any): void {
+  if (typeof api.getAvailableViews === 'function') { return; }
+  const legacyNames: Record<string, string> = {
+    openView: 'openPane', activateView: 'activatePane', openThirdPartyView: 'openThirdPartyPane',
+    reserveView: 'reservePane', getAvailableViews: 'getAvailablePanes', fitView: 'fitPane', callView: 'callPane',
+  };
+  for (const [name, legacy] of Object.entries(legacyNames)) { api[name] = api[legacy]; }
+  // Layout state is a tree of {views, activeView} leaves under {sides: {...}} splits.
+  const renameKeys = (state: any, keys: Record<string, string>): any => {
+    if (!state || typeof state !== 'object') { return state; }
+    const out: any = {};
+    for (const [k, v] of Object.entries(state)) { out[keys[k] ?? k] = v; }
+    if (out.sides) {
+      out.sides = Object.fromEntries(Object.entries(out.sides).map(([k, v]) => [k, renameKeys(v, keys)]));
+    }
+    return out;
+  };
+  const { getLayoutState, setLayoutState } = api;
+  api.getLayoutState = async (...args: any[]) =>
+    renameKeys(await getLayoutState(...args), { panes: 'views', activePane: 'activeView' });
+  api.setLayoutState = (state: any, ...args: any[]) =>
+    setLayoutState(renameKeys(state, { views: 'panes', activeView: 'activePane' }), ...args);
+}
+
 // Convenience functions for sending notifications to extension
 function notifyInfo(message: string, action?: string, context?: any): void {
   console.log('[webview notification]', message);
@@ -346,7 +373,8 @@ import(`${serverUrl}/dist/makerchip-plugin.js`).then((module: any) => {
 
     onReady() {
       console.log("Makerchip ready");
-      // All panes have attached their Session listeners. Kick off restore (or just
+      adaptPreViewServerApi(this.api);
+      // All views have attached their Session listeners. Kick off restore (or just
       // signal ready for a fresh load), then release the splash when done.
       void this.kickoffRestore();
       return this.restoreGate;
@@ -380,9 +408,9 @@ import(`${serverUrl}/dist/makerchip-plugin.js`).then((module: any) => {
     }
 
     // Apply the persisted layout. Run this BEFORE injecting results so the
-    // restored panes already exist to receive the compilation events. (Result
-    // injection only feeds data to existing panes; it neither opens nor activates
-    // panes, so it would not disturb the layout in any case.)
+    // restored views already exist to receive the compilation events. (Result
+    // injection only feeds data to existing views; it neither opens nor activates
+    // views, so it would not disturb the layout in any case.)
     private async applyLayout() {
       if (!this.saved.layoutState) { return; }
       try {
@@ -465,7 +493,7 @@ import(`${serverUrl}/dist/makerchip-plugin.js`).then((module: any) => {
       let layoutState: any;
       try {
         // forTransfer captures the data needed to rebuild the layout in a fresh
-        // IDE instance (the reload case), including any third-party panes.
+        // IDE instance (the reload case), including any third-party views.
         layoutState = await this.api.getLayoutState({ forTransfer: true });
       } catch (e) {
         console.warn('[webview][persist] Could not capture layout state:', e);
@@ -653,8 +681,8 @@ import(`${serverUrl}/dist/makerchip-plugin.js`).then((module: any) => {
   // extension hangs).
   // @ts-ignore - VSCodeMakerchip derives from an `any`-typed IdePlugin base
   return VSCodeMakerchip.create('webview-makerchip', { hasEditor: false, defaultDarkMode: window.DEFAULT_DARK_MODE, termsAcceptedAt: window.TERMS_ACCEPTED_AT }).then((ide: VSCodeMakerchip) => {
-    // Forward a resize into the IDE iframe so jQuery Layout and the VizPane canvas re-fit. VS Code
-    // webviews don't propagate these automatically, and unlike the CSS-driven panes the VizPane's
+    // Forward a resize into the IDE iframe so jQuery Layout and the VizView canvas re-fit. VS Code
+    // webviews don't propagate these automatically, and unlike the CSS-driven views the VizView's
     // Fabric canvas is sized in JS (fixed pixel width/height), so it keeps stale dimensions until
     // something calls its resize().
     const forwardResizeToIframe = () => {
@@ -693,7 +721,7 @@ import(`${serverUrl}/dist/makerchip-plugin.js`).then((module: any) => {
           if (!ide.api || typeof ide.api[method] !== 'function') {
             throw new Error(`API method '${method}' not found or not a function`);
           }
-          // Gate on restore completion: panes must be ready and any restore finished
+          // Gate on restore completion: views must be ready and any restore finished
           // before extension-issued commands run (matches Session.loaded assertion).
           await ide.restoreGate;
           const result = await ide.api[method](...args);

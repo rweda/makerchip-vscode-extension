@@ -18,13 +18,13 @@ interface MakerchipToolInput {
    * Inline TL-Verilog code to compile (or `true` for default code). If a string is provided,
    * creates a new unsaved document with this code. Pass `true` to instead open the bundled
    * minimal scratch design (`resources/minimal.tlv` in the Makerchip data folder) — the easy way to just open a
-   * panel (e.g. to work with custom panes, the layout, or IDE tooling) without creating a
+   * panel (e.g. to work with custom views, the layout, or IDE tooling) without creating a
    * throwaway `.tlv` file.
    */
   code?: string | boolean;
   /**
    * One-shot mode: compile the given `code`/`filePath` directly into the panel WITHOUT opening
-   * an editor (so there is nothing to edit). Use it to open a panel for pane/layout/IDE-tooling
+   * an editor (so there is nothing to edit). Use it to open a panel for view/layout/IDE-tooling
    * work, or to run a design once, without leaving an editor tab behind.
    */
   oneShot?: boolean;
@@ -72,7 +72,7 @@ interface MakerchipToolInput {
   /**
    * A `compile` option, forwarded in the plugin's `compile(code, opts, settings)` `opts` object:
    * whether to generate the diagram/SVG (default true). No other results are affected.
-   * The IDE's diagram pane shows no-result status.
+   * The IDE's diagram view shows no-result status.
    * Note: If more options are added to `opts`, consider exposing `opts` (with `sim`/`dot` inside).
    */
   dot?: boolean;
@@ -88,7 +88,7 @@ interface MakerchipToolInput {
 }
 
 interface IdeFunctionCallInput {
-  /** The IDE method to invoke (e.g., 'compile', 'activatePane', 'setCode', 'getKeyframe', etc.) */
+  /** The IDE method to invoke (e.g., 'compile', 'activateView', 'setCode', 'getKeyframe', etc.) */
   method: string;
   /** Arguments to pass to the IDE method */
   args?: any[];
@@ -1090,7 +1090,7 @@ export class ExtractPdfFigureTool implements vscode.LanguageModelTool<ExtractPdf
 
       // Generous timeout: the command default is 10s, which a large document would blow through
       // -- a local PDF crosses three hops as base64 before pdf.js even parses it. Matches the
-      // 120s used for pushing a PDF into a pane.
+      // 120s used for pushing a PDF into a view.
       const PDF_EXTRACT_TIMEOUT_MS = 120000;
       const callExtract = (o: Record<string, any>) => vscode.commands.executeCommand(
         'makerchip.callIdeMethodWithResult',
@@ -1317,9 +1317,9 @@ interface CaptureVideoInput {
   cyclesPerSecond?: number;
   /** Video bitrate in Mbps for MP4 output; ignored for GIF (default: 2.5, recommended: 10 for high quality) */
   Mbps?: number;
-  /** Recording width in pixels. Defaults to the live VIZ pane canvas width. Set this (with height) to record at a fixed resolution/aspect independent of the pane size. */
+  /** Recording width in pixels. Defaults to the live VIZ view canvas width. Set this (with height) to record at a fixed resolution/aspect independent of the view size. */
   width?: number;
-  /** Recording height in pixels. Defaults to the live VIZ pane canvas height. Set this (with width) to record at a fixed resolution/aspect independent of the pane size. */
+  /** Recording height in pixels. Defaults to the live VIZ view canvas height. Set this (with width) to record at a fixed resolution/aspect independent of the view size. */
   height?: number;
   /** CSS canvas background color (e.g. 'white' or '#1e1e1e'). Defaults to the VIZ default. */
   backgroundColor?: string;
@@ -1346,7 +1346,7 @@ interface CaptureVideoInput {
    * modes (see `mode`) keyframes may be omitted for no camera motion (records the current camera for 'viz-relative' or
    * the whole-design fit for 'fit-relative'); in 'absolute' mode the current camera is not used, so
    * keyframes are REQUIRED (at least one entry) and `default` only fills in omitted per-keyframe
-   * properties. See VizPane.captureVideo for the full model.
+   * properties. See VizView.captureVideo for the full model.
    */
   keyframes?: Array<{ cycle?: number; scale?: number; focus?: { x: number; y: number }; width?: number; height?: number }>;
   /**
@@ -1432,9 +1432,9 @@ export class CaptureVideoTool implements vscode.LanguageModelTool<CaptureVideoIn
       // 'auto' means let the IDE pick (GIF for one frame/cycle, H.264 MP4 otherwise).
       if (format !== 'auto') videoOptions.format = format;
       if (fps != null) videoOptions.fps = fps;
-      // Optional fixed recording resolution / aspect, independent of the live VIZ pane size.
-      // VizPane.captureVideo renders in its own offscreen (headless) VizRecorder canvas at
-      // these dimensions; when omitted it defaults to the live pane canvas size.
+      // Optional fixed recording resolution / aspect, independent of the live VIZ view size.
+      // VizView.captureVideo renders in its own offscreen (headless) VizRecorder canvas at
+      // these dimensions; when omitted it defaults to the live view canvas size.
       if (typeof width === 'number') videoOptions.width = width;
       if (typeof height === 'number') videoOptions.height = height;
       if (typeof backgroundColor === 'string') videoOptions.backgroundColor = backgroundColor;
@@ -1456,7 +1456,7 @@ export class CaptureVideoTool implements vscode.LanguageModelTool<CaptureVideoIn
       const TIMEOUT_FLOOR_MS = 2 * 60 * 1000; // added to the margined estimate (also acts as a min timeout)
       const MAX_EST_MS = 30 * 60 * 1000; // refuse jobs whose estimate exceeds this (before margin/floor)
       const totalFrames = (endCyc - startCyc + 1) * Math.max(1, framesPerCycle);
-      // Resolution defaults to the live pane size when width/height are omitted; assume ~2 MP in that case.
+      // Resolution defaults to the live view size when width/height are omitted; assume ~2 MP in that case.
       const megapixels =
         typeof width === 'number' && typeof height === 'number'
           ? Math.max(0.1, (width * height) / 1e6)
@@ -1610,7 +1610,7 @@ export class CaptureVideoTool implements vscode.LanguageModelTool<CaptureVideoIn
             'No simulation data available. Make sure you have:\n' +
             '1. Compiled TL-Verilog code with VIZ\n' +
             '2. The compilation completed successfully\n' +
-            '3. The VIZ pane is visible and showing simulation results'
+            '3. The VIZ view is visible and showing simulation results'
           )
         ]);
       }
@@ -1624,75 +1624,75 @@ export class CaptureVideoTool implements vscode.LanguageModelTool<CaptureVideoIn
   }
 }
 
-interface GetAvailablePanesInput {
+interface GetAvailableViewsInput {
   /** Optional panel name to target. If not provided, uses the default panel. */
   panelName?: string;
 }
 
 /**
- * Language Model tool to get all available pane mnemonics
+ * Language Model tool to get all available view mnemonics
  */
-export class GetAvailablePanesTool implements vscode.LanguageModelTool<GetAvailablePanesInput> {
+export class GetAvailableViewsTool implements vscode.LanguageModelTool<GetAvailableViewsInput> {
 
   async prepareInvocation(
-    options: vscode.LanguageModelToolInvocationPrepareOptions<GetAvailablePanesInput>,
+    options: vscode.LanguageModelToolInvocationPrepareOptions<GetAvailableViewsInput>,
     _token: vscode.CancellationToken
   ): Promise<vscode.PreparedToolInvocation> {
     return {
-      invocationMessage: `Getting available panes...`
+      invocationMessage: `Getting available views...`
     };
   }
 
   async invoke(
-    options: vscode.LanguageModelToolInvocationOptions<GetAvailablePanesInput>,
+    options: vscode.LanguageModelToolInvocationOptions<GetAvailableViewsInput>,
     _token: vscode.CancellationToken
   ): Promise<vscode.LanguageModelToolResult> {
     try {
       const { panelName } = options.input;
 
-      // Call the IDE method to get available panes
-      const panes = await vscode.commands.executeCommand(
+      // Call the IDE method to get available views
+      const views = await vscode.commands.executeCommand(
         'makerchip.callIdeMethodWithResult',
-        'getAvailablePanes',
+        'getAvailableViews',
         [],
         panelName
       ) as Array<{mnemonic: string, displayName: string, description: string, isStatic: boolean, isThirdParty: boolean, available: boolean, contentType?: string}>;
 
-      if (!panes || panes.length === 0) {
+      if (!views || views.length === 0) {
         return new vscode.LanguageModelToolResult([
-          new vscode.LanguageModelTextPart('No panes available')
+          new vscode.LanguageModelTextPart('No views available')
         ]);
       }
 
       // Format the output
-      const mainPanes = panes.filter(p => !p.isStatic && !p.isThirdParty);
-      const staticPanes = panes.filter(p => p.isStatic);
-      const thirdPartyPanes = panes.filter(p => p.isThirdParty);
+      const mainViews = views.filter(p => !p.isStatic && !p.isThirdParty);
+      const staticViews = views.filter(p => p.isStatic);
+      const thirdPartyViews = views.filter(p => p.isThirdParty);
 
-      let result = '**Available Panes:**\n\n';
+      let result = '**Available Views:**\n\n';
 
-      if (mainPanes.length > 0) {
-        result += '**Main IDE Panes:**\n';
-        for (const pane of mainPanes) {
-          const status = pane.available ? '' : ' *(not available in this instance)*';
-          result += `- **${pane.mnemonic}**${status}: ${pane.description}\n`;
+      if (mainViews.length > 0) {
+        result += '**Main IDE Views:**\n';
+        for (const view of mainViews) {
+          const status = view.available ? '' : ' *(not available in this instance)*';
+          result += `- **${view.mnemonic}**${status}: ${view.description}\n`;
         }
         result += '\n';
       }
 
-      if (staticPanes.length > 0) {
-        result += '**Static Panes (tutorials, docs, etc.):**\n';
-        for (const pane of staticPanes) {
-          result += `- **${pane.mnemonic}**: ${pane.description}\n`;
+      if (staticViews.length > 0) {
+        result += '**Static Views (tutorials, docs, etc.):**\n';
+        for (const view of staticViews) {
+          result += `- **${view.mnemonic}**: ${view.description}\n`;
         }
         result += '\n';
       }
 
-      if (thirdPartyPanes.length > 0) {
-        result += '**Third-Party Panes:**\n';
-        for (const pane of thirdPartyPanes) {
-          const contentInfo = pane.contentType ? ` (${pane.contentType})` : '';
-          result += `- **${pane.mnemonic}**${contentInfo}: ${pane.description}\n`;
+      if (thirdPartyViews.length > 0) {
+        result += '**Third-Party Views:**\n';
+        for (const view of thirdPartyViews) {
+          const contentInfo = view.contentType ? ` (${view.contentType})` : '';
+          result += `- **${view.mnemonic}**${contentInfo}: ${view.description}\n`;
         }
       }
 
@@ -1703,7 +1703,7 @@ export class GetAvailablePanesTool implements vscode.LanguageModelTool<GetAvaila
     } catch (error: any) {
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
-          `Failed to get available panes: ${error.message}`
+          `Failed to get available views: ${error.message}`
         )
       ]);
     }
@@ -1711,29 +1711,29 @@ export class GetAvailablePanesTool implements vscode.LanguageModelTool<GetAvaila
 }
 
 /**
- * Third-party pane object stored inline in the panes array (recoverable panes only).
- * Non-recoverable third-party panes are stored as simple strings (mnemonics).
+ * Third-party view object stored inline in the views array (recoverable views only).
+ * Non-recoverable third-party views are stored as simple strings (mnemonics).
  */
-interface ThirdPartyPaneObject {
+interface ThirdPartyViewObject {
   mnemonic: string;      // Tab title
   contentType: string;   // "pdf" or "iframe"
   contentParams: {
     contentUrl: string;
-    // Future pane-specific parameters would go here
+    // Future view-specific parameters would go here
     // NOTE: Properties must maintain consistent ordering for state comparison
   };
 }
 
 /**
  * Layout state structure matching Makerchip IDE's FlexSplit/TabbedView hierarchy.
- * Pane ordering is preserved. Panes array contains mixed types:
- * - Strings: static panes or non-recoverable third-party panes (mnemonic only)
- * - Objects: recoverable third-party panes (with full creation data)
+ * View ordering is preserved. Views array contains mixed types:
+ * - Strings: static views or non-recoverable third-party views (mnemonic only)
+ * - Objects: recoverable third-party views (with full creation data)
  */
 interface LayoutState {
   // TabbedView state (leaf nodes)
-  panes?: Array<string | ThirdPartyPaneObject>;  // Mixed types preserve ordering
-  activePane?: string | null;
+  views?: Array<string | ThirdPartyViewObject>;  // Mixed types preserve ordering
+  activeView?: string | null;
   path?: string;  // Optional path for restoration
 
   // FlexSplit state (container nodes)
@@ -1750,8 +1750,8 @@ interface GetLayoutStateInput {
   /** Optional panel name to target. If not provided, uses the default panel. */
   panelName?: string;
   /**
-   * If true, include third-party panes in the state for cross-instance recovery.
-   * If false (default), exclude third-party panes (useful for same-instance rearrangement).
+   * If true, include third-party views in the state for cross-instance recovery.
+   * If false (default), exclude third-party views (useful for same-instance rearrangement).
    * @default false
    */
   forTransfer?: boolean;
@@ -1866,8 +1866,8 @@ export class SetLayoutStateTool implements vscode.LanguageModelTool<SetLayoutSta
   }
 }
 
-interface OpenPaneInput {
-  /** The mnemonic (unique identifier) of the pane to open or activate */
+interface OpenViewInput {
+  /** The mnemonic (unique identifier) of the view to open or activate */
   mnemonic: string;
   /** If true, open in background without activating. Default is false (activate). */
   background?: boolean;
@@ -1876,10 +1876,10 @@ interface OpenPaneInput {
 }
 
 /**
- * Language Model tool to open or activate an IDE pane by mnemonic
+ * Language Model tool to open or activate an IDE view by mnemonic
  */
-interface OpenThirdPartyPaneInput {
-  /** The display name for the pane (used as tab label). Will be uniquified if needed. */
+interface OpenThirdPartyViewInput {
+  /** The display name for the view (used as tab label). Will be uniquified if needed. */
   mnemonic: string;
   /** Content type: "pdf" for PDF viewer or "iframe" for embedded web content */
   contentType: 'pdf' | 'iframe';
@@ -1889,8 +1889,8 @@ interface OpenThirdPartyPaneInput {
      * URL to the content. The IDE sandbox CSP governs what is actually reachable:
      * `https:` and `blob:` (and same-origin) work. `file://` does NOT -- browsers block
      * local-file loads from an https document beneath CSP, so no CSP change can enable it.
-     * `http://` is blocked/upgraded, and `data:` is permitted for `iframe` panes (frame-src)
-     * but NOT for `pdf` panes, whose viewer FETCHES the file (connect-src).
+     * `http://` is blocked/upgraded, and `data:` is permitted for `iframe` views (frame-src)
+     * but NOT for `pdf` views, whose viewer FETCHES the file (connect-src).
      * To show a local file, use `filePath` -- do not hand-build a file:// or data: URL.
      */
     contentUrl?: string;
@@ -1899,24 +1899,24 @@ interface OpenThirdPartyPaneInput {
      * contents never pass through the model context window. Takes precedence over contentUrl.
      *
      * This is the supported way to display a local document -- including a licensed PDF that is
-     * not publicly reachable. For `iframe` panes the extension builds a `data:` URI (permitted by
-     * frame-src, and its opaque origin isolates the content). For `pdf` panes a data: URI does not
-     * work (see contentUrl above); those are delivered as raw bytes over the pane channel instead.
+     * not publicly reachable. For `iframe` views the extension builds a `data:` URI (permitted by
+     * frame-src, and its opaque origin isolates the content). For `pdf` views a data: URI does not
+     * work (see contentUrl above); those are delivered as raw bytes over the view channel instead.
      */
     filePath?: string;
   };
-  /** Optional settings for the pane */
+  /** Optional settings for the view */
   options?: {
-    /** If true, don't activate the pane immediately (default: false) */
+    /** If true, don't activate the view immediately (default: false) */
     background?: boolean;
-    /** If true, pane data won't be stored for layout recovery (default: false) */
+    /** If true, view data won't be stored for layout recovery (default: false) */
     nonTransferrable?: boolean;
     /**
-     * Optional channel contract wiring this pane onto the IDE communication bus. Declares the
-     * event types the pane `produces` and `subscribes` to (optionally scoped to specific source
-     * agents), and whether the pane may issue bounded IDE RPC (`rpc`). This is what enables
-     * connected multi-pane flows — e.g. a Compiler Explorer pane that `produces: ["sourceAsm"]`
-     * and a WARP-V pane that `subscribes: [{type: "sourceAsm", sources: [<CE mnemonic>]}]`.
+     * Optional channel contract wiring this view onto the IDE communication bus. Declares the
+     * event types the view `produces` and `subscribes` to (optionally scoped to specific source
+     * agents), and whether the view may issue bounded IDE RPC (`rpc`). This is what enables
+     * connected multi-view flows — e.g. a Compiler Explorer view that `produces: ["sourceAsm"]`
+     * and a WARP-V view that `subscribes: [{type: "sourceAsm", sources: [<CE mnemonic>]}]`.
      */
     channel?: {
       produces?: string[];
@@ -1924,8 +1924,8 @@ interface OpenThirdPartyPaneInput {
       rpc?: boolean;
     };
     /**
-     * Optional opaque parameters delivered to the pane via its `getContext` RPC. Shape is
-     * pane-defined (e.g. Compiler Explorer expects `{ce: {language, compiler, options, filters,
+     * Optional opaque parameters delivered to the view via its `getContext` RPC. Shape is
+     * view-defined (e.g. Compiler Explorer expects `{ce: {language, compiler, options, filters,
      * source}}`).
      */
     params?: any;
@@ -1934,22 +1934,22 @@ interface OpenThirdPartyPaneInput {
   panelName?: string;
 }
 
-export class OpenPaneTool implements vscode.LanguageModelTool<OpenPaneInput> {
+export class OpenViewTool implements vscode.LanguageModelTool<OpenViewInput> {
 
   async prepareInvocation(
-    options: vscode.LanguageModelToolInvocationPrepareOptions<OpenPaneInput>,
+    options: vscode.LanguageModelToolInvocationPrepareOptions<OpenViewInput>,
     _token: vscode.CancellationToken
   ): Promise<vscode.PreparedToolInvocation> {
     const { mnemonic, background, panelName } = options.input;
     const action = background ? 'Opening' : 'Opening and activating';
     const panelInfo = panelName ? ` in panel '${panelName}'` : '';
     return {
-      invocationMessage: `${action} pane '${mnemonic}'${panelInfo}...`
+      invocationMessage: `${action} view '${mnemonic}'${panelInfo}...`
     };
   }
 
   async invoke(
-    options: vscode.LanguageModelToolInvocationOptions<OpenPaneInput>,
+    options: vscode.LanguageModelToolInvocationOptions<OpenViewInput>,
     _token: vscode.CancellationToken
   ): Promise<vscode.LanguageModelToolResult> {
     try {
@@ -1957,37 +1957,37 @@ export class OpenPaneTool implements vscode.LanguageModelTool<OpenPaneInput> {
 
       if (!mnemonic) {
         return new vscode.LanguageModelToolResult([
-          new vscode.LanguageModelTextPart('No pane mnemonic provided')
+          new vscode.LanguageModelTextPart('No view mnemonic provided')
         ]);
       }
 
-      // Call the IDE method to open the pane and get the result
+      // Call the IDE method to open the view and get the result
       const result = await vscode.commands.executeCommand(
         'makerchip.callIdeMethodWithResult',
-        'openPane',
+        'openView',
         [mnemonic, background],
         panelName
       ) as any;
 
-      // Check if the pane was actually opened (result should be a pane object, not null)
+      // Check if the view was actually opened (result should be a view object, not null)
       if (!result) {
-        // Get available panes to show in error message
-        const availablePanes = await vscode.commands.executeCommand(
+        // Get available views to show in error message
+        const availableViews = await vscode.commands.executeCommand(
           'makerchip.callIdeMethodWithResult',
-          'getAvailablePanes',
+          'getAvailableViews',
           [],
           panelName
         ) as any[];
 
-        let errorMessage = `Pane '${mnemonic}' not found.\n\nAvailable panes:`;
-        if (availablePanes && availablePanes.length > 0) {
-          for (const pane of availablePanes) {
-            const status = pane.available ? '✓' : '✗';
-            const desc = pane.description ? ` - ${pane.description}` : '';
-            errorMessage += `\n  ${status} '${pane.mnemonic}'${desc}`;
+        let errorMessage = `View '${mnemonic}' not found.\n\nAvailable views:`;
+        if (availableViews && availableViews.length > 0) {
+          for (const view of availableViews) {
+            const status = view.available ? '✓' : '✗';
+            const desc = view.description ? ` - ${view.description}` : '';
+            errorMessage += `\n  ${status} '${view.mnemonic}'${desc}`;
           }
         } else {
-          errorMessage += '\n  (No panes available)';
+          errorMessage += '\n  (No views available)';
         }
 
         return new vscode.LanguageModelToolResult([
@@ -1999,50 +1999,50 @@ export class OpenPaneTool implements vscode.LanguageModelTool<OpenPaneInput> {
       const panelInfo = panelName ? ` in panel '${panelName}'` : '';
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
-          `Successfully ${action} pane '${mnemonic}'${panelInfo}`
+          `Successfully ${action} view '${mnemonic}'${panelInfo}`
         )
       ]);
 
     } catch (error: any) {
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
-          `Failed to open pane: ${error.message}`
+          `Failed to open view: ${error.message}`
         )
       ]);
     }
   }
 }
 
-interface FitPaneInput {
-  /** The mnemonic of the pane to fit (e.g. "Viz", "Diagram", "Waveform"). */
+interface FitViewInput {
+  /** The mnemonic of the view to fit (e.g. "Viz", "Diagram", "Waveform"). */
   mnemonic: string;
   /** Optional panel name to target. If not provided, uses the default panel. */
   panelName?: string;
 }
 
 /**
- * Language Model tool to fit a pane's content to its viewport ("fit content").
+ * Language Model tool to fit a view's content to its viewport ("fit content").
  *
- * Sends a fit request to the pane identified by `mnemonic`; it is up to the pane whether it
+ * Sends a fit request to the view identified by `mnemonic`; it is up to the view whether it
  * acts on it (VIZ/Diagram fit their scalable content, Waveform zooms to the full time range,
- * other panes ignore it). See the IDE-side `fitPane`/`Pane#fit`. Reports whether the pane acted
- * (success defaults to `false` when the pane doesn't exist or doesn't handle fitting).
+ * other views ignore it). See the IDE-side `fitView`/`View#fit`. Reports whether the view acted
+ * (success defaults to `false` when the view doesn't exist or doesn't handle fitting).
  */
-export class FitPaneTool implements vscode.LanguageModelTool<FitPaneInput> {
+export class FitViewTool implements vscode.LanguageModelTool<FitViewInput> {
 
   async prepareInvocation(
-    options: vscode.LanguageModelToolInvocationPrepareOptions<FitPaneInput>,
+    options: vscode.LanguageModelToolInvocationPrepareOptions<FitViewInput>,
     _token: vscode.CancellationToken
   ): Promise<vscode.PreparedToolInvocation> {
     const { mnemonic, panelName } = options.input;
     const panelInfo = panelName ? ` in panel '${panelName}'` : '';
     return {
-      invocationMessage: `Fitting pane '${mnemonic}' to content${panelInfo}...`
+      invocationMessage: `Fitting view '${mnemonic}' to content${panelInfo}...`
     };
   }
 
   async invoke(
-    options: vscode.LanguageModelToolInvocationOptions<FitPaneInput>,
+    options: vscode.LanguageModelToolInvocationOptions<FitViewInput>,
     _token: vscode.CancellationToken
   ): Promise<vscode.LanguageModelToolResult> {
     try {
@@ -2050,23 +2050,23 @@ export class FitPaneTool implements vscode.LanguageModelTool<FitPaneInput> {
 
       if (!mnemonic) {
         return new vscode.LanguageModelToolResult([
-          new vscode.LanguageModelTextPart('No pane mnemonic provided')
+          new vscode.LanguageModelTextPart('No view mnemonic provided')
         ]);
       }
 
-      // Ask the IDE to fit the pane. The pane decides whether to act; the IDE returns a
-      // boolean success flag (false if the pane doesn't exist or doesn't handle fitting).
+      // Ask the IDE to fit the view. The view decides whether to act; the IDE returns a
+      // boolean success flag (false if the view doesn't exist or doesn't handle fitting).
       const acted = await vscode.commands.executeCommand(
         'makerchip.callIdeMethodWithResult',
-        'fitPane',
+        'fitView',
         [mnemonic],
         panelName
       ) as boolean;
 
       const panelInfo = panelName ? ` in panel '${panelName}'` : '';
       const message = acted
-        ? `Fit pane '${mnemonic}' to content${panelInfo}`
-        : `Pane '${mnemonic}' did not fit to content${panelInfo} (pane not found or does not support fitting)`;
+        ? `Fit view '${mnemonic}' to content${panelInfo}`
+        : `View '${mnemonic}' did not fit to content${panelInfo} (view not found or does not support fitting)`;
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(message)
       ]);
@@ -2074,7 +2074,7 @@ export class FitPaneTool implements vscode.LanguageModelTool<FitPaneInput> {
     } catch (error: any) {
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
-          `Failed to fit pane: ${error.message}`
+          `Failed to fit view: ${error.message}`
         )
       ]);
     }
@@ -2108,31 +2108,31 @@ function mimeTypeForFile(filePath: string): string {
 }
 
 /**
- * Language Model tool to open third-party panes (PDFs, iframes) in the IDE
+ * Language Model tool to open third-party views (PDFs, iframes) in the IDE
  */
-export class OpenThirdPartyPaneTool implements vscode.LanguageModelTool<OpenThirdPartyPaneInput> {
+export class OpenThirdPartyViewTool implements vscode.LanguageModelTool<OpenThirdPartyViewInput> {
 
   async prepareInvocation(
-    options: vscode.LanguageModelToolInvocationPrepareOptions<OpenThirdPartyPaneInput>,
+    options: vscode.LanguageModelToolInvocationPrepareOptions<OpenThirdPartyViewInput>,
     _token: vscode.CancellationToken
   ): Promise<vscode.PreparedToolInvocation> {
     const { mnemonic, contentType, panelName } = options.input;
     const panelInfo = panelName ? ` in panel '${panelName}'` : '';
     return {
-      invocationMessage: `Opening ${contentType} pane '${mnemonic}'${panelInfo}...`
+      invocationMessage: `Opening ${contentType} view '${mnemonic}'${panelInfo}...`
     };
   }
 
   async invoke(
-    options: vscode.LanguageModelToolInvocationOptions<OpenThirdPartyPaneInput>,
+    options: vscode.LanguageModelToolInvocationOptions<OpenThirdPartyViewInput>,
     _token: vscode.CancellationToken
   ): Promise<vscode.LanguageModelToolResult> {
     try {
-      const { mnemonic, contentType, contentParams, options: paneOptions, panelName } = options.input;
+      const { mnemonic, contentType, contentParams, options: viewOptions, panelName } = options.input;
 
       if (!mnemonic) {
         return new vscode.LanguageModelToolResult([
-          new vscode.LanguageModelTextPart('No pane mnemonic provided')
+          new vscode.LanguageModelTextPart('No view mnemonic provided')
         ]);
       }
 
@@ -2151,13 +2151,13 @@ export class OpenThirdPartyPaneTool implements vscode.LanguageModelTool<OpenThir
       // When a local filePath is provided, read it here so the (potentially large) file contents
       // never pass through the model context window.
       //
-      // Delivery differs by pane type, because the sandbox CSP treats them differently:
+      // Delivery differs by view type, because the sandbox CSP treats them differently:
       //   iframe -- a `data:` URI works (permitted by frame-src) and its opaque origin isolates
       //             the content, which is what we want for untrusted local HTML.
       //   pdf    -- a `data:` URI CANNOT work: the bundled viewer FETCHES the file, and
       //             connect-src is `'self' https: blob:`. A blob: URL is no good either (it is
-      //             minted in the IDE frame and unreachable across the pane's sandbox boundary).
-      //             So the bytes are pushed to the viewer over the pane channel instead, via the
+      //             minted in the IDE frame and unreachable across the view's sandbox boundary).
+      //             So the bytes are pushed to the viewer over the view channel instead, via the
       //             bridge's `openData` -- as base64, since extension->webview messages are
       //             JSON-serialized and a Uint8Array would not survive that hop.
       const resolvedParams: { contentUrl?: string } = {};
@@ -2187,18 +2187,18 @@ export class OpenThirdPartyPaneTool implements vscode.LanguageModelTool<OpenThir
         }
       }
 
-      // A data-fed pdf pane needs the channel (to receive the bytes) and cannot be recreated from
+      // A data-fed pdf view needs the channel (to receive the bytes) and cannot be recreated from
       // serialized layout state, so it must not claim to be transferrable.
-      const resolvedOptions: Record<string, any> = { ...(paneOptions || {}) };
+      const resolvedOptions: Record<string, any> = { ...(viewOptions || {}) };
       if (pdfBase64) {
         resolvedOptions.channel = { ...(resolvedOptions.channel || {}), rpc: true };
         resolvedOptions.nonTransferrable = true;
       }
 
-      // Call the IDE method to open the third-party pane
+      // Call the IDE method to open the third-party view
       const actualMnemonic = await vscode.commands.executeCommand(
         'makerchip.callIdeMethodWithResult',
-        'openThirdPartyPane',
+        'openThirdPartyView',
         [mnemonic, contentType, resolvedParams, resolvedOptions],
         panelName
       ) as string;
@@ -2206,19 +2206,19 @@ export class OpenThirdPartyPaneTool implements vscode.LanguageModelTool<OpenThir
       if (pdfBase64) {
         if (!actualMnemonic) {
           return new vscode.LanguageModelToolResult([
-            new vscode.LanguageModelTextPart(`Failed to open a pdf pane for '${mnemonic}'`)
+            new vscode.LanguageModelTextPart(`Failed to open a pdf view for '${mnemonic}'`)
           ]);
         }
-        // Push the document into the now-open viewer. A failure here leaves an empty pane, so say
+        // Push the document into the now-open viewer. A failure here leaves an empty view, so say
         // so rather than reporting success.
         try {
           // Generous timeouts on BOTH legs: a large PDF has to cross three hops as base64 and
-          // then be parsed by pdf.js. The command's own default is 10s, and callPane's pane-RPC
+          // then be parsed by pdf.js. The command's own default is 10s, and callView's view-RPC
           // default is 30s -- either would spuriously fail a big document.
           const PDF_LOAD_TIMEOUT_MS = 120000;
           await vscode.commands.executeCommand(
             'makerchip.callIdeMethodWithResult',
-            'callPane',
+            'callView',
             [actualMnemonic, 'openData', [pdfBase64, fileBaseName], PDF_LOAD_TIMEOUT_MS],
             panelName,
             false,
@@ -2227,26 +2227,26 @@ export class OpenThirdPartyPaneTool implements vscode.LanguageModelTool<OpenThir
         } catch (e: any) {
           return new vscode.LanguageModelToolResult([
             new vscode.LanguageModelTextPart(
-              `Opened pane '${actualMnemonic}' but failed to load ${fileBaseName}: ${e?.message ?? e}`
+              `Opened view '${actualMnemonic}' but failed to load ${fileBaseName}: ${e?.message ?? e}`
             )
           ]);
         }
       }
 
-      const action = paneOptions?.background ? 'opened' : 'opened and activated';
+      const action = viewOptions?.background ? 'opened' : 'opened and activated';
       const panelInfo = panelName ? ` in panel '${panelName}'` : '';
       const uniquified = actualMnemonic !== mnemonic ? ` (uniquified to '${actualMnemonic}')` : '';
 
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
-          `Successfully ${action} ${contentType} pane '${mnemonic}'${uniquified}${panelInfo}`
+          `Successfully ${action} ${contentType} view '${mnemonic}'${uniquified}${panelInfo}`
         )
       ]);
 
     } catch (error: any) {
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
-          `Failed to open third-party pane: ${error.message}`
+          `Failed to open third-party view: ${error.message}`
         )
       ]);
     }
@@ -2676,7 +2676,7 @@ export class SetDarkModeTool implements vscode.LanguageModelTool<SetDarkModeTool
 }
 
 interface SetLiveModeToolInput {
-  /** The mnemonic of the pane to control (e.g., "Diagram", "Nav-TLV") */
+  /** The mnemonic of the view to control (e.g., "Diagram", "Nav-TLV") */
   mnemonic: string;
   /** Enable or disable live mode (true for live, false for dead/frozen) */
   enabled: boolean;
@@ -2685,7 +2685,7 @@ interface SetLiveModeToolInput {
 }
 
 /**
- * Language Model tool for setting live mode in specific Makerchip IDE panes
+ * Language Model tool for setting live mode in specific Makerchip IDE views
  */
 export class SetLiveModeTool implements vscode.LanguageModelTool<SetLiveModeToolInput> {
 
@@ -2696,7 +2696,7 @@ export class SetLiveModeTool implements vscode.LanguageModelTool<SetLiveModeTool
     const { mnemonic, enabled } = options.input;
     const mode = enabled ? 'live' : 'dead';
     return {
-      invocationMessage: `Setting ${mnemonic} pane to ${mode} mode...`
+      invocationMessage: `Setting ${mnemonic} view to ${mode} mode...`
     };
   }
 
@@ -2718,7 +2718,7 @@ export class SetLiveModeTool implements vscode.LanguageModelTool<SetLiveModeTool
       if (!success) {
         return new vscode.LanguageModelToolResult([
           new vscode.LanguageModelTextPart(
-            `Failed to set live mode for pane '${mnemonic}'. The pane may not exist, is not open, or does not support live mode. Only Diagram and Nav-TLV support live mode (VIZ is always live).`
+            `Failed to set live mode for view '${mnemonic}'. The view may not exist, is not open, or does not support live mode. Only Diagram and Nav-TLV support live mode (VIZ is always live).`
           )
         ]);
       }
@@ -2728,7 +2728,7 @@ export class SetLiveModeTool implements vscode.LanguageModelTool<SetLiveModeTool
 
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
-          `Successfully set '${mnemonic}' pane to ${mode} mode${panelInfo}. ${enabled ? 'The pane will now update automatically as the cycle changes.' : 'The pane is frozen at the current cycle.'}`
+          `Successfully set '${mnemonic}' view to ${mode} mode${panelInfo}. ${enabled ? 'The view will now update automatically as the cycle changes.' : 'The view is frozen at the current cycle.'}`
         )
       ]);
 
@@ -2851,7 +2851,7 @@ export class ReloadPanelsTool implements vscode.LanguageModelTool<ReloadPanelsTo
 
 interface BusEmitInput {
   /**
-   * The application-event type to publish (e.g. 'sourceAsm'). Panes subscribe by this type;
+   * The application-event type to publish (e.g. 'sourceAsm'). Views subscribe by this type;
    * the event rides the shared `ext/<type>` application-bus channel. Because this tool is driven
    * by an AI agent, the platform stamps the source `platform.ai` (a recipient can accept
    * `platform.ai` exactly, or accept the whole platform family via a startsWith check).
@@ -2860,7 +2860,7 @@ interface BusEmitInput {
   /** The event payload delivered to subscribers. Any JSON-serializable value. */
   payload?: any;
   /**
-   * Optional recipient filter: a pane mnemonic (or 'ide'), or an array of them. When omitted the
+   * Optional recipient filter: a view mnemonic (or 'ide'), or an array of them. When omitted the
    * event is broadcast to every matching subscriber.
    */
   target?: string | string[];
@@ -2870,7 +2870,7 @@ interface BusEmitInput {
 
 /**
  * Publish an application event onto the IDE bus as the `platform.ai` participant (an AI-relayed
- * emit). Panes that subscribe to the event `type` receive it (subject to their optional source
+ * emit). Views that subscribe to the event `type` receive it (subject to their optional source
  * filter, which may name `platform.ai`).
  */
 export class BusEmitTool implements vscode.LanguageModelTool<BusEmitInput> {
@@ -2902,12 +2902,12 @@ export class BusEmitTool implements vscode.LanguageModelTool<BusEmitInput> {
   }
 }
 
-interface PaneCallInput {
-  /** The target pane's mnemonic (as returned by opening/reserving a third-party pane). */
+interface ViewCallInput {
+  /** The target view's mnemonic (as returned by opening/reserving a third-party view). */
   mnemonic: string;
-  /** The pane method to invoke. The pane must have declared `rpc: true` and implement this method. */
+  /** The view method to invoke. The view must have declared `rpc: true` and implement this method. */
   method: string;
-  /** Positional arguments passed to the pane method. Any JSON-serializable values. */
+  /** Positional arguments passed to the view method. Any JSON-serializable values. */
   args?: any[];
   /** Optional response timeout in milliseconds (default 30000). */
   timeoutMs?: number;
@@ -2916,37 +2916,37 @@ interface PaneCallInput {
 }
 
 /**
- * Call a method on a connected third-party pane and await its result (host->pane RPC). This is the
+ * Call a method on a connected third-party view and await its result (host->view RPC). This is the
  * request/response complement to makerchip_emit's fire-and-forget broadcast: use it when you need a
- * value back from a pane you opened (e.g. tell the Compiler Explorer pane to run and wait for the
- * outcome). The pane must have declared `rpc: true` and implemented a handler for the method.
+ * value back from a view you opened (e.g. tell the Compiler Explorer view to run and wait for the
+ * outcome). The view must have declared `rpc: true` and implemented a handler for the method.
  */
-export class PaneCallTool implements vscode.LanguageModelTool<PaneCallInput> {
+export class ViewCallTool implements vscode.LanguageModelTool<ViewCallInput> {
   async prepareInvocation(
-    options: vscode.LanguageModelToolInvocationPrepareOptions<PaneCallInput>,
+    options: vscode.LanguageModelToolInvocationPrepareOptions<ViewCallInput>,
     _token: vscode.CancellationToken
   ): Promise<vscode.PreparedToolInvocation> {
     const { mnemonic, method } = options.input;
-    return { invocationMessage: `Calling '${method}' on pane '${mnemonic}'...` };
+    return { invocationMessage: `Calling '${method}' on view '${mnemonic}'...` };
   }
 
   async invoke(
-    options: vscode.LanguageModelToolInvocationOptions<PaneCallInput>,
+    options: vscode.LanguageModelToolInvocationOptions<ViewCallInput>,
     _token: vscode.CancellationToken
   ): Promise<vscode.LanguageModelToolResult> {
     try {
       const { mnemonic, method, args = [], timeoutMs = 30000, panelName } = options.input;
       if (!mnemonic || !method) {
         return new vscode.LanguageModelToolResult([
-          new vscode.LanguageModelTextPart('Both a pane mnemonic and a method name are required.')
+          new vscode.LanguageModelTextPart('Both a view mnemonic and a method name are required.')
         ]);
       }
-      // The IDE forwards this over the named pane's channel (callPane). Give the outer IDE call a
-      // slightly longer deadline than the inner pane-RPC timeout so the pane-RPC timeout fires
-      // first with a clearer, pane-specific error.
+      // The IDE forwards this over the named view's channel (callView). Give the outer IDE call a
+      // slightly longer deadline than the inner view-RPC timeout so the view-RPC timeout fires
+      // first with a clearer, view-specific error.
       const result = await vscode.commands.executeCommand(
         'makerchip.callIdeMethodWithResult',
-        'callPane',
+        'callView',
         [mnemonic, method, args, timeoutMs],
         panelName,
         false,
@@ -2954,41 +2954,41 @@ export class PaneCallTool implements vscode.LanguageModelTool<PaneCallInput> {
       );
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
-          `Pane '${mnemonic}' method '${method}' returned:\n${JSON.stringify(result, null, 2)}`
+          `View '${mnemonic}' method '${method}' returned:\n${JSON.stringify(result, null, 2)}`
         )
       ]);
     } catch (error: any) {
       return new vscode.LanguageModelToolResult([
-        new vscode.LanguageModelTextPart(`Failed to call pane method: ${error.message}`)
+        new vscode.LanguageModelTextPart(`Failed to call view method: ${error.message}`)
       ]);
     }
   }
 }
 
-// Default mnemonic of the WARP-V configurator pane (opened via makerchip_open_third_party_pane).
-const WARPV_PANE_DEFAULT = 'WARP-V';
+// Default mnemonic of the WARP-V configurator view (opened via makerchip_open_third_party_view).
+const WARPV_VIEW_DEFAULT = 'WARP-V';
 
-// Shared host->pane RPC call to the WARP-V configurator pane. Returns the pane method's result.
-async function callWarpvPane(
+// Shared host->view RPC call to the WARP-V configurator view. Returns the view method's result.
+async function callWarpvView(
   method: string,
   args: any[],
   mnemonic: string | undefined,
   panelName: string | undefined,
   timeoutMs: number = 30000
 ): Promise<any> {
-  const pane = mnemonic || WARPV_PANE_DEFAULT;
+  const view = mnemonic || WARPV_VIEW_DEFAULT;
   return vscode.commands.executeCommand(
     'makerchip.callIdeMethodWithResult',
-    'callPane',
-    [pane, method, args, timeoutMs],
+    'callView',
+    [view, method, args, timeoutMs],
     panelName,
     false,
     timeoutMs + 5000
   );
 }
 
-interface WarpvPaneInput {
-  /** Target WARP-V pane mnemonic. Default: `WARP-V`. */
+interface WarpvViewInput {
+  /** Target WARP-V view mnemonic. Default: `WARP-V`. */
   mnemonic?: string;
   /** Optional panel name to target. Default: `default`. */
   panelName?: string;
@@ -2998,21 +2998,21 @@ interface WarpvPaneInput {
  * Read the WARP-V configurator's current configuration. The returned shape ({ general, pipeline,
  * programText }) doubles as the schema for set_warpv_config.
  */
-export class GetWarpvConfigTool implements vscode.LanguageModelTool<WarpvPaneInput> {
+export class GetWarpvConfigTool implements vscode.LanguageModelTool<WarpvViewInput> {
   async prepareInvocation(
-    _options: vscode.LanguageModelToolInvocationPrepareOptions<WarpvPaneInput>,
+    _options: vscode.LanguageModelToolInvocationPrepareOptions<WarpvViewInput>,
     _token: vscode.CancellationToken
   ): Promise<vscode.PreparedToolInvocation> {
     return { invocationMessage: 'Reading WARP-V configuration...' };
   }
 
   async invoke(
-    options: vscode.LanguageModelToolInvocationOptions<WarpvPaneInput>,
+    options: vscode.LanguageModelToolInvocationOptions<WarpvViewInput>,
     _token: vscode.CancellationToken
   ): Promise<vscode.LanguageModelToolResult> {
     try {
       const { mnemonic, panelName } = options.input;
-      const result = await callWarpvPane('getConfig', [], mnemonic, panelName);
+      const result = await callWarpvView('getConfig', [], mnemonic, panelName);
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(`WARP-V configuration:\n${JSON.stringify(result, null, 2)}`)
       ]);
@@ -3024,7 +3024,7 @@ export class GetWarpvConfigTool implements vscode.LanguageModelTool<WarpvPaneInp
   }
 }
 
-interface SetWarpvConfigInput extends WarpvPaneInput {
+interface SetWarpvConfigInput extends WarpvViewInput {
   /** Top-of-form settings to merge (warpVVersion, isa, depth, custom-program flags, ...). */
   general?: Record<string, any>;
   /** Pipeline parameters to merge, keyed by ConfigurationParameter jsonKey. */
@@ -3055,7 +3055,7 @@ export class SetWarpvConfigTool implements vscode.LanguageModelTool<SetWarpvConf
       if (general !== undefined) patch.general = general;
       if (pipeline !== undefined) patch.pipeline = pipeline;
       if (programText !== undefined) patch.programText = programText;
-      const result = await callWarpvPane('setConfig', [patch], mnemonic, panelName);
+      const result = await callWarpvView('setConfig', [patch], mnemonic, panelName);
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(`WARP-V setConfig result:\n${JSON.stringify(result, null, 2)}`)
       ]);
@@ -3070,21 +3070,21 @@ export class SetWarpvConfigTool implements vscode.LanguageModelTool<SetWarpvConf
 /**
  * Return the TL-Verilog the WARP-V configurator generates for its current configuration.
  */
-export class GetWarpvTlvTool implements vscode.LanguageModelTool<WarpvPaneInput> {
+export class GetWarpvTlvTool implements vscode.LanguageModelTool<WarpvViewInput> {
   async prepareInvocation(
-    _options: vscode.LanguageModelToolInvocationPrepareOptions<WarpvPaneInput>,
+    _options: vscode.LanguageModelToolInvocationPrepareOptions<WarpvViewInput>,
     _token: vscode.CancellationToken
   ): Promise<vscode.PreparedToolInvocation> {
     return { invocationMessage: 'Generating WARP-V TL-Verilog...' };
   }
 
   async invoke(
-    options: vscode.LanguageModelToolInvocationOptions<WarpvPaneInput>,
+    options: vscode.LanguageModelToolInvocationOptions<WarpvViewInput>,
     _token: vscode.CancellationToken
   ): Promise<vscode.LanguageModelToolResult> {
     try {
       const { mnemonic, panelName } = options.input;
-      const result = await callWarpvPane('getTlv', [], mnemonic, panelName);
+      const result = await callWarpvView('getTlv', [], mnemonic, panelName);
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(typeof result === 'string' ? result : JSON.stringify(result, null, 2))
       ]);
@@ -3427,10 +3427,10 @@ export function registerMakerchipTool(context: vscode.ExtensionContext): void {
 
   reg('makerchip_get_layout_state', new GetLayoutStateTool());
   reg('makerchip_set_layout_state', new SetLayoutStateTool());
-  reg('makerchip_get_available_panes', new GetAvailablePanesTool());
-  reg('makerchip_open_pane', new OpenPaneTool());
-  reg('makerchip_fit_pane', new FitPaneTool());
-  reg('makerchip_open_third_party_pane', new OpenThirdPartyPaneTool());
+  reg('makerchip_get_available_views', new GetAvailableViewsTool());
+  reg('makerchip_open_view', new OpenViewTool());
+  reg('makerchip_fit_view', new FitViewTool());
+  reg('makerchip_open_third_party_view', new OpenThirdPartyViewTool());
 
   reg('makerchip_get_cycle', new GetCycleTool());
   reg('makerchip_set_cycle', new SetCycleTool());
@@ -3443,7 +3443,7 @@ export function registerMakerchipTool(context: vscode.ExtensionContext): void {
   reg('makerchip_list_panels', new ListPanelsTool());
   reg('makerchip_reload_panels', new ReloadPanelsTool());
   reg('makerchip_emit', new BusEmitTool());
-  reg('makerchip_pane_call', new PaneCallTool());
+  reg('makerchip_view_call', new ViewCallTool());
   reg('makerchip_get_warpv_config', new GetWarpvConfigTool());
   reg('makerchip_set_warpv_config', new SetWarpvConfigTool());
   reg('makerchip_get_warpv_tlv', new GetWarpvTlvTool());

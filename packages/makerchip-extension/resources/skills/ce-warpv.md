@@ -1,6 +1,6 @@
 ---
 name: ce-warpv
-description: 'Compile C, C++, Fortran, or RISC-V assembly in Compiler Explorer and run it on a WARP-V RISC-V core in Makerchip. Use when: running software on WARP-V, "C to CPU", Compiler Explorer (CE), configuring a WARP-V core, checking whether a program passes on WARP-V, or debugging the CE/WARP-V panes.'
+description: 'Compile C, C++, Fortran, or RISC-V assembly in Compiler Explorer and run it on a WARP-V RISC-V core in Makerchip. Use when: running software on WARP-V, "C to CPU", Compiler Explorer (CE), configuring a WARP-V core, checking whether a program passes on WARP-V, or debugging the CE/WARP-V views.'
 user-invocable: true
 ---
 
@@ -8,17 +8,17 @@ user-invocable: true
 
 Compiler Explorer (CE) compiles a program to rv32 assembly. The WARP-V configurator (warp-v.org) turns that assembly
 plus a core configuration into TL-Verilog and compiles and simulates it in the Makerchip panel. Both run as
-third-party panes connected by the pane bus (CE produces `sourceAsm`; WARP-V subscribes).
+third-party views connected by the view bus (CE produces `sourceAsm`; WARP-V subscribes).
 
 Enable the tools first: `makerchip_enable_tools` with target `cewarpv`. Parameters, defaults, and constraints are in
 each tool's description; this skill covers the workflow.
 
 ## Running a program
 
-- **Agent path:** `makerchip_ce_compile` compiles through the CE HTTP API (no CE pane needed). With
-  `deliverToWarpV: true` it also delivers the assembly to the WARP-V pane (opening it if needed) and returns the
+- **Agent path:** `makerchip_ce_compile` compiles through the CE HTTP API (no CE view needed). With
+  `deliverToWarpV: true` it also delivers the assembly to the WARP-V view (opening it if needed) and returns the
   Makerchip compile id. Then `makerchip_wait_compile` gives pass/fail. Use `makerchip_get_viz_image` to look at the core.
-- **Human path:** the RISC-V course in the Courses pane has a "C to CPU" demo (`IDE.openWarpVDemo` in mono
+- **Human path:** the RISC-V course in the Courses view has a "C to CPU" demo (`IDE.openWarpVDemo` in mono
   `ide-env/coffee/IDE.coffee`) that opens CE with a sample program. The user clicks "Run on WARP-V" in CE.
 
 ## Pass/fail convention
@@ -63,5 +63,5 @@ of the executing instruction (`ce_source_viz_data`, built by `buildCeSourceViz` 
 - In the IDE, `?local_ce[=port]` (default 10240) and `?local_warpv[=port]` (default 3009) make the demo frame local
   servers.
 - Set `general.warpVVersion` to a URL to build against a local or forked `warp-v.tlv`.
-- For generic bus/RPC debugging, `makerchip_pane_call` and `makerchip_emit` reach the panes directly (protocol in
-  `Makerchip-public/docs/plugin_api/Third_Party_Pane_API.md`).
+- For generic bus/RPC debugging, `makerchip_view_call` and `makerchip_emit` reach the views directly (protocol in
+  `Makerchip-public/docs/plugin_api/Third_Party_View_API.md`).

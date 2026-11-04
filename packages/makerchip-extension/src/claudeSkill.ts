@@ -293,7 +293,7 @@ description: Makerchip is a circuit design IDE with support for TL-Verilog, Visu
 # Makerchip
 
 A circuit design IDE for TL-Verilog: compile/simulate \`.tlv\`, inspect waveforms, drive Visual
-Debug (VIZ) panes, overlay simulation data on PDF figures (Live Doc), plug in third-party
+Debug (VIZ) views, overlay simulation data on PDF figures (Live Doc), plug in third-party
 views/components. Its tools are provided by the Makerchip VS Code extension and enable agent-driven
 circuit design and teaching workflows.
 
@@ -338,7 +338,7 @@ carefully; some result in HANGS.
 - **A call that finishes too quickly can HANG, even issued alone.** The extension starts a call the
   moment you issue it, while the harness is still approving it (about a second). If the extension
   answers first, the result is dropped and the call hangs although it ran. Quick queries
-  (\`makerchip_get_cycle\`, \`makerchip_get_viz_image\`, \`makerchip_get_available_panes\`, small
+  (\`makerchip_get_cycle\`, \`makerchip_get_viz_image\`, \`makerchip_get_available_views\`, small
   extractions: tens to hundreds of ms) hit this; calls of a second or more (compiles, most PDF
   extractions) did not. The user's "Bypass Permissions" mode avoids it. Otherwise, make any call
   that may return in under ~1.5 s through \`makerchip_invoke_tool\` with \`minDurationMs\` (e.g.

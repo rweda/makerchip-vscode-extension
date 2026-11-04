@@ -4,6 +4,15 @@ All notable changes to the **Makerchip** extension are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); this project
 uses [semantic versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- Makerchip "panes" are now **views**, matching common IDE terminology. Tools are renamed
+  accordingly: `makerchip_open_view`, `makerchip_get_available_views`, `makerchip_fit_view`,
+  `makerchip_open_third_party_view`, and `makerchip_view_call`; layout state uses
+  `views`/`activeView`. Servers that predate the rename are still supported.
+
 ## [0.0.1] — 2026-10-22
 
 Initial pre-release. Requires the

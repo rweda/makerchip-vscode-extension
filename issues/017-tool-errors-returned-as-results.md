@@ -7,7 +7,7 @@
 Most tools catch their own errors and return them as a text result (e.g. `makerchip_compile`'s
 "Failed to launch Makerchip: ..."), about 25 sites. `makerchip_invoke_tool`'s batch only sees a
 *thrown* error as a failure, so it counts these "ok" and runs dependent entries (fit, set_cycle,
-capture) against a stale or blank pane. Observed: `reload_panels` then `compile` in one batch, the
+capture) against a stale or blank view. Observed: `reload_panels` then `compile` in one batch, the
 compile timing out.
 
 ## Fix
