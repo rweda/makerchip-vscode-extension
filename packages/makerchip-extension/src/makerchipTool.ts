@@ -700,7 +700,7 @@ interface GetVizImageInput {
   saveToFile?: boolean | string;
   /** When true, do not return the image to the model (skip the inline image part) — capture it to a file only, for the user. Spends no vision tokens; a file is always written even if `saveToFile` is unset. */
   blind?: boolean;
-  /** What to return: 'image' (image only), 'keyframe' (the current view's absolute keyframe only — no render), or 'both' (default). */
+  /** What to return: 'image' (image only), 'keyframe' (the current camera as an absolute keyframe only — no render), or 'both' (default). */
   response?: 'image' | 'keyframe' | 'both';
   /** See vizCaptureRefusal(). */
   clearance?: Clearance;
@@ -768,7 +768,7 @@ export class GetVizImageTool implements vscode.LanguageModelTool<GetVizImageInpu
       const wantKeyframe = response !== 'image';
       const panelInfo = panelName ? ` from panel '${panelName}'` : '';
 
-      // Fetch the current view's absolute keyframe when requested. This is cheap (no render) and is
+      // Fetch the current camera as an absolute keyframe when requested. This is cheap (no render) and is
       // returned as text alongside any image, saving a separate getKeyframe round-trip.
       let keyframeText = '';
       if (wantKeyframe) {
@@ -776,7 +776,7 @@ export class GetVizImageTool implements vscode.LanguageModelTool<GetVizImageInpu
           'makerchip.callIdeMethodWithResult', 'getKeyframe', [], panelName
         );
         keyframeText = kf && typeof kf === 'object'
-          ? `Current view as an absolute keyframe (drop into makerchip_capture_video \`keyframes\` with \`mode: 'absolute'\`):\n${JSON.stringify(kf)}`
+          ? `Current camera as an absolute keyframe (drop into makerchip_capture_video \`keyframes\` with \`mode: 'absolute'\`):\n${JSON.stringify(kf)}`
           : 'Keyframe unavailable (no VIZ view).';
       }
       // Fold the keyframe into an image result's text (when both are requested).
@@ -1343,15 +1343,15 @@ interface CaptureVideoInput {
    * Camera keyframes for pan/zoom motion over the cycle range. Each keyframe is
    * {cycle?, scale?, focus?: {x, y}, width?, height?}. With a single keyframe the camera is
    * static; multiple keyframes animate the camera (Catmull-Rom interpolated). In the relative
-   * modes (see `mode`) keyframes may be omitted for no camera motion (records the current view for 'viz-relative' or
-   * the whole-design fit for 'fit-relative'); in 'absolute' mode the current view is not used, so
+   * modes (see `mode`) keyframes may be omitted for no camera motion (records the current camera for 'viz-relative' or
+   * the whole-design fit for 'fit-relative'); in 'absolute' mode the current camera is not used, so
    * keyframes are REQUIRED (at least one entry) and `default` only fills in omitted per-keyframe
    * properties. See VizPane.captureVideo for the full model.
    */
   keyframes?: Array<{ cycle?: number; scale?: number; focus?: { x: number; y: number }; width?: number; height?: number }>;
   /**
    * Keyframe reference frame:
-   * - 'viz-relative': (default; scale/focus relative to the current VIZ view)
+   * - 'viz-relative': (default; scale/focus relative to the current VIZ camera)
    * - 'fit-relative' (relative to the whole-design contain-fit at the recording size — the
    *   reliable way to frame a capture without hand-tuning scale; scale 1 / focus 0 = whole design)
    * - 'absolute' (absolute VIZ scale/coordinates, as returned by getKeyframe / get_viz_image).
@@ -1439,7 +1439,7 @@ export class CaptureVideoTool implements vscode.LanguageModelTool<CaptureVideoIn
       if (typeof height === 'number') videoOptions.height = height;
       if (typeof backgroundColor === 'string') videoOptions.backgroundColor = backgroundColor;
       // Camera motion: forward keyframes / mode / default to the IDE method. Without this the
-      // camera options are dropped and captureVideo renders a static, auto-fit view.
+      // camera options are dropped and captureVideo renders a static, auto-fit framing.
       if (Array.isArray(keyframes)) videoOptions.keyframes = keyframes;
       if (typeof mode === 'string') videoOptions.mode = mode;
       if (keyframeDefault && typeof keyframeDefault === 'object') videoOptions.default = keyframeDefault;
