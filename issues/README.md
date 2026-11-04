@@ -42,6 +42,7 @@ with plain file edits (AI-friendly).
 - [015: Live Doc gaps found in user-model testing](015-live-doc-gaps-from-eecs151-test.md)
 - [016: Share CE `sourceAsm` helpers between the CE pane and headless compile](016-share-ce-sourceasm-helpers.md)
 - [017: Tool errors are returned as ordinary results, so batches count them ok](017-tool-errors-returned-as-results.md)
+- [018: Scope-aware grep for `.tlv` files (CLI + LM tool)](018-tlv-scope-grep.md)
 
 ## Closed
 
