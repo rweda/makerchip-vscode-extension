@@ -2,7 +2,7 @@
   "name": "makerchip",
   "displayName": "Makerchip",
   "description": "Design, simulate, and visualize TL-Verilog and Verilog circuits in the Makerchip IDE, together with AI agents (GitHub Copilot, Claude). Pre-release; for open-source development.",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "preview": true,
   "license": "MIT",
   "publisher": "RedwoodEDA",

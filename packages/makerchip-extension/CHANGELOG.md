@@ -6,6 +6,12 @@ uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.0.2] — 2026-11-06
+
+### Added
+
+- An agent skill for compiling C, C++, or assembly in Compiler Explorer and running it on WARP-V.
+
 ### Changed
 
 - Makerchip "panes" are now **views**, matching common IDE terminology. Tools are renamed
