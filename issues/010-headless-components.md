@@ -7,14 +7,14 @@
 ## What this is
 
 The mechanism lives in the IDE, not here: a **headless IDE Component** is a third-party component
-that is exactly like a third-party pane except that it is not a pane — a hidden iframe, so the
+that is exactly like a third-party view except that it is not a view — a hidden iframe, so the
 sandboxing, provenance (by origin, e.g. `platform.ai`) and permission story are identical to the
-ones panes already have. See the mono repo:
+ones views already have. See the mono repo:
 
-- `issues/007-single-instance-panes-and-pane-state.md` — "Generalize beyond Panes to headless IDE
-  Components": state + lifecycle (reserve, updateState, close) should not be Pane-specific.
-- `issues/006-pane-api-trust-model.md` — the trust/approval model for component→IDE mutations
-  (`IDE#paneRpcAllowedIdeMethods`), i.e. the capability grant.
+- `issues/007-single-instance-views-and-view-state.md` — "Generalize beyond Views to headless IDE
+  Components": state + lifecycle (reserve, updateState, close) should not be View-specific.
+- `issues/006-view-api-trust-model.md` — the trust/approval model for component→IDE mutations
+  (`IDE#viewRpcAllowedIdeMethods`), i.e. the capability grant.
 - `issues/001-component-lifecycle-standardization.md` and
   `issues/004-decouple-flexsplit-from-ide.md` — the lifecycle and DOM-coupling work this sits on.
 
@@ -39,12 +39,12 @@ transcript; one result comes back.
 ## Provenance is already handled
 
 Agent-authored code has no origin of its own, but that is not new here and not specific to headless
-Components — it is the same for an agent-authored third-party *pane*, and the identity model already
+Components — it is the same for an agent-authored third-party *view*, and the identity model already
 covers it. The IDE stamps **`platform.<agent>`** (e.g. `platform.ai`) when the host relays an action
 on behalf of a less-trusted agent, distinguishing it from first-hand `platform` events, and it cannot
-forge the reserved `ide` identity. See `doc-src/plugin/Third_Party_Pane_API.md` in mono ("Identities").
+forge the reserved `ide` identity. See `doc-src/plugin/Third_Party_View_API.md` in mono ("Identities").
 What such an identity is *allowed* to do is the trust model's business, i.e. mono
-`issues/006-pane-api-trust-model.md` — not a new policy to invent here.
+`issues/006-view-api-trust-model.md` — not a new policy to invent here.
 
 What is genuinely specific to the one-shot agent case is lifetime, not identity:
 

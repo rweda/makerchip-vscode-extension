@@ -909,14 +909,14 @@ async function generateApiFeaturesSkill(targetDir: string, log: (message: string
 
     // YAML frontmatter for the skill
     const frontmatter = `---
-description: Data structures for Makerchip IDE layout state and third-party panes
+description: Data structures for Makerchip IDE layout state and third-party views
 applyTo:
   - pattern: "**/*"
     triggerWords:
       - makerchip
       - layout
-      - third-party pane
-      - pane
+      - third-party view
+      - view
       - state
 ---
 

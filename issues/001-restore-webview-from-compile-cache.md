@@ -10,7 +10,7 @@ There is currently **no Language Model tool to load/restore a Makerchip webview 
 cache** by `compileId`. The agent-facing tool set (`packages/makerchip-extension/package.json` →
 `contributes.languageModelTools`) can start a *fresh* compile (`makerchip_compile` /
 `makerchip_wait_compile`) and drive an already-open panel (`makerchip_get_viz_image`,
-`makerchip_capture_video`, `makerchip_set_cycle`, layout/pane tools, etc.), but nothing opens a panel
+`makerchip_capture_video`, `makerchip_set_cycle`, layout/view tools, etc.), but nothing opens a panel
 from a previously cached compile. To revisit a prior result an agent must recompile it, even though
 all of the data needed to render it is already on disk.
 
@@ -21,7 +21,7 @@ Note that a **restore flow already exists for VS Code reload** — it just isn't
 - `src/webview.ts` then runs the reload-restore handshake: the webview posts `restoreRequest`, the
   extension reads the cached result files + `metadata.json` from disk and posts `restoreData`, and the
   webview applies the saved layout and injects the payloads into the IDE
-  (`compilation*` / `ide.api.setLayoutState`) so the panes render **without a recompile**.
+  (`compilation*` / `ide.api.setLayoutState`) so the views render **without a recompile**.
 - `src/compileCache.ts` already persists everything this needs per `compileId`: `top.tlv` (+ `src/`
   siblings), `metadata.json`, `vlt_dump.vcd`, `parse_model.json`, `navtlv.html`, `graph.svg`.
 

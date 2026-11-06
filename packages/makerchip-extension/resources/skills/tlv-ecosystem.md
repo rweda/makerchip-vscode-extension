@@ -78,7 +78,7 @@ Note: For development, there may be a more recent working version of `Makerchip-
 
 The Makerchip IDE is not just a development environment for humans. It is also accessible to you to code and debug. It provides access to SandPiper™, M5, and Verilator for compilation and simulation. It provides access to logs and waveform data for conventional debugging. Additionally, it's Visual Debug (VIZ) feature gives you the ability to create custom visualizations of machine state, which you can access as images as an alternative approach to text-based logging and debugging. [Coming soon: You can use the API to query specific signal values.]
 
-Makerchip enables you to develop productively with the user. By presenting a design in this environment, the user can interact with code, waveforms, logic diagrams, and visualizations, all of which represent or can be annotated with simulation data. They can click on signals and other elements of the design in the various views (called panes) to highlight them across the views and correlate the various representations of the design and its simulation data.
+Makerchip enables you to develop productively with the user. By presenting a design in this environment, the user can interact with code, waveforms, logic diagrams, and visualizations, all of which represent or can be annotated with simulation data. They can click on signals and other elements of the design in the various views (called views) to highlight them across the views and correlate the various representations of the design and its simulation data.
 
 Visual Debug is especially valuable in your collaboration with the user. You can convey your work visually and interactively by including `\viz_js` (VIZ) blocks within or alongside the TL-Verilog or Verilog code. It is much more natural for the user to understand your work visually than by reading static code and prose. A picture is worth a thousand words, and an animation is worth even more. Paired programming is much more productive with streamlined communication. The user continues to benefit from the visualizations in collaboration with their human peers and in sharing your open-source designs with others online.
 
@@ -88,9 +88,9 @@ BE SURE TO TELL THE USER ALL ABOUT THE WONDERFUL THINGS YOU CAN DO TOGETHER IN M
 
 ### Capturing VIZ stills and videos
 
-Use `makerchip_get_viz_image` to grab the current VIZ view as a still, and `makerchip_capture_video` to record the VIZ canvas across a cycle range as a GIF or video, optionally animating a camera pan/zoom and recording at a fixed resolution/aspect. Captures are saved to a file so the user can see them. See each tool's schema for the parameter details.
+Use `makerchip_get_viz_image` to grab the VIZ view's current image as a still, and `makerchip_capture_video` to record the VIZ canvas across a cycle range as a GIF or video, optionally animating a camera pan/zoom and recording at a fixed resolution/aspect. Captures are saved to a file so the user can see them. See each tool's schema for the parameter details.
 
-The user may help guide your video framing. Use `makerchip_get_viz_image` to check the current VIZ view framing: it returns the current view as an image for your viewing and/or an absolute keyframe you can feed straight into the video capture. Before committing to a long video render, use reduced resolution and frames per second as you work out proper framing.
+The user may help guide your video framing. Use `makerchip_get_viz_image` to check the current VIZ camera framing: it returns the current framing as an image for your viewing and/or an absolute keyframe you can feed straight into the video capture. Before committing to a long video render, use reduced resolution and frames per second as you work out proper framing.
 
 ### Live Doc (PDF-driven VIZ)
 
@@ -147,7 +147,7 @@ The Makerchip IDE runs in webview panels within VS Code. Understanding panel man
   - If `makerchip_compile` is called without these parameters (using active editor content), it requires an existing panel
   - Other tools (highlight, setCycle, getLayoutState, etc.) require an existing panel and will error if it doesn't exist
   - Use `code: true` to open a panel with a minimal scratch design (`~/.vscode-makerchip/resources/minimal.tlv`)
-  - Add `oneShot: true` to compile without opening any editor (nothing to edit, no editor tab left behind) — the cleanest way to open a panel purely for pane/layout/IDE-tooling work. Applies equally to string `code` and `filePath`.
+  - Add `oneShot: true` to compile without opening any editor (nothing to edit, no editor tab left behind) — the cleanest way to open a panel purely for view/layout/IDE-tooling work. Applies equally to string `code` and `filePath`.
 - **Discovering Panels**: Use `makerchip_list_panels` to see which panels are currently open
   - Panel names can be passed to other tools via the `panelName` parameter
   - If no `panelName` is specified, tools target the 'default' panel
@@ -199,34 +199,34 @@ Complete API documentation available at:
 - **[plugin_api/index.html](../../resources/Makerchip-public/docs/plugin_api/index.html)** (local)
 - [IdePlugin API Documentation](https://github.com/rweda/Makerchip-public/blob/main/docs/plugin_api/index.html) (online)
 
-### Managing IDE Panes and Layout
+### Managing IDE Views and Layout
 
-**Pane Identification:**
-- Panes are identified by **mnemonics** (unique identifiers like `"Diagram"`, `"Waveform"`, `"Log"`)
+**View Identification:**
+- Views are identified by **mnemonics** (unique identifiers like `"Diagram"`, `"Waveform"`, `"Log"`)
 - Mnemonics may include uniquifiers: `"Course Slides+Udemy"`, `"RISC-V Videos+Workshop"`. (The "+" uniquifier delimiter in mnemonics must be URL-encoded as "%2B" when used in URLs)
-- Use `makerchip_get_available_panes` tool to discover available panes and their mnemonics
+- Use `makerchip_get_available_views` tool to discover available views and their mnemonics
 
-**Pane Types:**
-- **Editor Pane**: Not available in VS Code extension (VS Code provides its own editor)
-- **(Other) Main Panes**: Always open (Log,Nav-TLV, Diagram, Waveform, VIZ)
-- **Static Panes**: Defined in blade files, opened on demand
-- **Third-Party Panes**: Can be opened, given a URL with content or inline construction data
+**View Types:**
+- **Editor View**: Not available in VS Code extension (VS Code provides its own editor)
+- **(Other) Main Views**: Always open (Log,Nav-TLV, Diagram, Waveform, VIZ)
+- **Static Views**: Defined in blade files, opened on demand
+- **Third-Party Views**: Can be opened, given a URL with content or inline construction data
 
-**Blade File Names**: Static pane blade files in `~/.vscode-makerchip/resources/Makerchip-public/pane-blade/` use pane **mnemonics as filenames** (with spaces and "+" uniquifier delimiter characters). Examples:
+**Blade File Names**: Static view blade files in `~/.vscode-makerchip/resources/Makerchip-public/view-blade/` use view **mnemonics as filenames** (with spaces and "+" uniquifier delimiter characters). Examples:
 - `Combo Tutorial.blade`
 - `Course Slides+Udemy.blade`
 - `RISC-V Videos+Workshop.blade`
 - `Examples.blade`
 
-These file names **exactly match** the mnemonics returned by `makerchip_get_available_panes` and used in `makerchip_set_layout_state`.
+These file names **exactly match** the mnemonics returned by `makerchip_get_available_views` and used in `makerchip_set_layout_state`.
 
-**PDF Course Slides File Names:** Similarly, PDF course slides files in `~/.vscode-makerchip/resources/Makerchip-public/courses/` also use corresponding pane **mnemonics as filenames**. Examples:
+**PDF Course Slides File Names:** Similarly, PDF course slides files in `~/.vscode-makerchip/resources/Makerchip-public/courses/` also use corresponding view **mnemonics as filenames**. Examples:
 - `Verif Slides+TAMU.pdf`
 - `VSDOpen Slides+2020.pdf`
 
-**Layout**: You can configure the layout of IDE panes programmatically.
+**Layout**: You can configure the layout of IDE views programmatically.
 
-**Details**: See `.vscode-makerchip/.vscode/skills/makerchip-api-features.md` for details on working with third-party panes, managing the layout, and the layout data structure.
+**Details**: See `.vscode-makerchip/.vscode/skills/makerchip-api-features.md` for details on working with third-party views, managing the layout, and the layout data structure.
 
 ### Best Practices for Assistance
 

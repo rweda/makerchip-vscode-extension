@@ -6,12 +6,12 @@ import { requireTermsAccepted } from './terms';
  * Headless Compiler Explorer (CE) compile client.
  *
  * Compiles a program through the CE HTTP API (`POST /api/compiler/<id>/compile`) with **no
- * dependency on the CE GUI pane**. The CE `/api/*` surface is fully CORS-open and this runs in the
+ * dependency on the CE GUI view**. The CE `/api/*` surface is fully CORS-open and this runs in the
  * Node extension host, so there is no CORS/proxy concern. Used for testing and AI-driven compiles;
  * the returned assembly is what WARP-V's `~assemble` consumes.
  *
  * The `toAsmRows` / `detectEntry` transforms mirror those in the CE fork's
- * `static/parent-bridge.ts` (the pane path); keep the two in sync. See issues/016-share-ce-sourceasm-helpers.md.
+ * `static/parent-bridge.ts` (the view path); keep the two in sync. See issues/016-share-ce-sourceasm-helpers.md.
  */
 
 /** Deployed CE origin (dev override: http://localhost:10240). */
@@ -180,7 +180,7 @@ export async function resolveCompilerName(
 
 /**
  * Compile `source` through the CE API and return the outcome (code, detected entry, asm, stderr).
- * Host-agnostic: no VS Code, GoldenLayout, pane, or CORS dependency.
+ * Host-agnostic: no VS Code, GoldenLayout, view, or CORS dependency.
  */
 export async function compileOnCe(options: CompileOnCeOptions): Promise<CeCompileResult> {
   const {
@@ -242,7 +242,7 @@ export async function compileOnCe(options: CompileOnCeOptions): Promise<CeCompil
 
 // --- WARP-V delivery -------------------------------------------------------
 // Forward flow (CE → WARP-V), the headless equivalent of CE's "Run on WARP-V" button. The button
-// posts the CE pane's latest compile as a `sourceAsm` event; here we emit the same payload shape for
+// posts the CE view's latest compile as a `sourceAsm` event; here we emit the same payload shape for
 // a fresh headless compile. WARP-V's `sourceAsm` handler (warp-v configurator App.js) reads
 // `asmText`, `asm`, `sourceText`, `entry` (may be null → it uses `reset:`) and, on `build:true`,
 // loads and runs the program. `detectEntry` GENERATES the entry label for WARP-V's crt0 preamble;
@@ -250,14 +250,14 @@ export async function compileOnCe(options: CompileOnCeOptions): Promise<CeCompil
 
 /**
  * Deployed WARP-V configurator origin. For a dev configurator (http://localhost:3009) under a
- * clone-mode IDE (served over an HTTPS tunnel), the pane cannot frame plain http (mixed content:
- * it never signals `ready` and `callPane` times out). Tunnel it instead:
+ * clone-mode IDE (served over an HTTPS tunnel), the view cannot frame plain http (mixed content:
+ * it never signals `ready` and `callView` times out). Tunnel it instead:
  * `cloudflared tunnel --url http://localhost:3009 --http-host-header localhost:3009`, pass that URL
- * as `warpvUrl`, and use a fresh `warpvPane` (existing panes are reused by mnemonic, broken or not).
+ * as `warpvUrl`, and use a fresh `warpvView` (existing views are reused by mnemonic, broken or not).
  */
 export const DEFAULT_WARPV_URL = 'https://warp-v.org';
 
-/** The `sourceAsm` payload WARP-V consumes (mirrors CE's pane emit). */
+/** The `sourceAsm` payload WARP-V consumes (mirrors CE's view emit). */
 interface WarpVSourceAsm {
   lang: string;
   compilerId: string;
@@ -287,12 +287,12 @@ function toWarpVSourceAsm(result: CeCompileResult, source: string, build = true)
 }
 
 /**
- * Ensure a WARP-V pane exists, then drive a build in it via the host's `callPane` RPC and return
- * the resulting host compile id. Reuses an already-open third-party pane with mnemonic `warpvPane`;
- * otherwise opens a new one (with `channel.rpc: true` so the host can call the pane's `build`
+ * Ensure a WARP-V view exists, then drive a build in it via the host's `callView` RPC and return
+ * the resulting host compile id. Reuses an already-open third-party view with mnemonic `warpvView`;
+ * otherwise opens a new one (with `channel.rpc: true` so the host can call the view's `build`
  * method, and subscribing to `sourceAsm`/`theme` so the legacy bus path and theme sync still work).
  *
- * WARP-V's `build(payload, waitForCompileId)` pane method loads the delivered program, generates the
+ * WARP-V's `build(payload, waitForCompileId)` view method loads the delivered program, generates the
  * TL-Verilog, and compiles it in the HOST panel via the `loadCode` IDE method — which reports
  * the server-assigned compile id. That id is relayed back through the RPC return chain, so we
  * get it directly (no "observe the next compile" guesswork). When `waitForCompileId` is false, WARP-V
@@ -302,22 +302,22 @@ function toWarpVSourceAsm(result: CeCompileResult, source: string, build = true)
 async function deliverToWarpV(
   result: CeCompileResult,
   source: string,
-  opts: { warpvPane?: string; warpvUrl?: string; panelName?: string; waitForCompileId?: boolean; timeoutMs?: number } = {},
+  opts: { warpvView?: string; warpvUrl?: string; panelName?: string; waitForCompileId?: boolean; timeoutMs?: number } = {},
 ): Promise<{ target: string; compileId: string | null }> {
-  const { warpvPane = 'WARP-V', warpvUrl = DEFAULT_WARPV_URL, panelName, waitForCompileId = true, timeoutMs = 60000 } = opts;
-  const panes = (await vscode.commands.executeCommand(
+  const { warpvView = 'WARP-V', warpvUrl = DEFAULT_WARPV_URL, panelName, waitForCompileId = true, timeoutMs = 60000 } = opts;
+  const views = (await vscode.commands.executeCommand(
     'makerchip.callIdeMethodWithResult',
-    'getAvailablePanes',
+    'getAvailableViews',
     [],
     panelName,
   )) as Array<{ mnemonic: string; isThirdParty: boolean }> | undefined;
-  let target = panes?.find(p => p.isThirdParty && p.mnemonic === warpvPane)?.mnemonic;
+  let target = views?.find(p => p.isThirdParty && p.mnemonic === warpvView)?.mnemonic;
   if (!target) {
     target = (await vscode.commands.executeCommand(
       'makerchip.callIdeMethodWithResult',
-      'openThirdPartyPane',
+      'openThirdPartyView',
       [
-        warpvPane,
+        warpvView,
         'iframe',
         { contentUrl: warpvUrl },
         {
@@ -333,13 +333,13 @@ async function deliverToWarpV(
       panelName,
     )) as string;
   }
-  // Drive the build via host→pane RPC. WARP-V loads+compiles in the host and (when waitForCompileId)
-  // relays the compile id back. The pane may still be loading right after openThirdPartyPane; the
-  // host queues the call until the pane signals `ready`, so a generous timeout covers first load.
+  // Drive the build via host→view RPC. WARP-V loads+compiles in the host and (when waitForCompileId)
+  // relays the compile id back. The view may still be loading right after openThirdPartyView; the
+  // host queues the call until the view signals `ready`, so a generous timeout covers first load.
   const payload = toWarpVSourceAsm(result, source);
   const compileId = (await vscode.commands.executeCommand(
     'makerchip.callIdeMethodWithResult',
-    'callPane',
+    'callView',
     [target, 'build', [payload, waitForCompileId], timeoutMs],
     panelName,
     false,
@@ -369,7 +369,7 @@ interface CeCompileToolInput {
   filters?: string;
   /** CE origin override (e.g. 'http://localhost:10240' for local dev). */
   ceOrigin?: string;
-  /** When true, deliver a successful compile to a WARP-V pane (like CE's "Run on WARP-V" button). */
+  /** When true, deliver a successful compile to a WARP-V view (like CE's "Run on WARP-V" button). */
   deliverToWarpV?: boolean;
   /**
    * When delivering to WARP-V, whether to wait for and return the host compile id (so it can be
@@ -377,16 +377,16 @@ interface CeCompileToolInput {
    * (faster; skips the host compile round-trip).
    */
   waitForCompileId?: boolean;
-  /** Target WARP-V pane mnemonic. Reused if open; a new pane is opened if it does not exist. Default 'WARP-V'. */
-  warpvPane?: string;
-  /** WARP-V pane URL override (e.g. 'http://localhost:3009' for local dev). Default 'https://warp-v.org'. */
+  /** Target WARP-V view mnemonic. Reused if open; a new view is opened if it does not exist. Default 'WARP-V'. */
+  warpvView?: string;
+  /** WARP-V view URL override (e.g. 'http://localhost:3009' for local dev). Default 'https://warp-v.org'. */
   warpvUrl?: string;
   /** Optional panel name to target. */
   panelName?: string;
 }
 
 /**
- * Headless CE compile tool: compiles source via the CE API (no CE pane) and returns the assembly
+ * Headless CE compile tool: compiles source via the CE API (no CE view) and returns the assembly
  * plus a compile summary.
  */
 export class CeCompileTool implements vscode.LanguageModelTool<CeCompileToolInput> {
@@ -439,12 +439,12 @@ export class CeCompileTool implements vscode.LanguageModelTool<CeCompileToolInpu
           try {
             const waitForCompileId = input.waitForCompileId !== false;
             const { target, compileId } = await deliverToWarpV(result, input.source, {
-              warpvPane: input.warpvPane,
+              warpvView: input.warpvView,
               warpvUrl: input.warpvUrl,
               panelName: input.panelName,
               waitForCompileId,
             });
-            summary += `\n\nDelivered to WARP-V pane '${target}' (build requested).`;
+            summary += `\n\nDelivered to WARP-V view '${target}' (build requested).`;
             if (compileId) {
               summary +=
                 `\nHost build compile id: ${compileId} \u2014 poll it with makerchip_wait_compile ` +
@@ -452,9 +452,9 @@ export class CeCompileTool implements vscode.LanguageModelTool<CeCompileToolInpu
             } else if (waitForCompileId) {
               summary +=
                 `\nThe WARP-V build ran but reported no compile id (host compilation may have been ` +
-                `denied or failed). Check the WARP-V pane.`;
+                `denied or failed). Check the WARP-V view.`;
             } else {
-              summary += `\nNot awaiting a compile id (waitForCompileId=false); the build runs in the WARP-V pane.`;
+              summary += `\nNot awaiting a compile id (waitForCompileId=false); the build runs in the WARP-V view.`;
             }
           } catch (err: any) {
             summary += `\n\nCompile succeeded but WARP-V delivery failed: ${err?.message ?? err}`;

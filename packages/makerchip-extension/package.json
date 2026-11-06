@@ -194,7 +194,7 @@
             },
             "oneShot": {
               "type": "boolean",
-              "description": "One-shot mode (default false): compile the given `code`/`filePath` directly into the panel WITHOUT opening an editor — nothing to edit, no editor tab left behind. Ideal for just opening a panel to work with custom panes, the layout, or IDE tooling (e.g. `code: true, oneShot: true`), or to run a design once."
+              "description": "One-shot mode (default false): compile the given `code`/`filePath` directly into the panel WITHOUT opening an editor — nothing to edit, no editor tab left behind. Ideal for just opening a panel to work with custom views, the layout, or IDE tooling (e.g. `code: true, oneShot: true`), or to run a design once."
             },
             "additionalFiles": {
               "type": "array",
@@ -223,7 +223,7 @@
             },
             "dot": {
               "type": "boolean",
-              "description": "Whether to generate the diagram (SVG) (default true). Pass false to save unnecessary processing. Other results are unaffected. The IDE's diagram pane shows no-result status."
+              "description": "Whether to generate the diagram (SVG) (default true). Pass false to save unnecessary processing. Other results are unaffected. The IDE's diagram view shows no-result status."
             },
             "fetchIntermediateFiles": {
               "type": "boolean",
@@ -295,7 +295,7 @@
           "properties": {
             "method": {
               "type": "string",
-              "description": "The IDE method to invoke (e.g., 'compile', 'activatePane', 'setCode', 'getCode', 'setCodeFromURL', 'openPane')"
+              "description": "The IDE method to invoke (e.g., 'compile', 'activateView', 'setCode', 'getCode', 'setCodeFromURL', 'openView')"
             },
             "args": {
               "type": "array",
@@ -326,7 +326,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(broadcast)",
         "userDescription": "Publish an application event onto the Makerchip bus.",
-        "modelDescription": "Publish an application event onto the Makerchip application bus as the `platform.ai` participant (marking it AI-originated). Panes that subscribe to the given event `type` receive the payload (subject to their optional source filter). Use this to drive connected panes (e.g. hand a pane new input).",
+        "modelDescription": "Publish an application event onto the Makerchip application bus as the `platform.ai` participant (marking it AI-originated). Views that subscribe to the given event `type` receive the payload (subject to their optional source filter). Use this to drive connected views (e.g. hand a view new input).",
         "tags": [
           "makerchip",
           "bus",
@@ -342,7 +342,7 @@
           "properties": {
             "type": {
               "type": "string",
-              "description": "The application-event type to publish (e.g. 'sourceAsm'). Panes subscribe by this type."
+              "description": "The application-event type to publish (e.g. 'sourceAsm'). Views subscribe by this type."
             },
             "payload": {
               "type": [
@@ -360,7 +360,7 @@
                 "string",
                 "array"
               ],
-              "description": "Optional recipient filter (e.g. a pane mnemonic or 'ide') or an array of them. Omit to broadcast.",
+              "description": "Optional recipient filter (e.g. a view mnemonic or 'ide') or an array of them. Omit to broadcast.",
               "items": {
                 "type": "string"
               }
@@ -373,19 +373,19 @@
         }
       },
       {
-        "name": "makerchip_pane_call",
-        "when": "makerchip.enabled.makerchip_pane_call",
-        "displayName": "Call Makerchip Pane Method",
-        "toolReferenceName": "makerchipPaneCall",
+        "name": "makerchip_view_call",
+        "when": "makerchip.enabled.makerchip_view_call",
+        "displayName": "Call Makerchip View Method",
+        "toolReferenceName": "makerchipViewCall",
         "canBeReferencedInPrompt": true,
         "icon": "$(arrow-right)",
-        "userDescription": "Call a method on a connected Makerchip pane and await its result.",
-        "modelDescription": "Call a method on a connected third-party pane and await its result (host-to-pane RPC). This is the request/response complement to makerchip_emit's fire-and-forget broadcast: use it when you need a value back from a pane you opened (e.g. tell the Compiler Explorer pane to run and wait for the outcome). The pane must have opened with `rpc: true` and implement a handler for the named method. Name the pane by its (uniquified) mnemonic.",
+        "userDescription": "Call a method on a connected Makerchip view and await its result.",
+        "modelDescription": "Call a method on a connected third-party view and await its result (host-to-view RPC). This is the request/response complement to makerchip_emit's fire-and-forget broadcast: use it when you need a value back from a view you opened (e.g. tell the Compiler Explorer view to run and wait for the outcome). The view must have opened with `rpc: true` and implement a handler for the named method. Name the view by its (uniquified) mnemonic.",
         "tags": [
           "makerchip",
           "bus",
           "rpc",
-          "pane",
+          "view",
           "advanced"
         ],
         "inputSchema": {
@@ -397,15 +397,15 @@
           "properties": {
             "mnemonic": {
               "type": "string",
-              "description": "The target pane's mnemonic (as returned when opening/reserving a third-party pane)."
+              "description": "The target view's mnemonic (as returned when opening/reserving a third-party view)."
             },
             "method": {
               "type": "string",
-              "description": "The pane method to invoke. The pane must have declared `rpc: true` and implement this method."
+              "description": "The view method to invoke. The view must have declared `rpc: true` and implement this method."
             },
             "args": {
               "type": "array",
-              "description": "Positional arguments passed to the pane method. Any JSON-serializable values.",
+              "description": "Positional arguments passed to the view method. Any JSON-serializable values.",
               "items": {
                 "type": [
                   "string",
@@ -436,20 +436,20 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(settings-gear)",
         "userDescription": "Read the WARP-V configurator's current configuration.",
-        "modelDescription": "Read the current configuration of the open WARP-V configurator pane (host-to-pane RPC). Returns { general, pipeline, programText }: `general` holds the top-of-form settings (warpVVersion, isa, isaExtensions, depth, formattingSettings, customProgramEnabled, customInstructionsEnabled, programEntry); `pipeline` maps each pipeline ConfigurationParameter's jsonKey to its value (e.g. next_pc_stage, decode_stage, branch_pred, ...); `programText` is the (assembly) program source. This returned shape doubles as the schema for makerchip_set_warpv_config. Requires the WARP-V pane to be open (see makerchip_open_third_party_pane).",
+        "modelDescription": "Read the current configuration of the open WARP-V configurator view (host-to-view RPC). Returns { general, pipeline, programText }: `general` holds the top-of-form settings (warpVVersion, isa, isaExtensions, depth, formattingSettings, customProgramEnabled, customInstructionsEnabled, programEntry); `pipeline` maps each pipeline ConfigurationParameter's jsonKey to its value (e.g. next_pc_stage, decode_stage, branch_pred, ...); `programText` is the (assembly) program source. This returned shape doubles as the schema for makerchip_set_warpv_config. Requires the WARP-V view to be open (see makerchip_open_third_party_view).",
         "tags": [
           "makerchip",
           "warp-v",
           "configurator",
           "rpc",
-          "pane"
+          "view"
         ],
         "inputSchema": {
           "type": "object",
           "properties": {
             "mnemonic": {
               "type": "string",
-              "description": "Target WARP-V pane mnemonic. Default: `WARP-V`."
+              "description": "Target WARP-V view mnemonic. Default: `WARP-V`."
             },
             "panelName": {
               "type": "string",
@@ -466,13 +466,13 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(settings)",
         "userDescription": "Apply a partial configuration to the WARP-V configurator.",
-        "modelDescription": "Apply a partial configuration to the open WARP-V configurator pane (host-to-pane RPC). Provide any subset of `general`, `pipeline`, and `programText` (see makerchip_get_warpv_config for the full shape). Objects are shallow-merged over current state; arrays (e.g. isaExtensions, formattingSettings) and scalars replace. Pipeline values are validated with each parameter's own validator; unknown keys in either bucket are rejected and reported. Cross-field / general-value validity (e.g. pipeline stage ordering) is NOT enforced here — it is left to the WARP-V compile, exactly as in the UI; use makerchip_wait_compile to catch such errors. To set the assembly program: pass `programText` and `general: { customProgramEnabled: true }`. To point at a local WARP-V source: set `general: { warpVVersion: \"<url>/warp-v.tlv\" }`. NOTE: setting `general.depth` re-derives the default pipeline stages (as in the UI), so to customise individual stages either omit `depth` or set it in a separate, earlier call. Returns { applied, rejected }.",
+        "modelDescription": "Apply a partial configuration to the open WARP-V configurator view (host-to-view RPC). Provide any subset of `general`, `pipeline`, and `programText` (see makerchip_get_warpv_config for the full shape). Objects are shallow-merged over current state; arrays (e.g. isaExtensions, formattingSettings) and scalars replace. Pipeline values are validated with each parameter's own validator; unknown keys in either bucket are rejected and reported. Cross-field / general-value validity (e.g. pipeline stage ordering) is NOT enforced here — it is left to the WARP-V compile, exactly as in the UI; use makerchip_wait_compile to catch such errors. To set the assembly program: pass `programText` and `general: { customProgramEnabled: true }`. To point at a local WARP-V source: set `general: { warpVVersion: \"<url>/warp-v.tlv\" }`. NOTE: setting `general.depth` re-derives the default pipeline stages (as in the UI), so to customise individual stages either omit `depth` or set it in a separate, earlier call. Returns { applied, rejected }.",
         "tags": [
           "makerchip",
           "warp-v",
           "configurator",
           "rpc",
-          "pane"
+          "view"
         ],
         "inputSchema": {
           "type": "object",
@@ -491,7 +491,7 @@
             },
             "mnemonic": {
               "type": "string",
-              "description": "Target WARP-V pane mnemonic. Default: `WARP-V`."
+              "description": "Target WARP-V view mnemonic. Default: `WARP-V`."
             },
             "panelName": {
               "type": "string",
@@ -508,20 +508,20 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(file-code)",
         "userDescription": "Get the TL-Verilog the WARP-V configurator generates for its current configuration.",
-        "modelDescription": "Return the TL-Verilog the open WARP-V configurator pane generates for its current configuration (host-to-pane RPC) — the same source its preview and \"Open in Makerchip\" use. Reflects any prior makerchip_set_warpv_config edits (program, warpVVersion, pipeline, ...). Requires the WARP-V pane to be open. Errors if a pipeline value fails m4 translation.",
+        "modelDescription": "Return the TL-Verilog the open WARP-V configurator view generates for its current configuration (host-to-view RPC) — the same source its preview and \"Open in Makerchip\" use. Reflects any prior makerchip_set_warpv_config edits (program, warpVVersion, pipeline, ...). Requires the WARP-V view to be open. Errors if a pipeline value fails m4 translation.",
         "tags": [
           "makerchip",
           "warp-v",
           "configurator",
           "rpc",
-          "pane"
+          "view"
         ],
         "inputSchema": {
           "type": "object",
           "properties": {
             "mnemonic": {
               "type": "string",
-              "description": "Target WARP-V pane mnemonic. Default: `WARP-V`."
+              "description": "Target WARP-V view mnemonic. Default: `WARP-V`."
             },
             "panelName": {
               "type": "string",
@@ -538,7 +538,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(server-process)",
         "userDescription": "Compile source through the Compiler Explorer API and return the assembly.",
-        "modelDescription": "Headlessly compile a program through the Compiler Explorer (CE) HTTP API — no CE pane required. Returns the compile outcome: exit code, the detected entry-point label (e.g. 'main'), the compiler name, the number of asm lines, stderr, and (on success) the produced assembly text. The assembly is exactly what WARP-V's ~assemble consumes. In WARP-V a program \"passes\" by returning 0 from its entry (the reset preamble does `beqz a0, pass`; a non-zero return or a cycle-limit timeout fails). Pick a `lang` (c, c++, assembly) and the tool selects the right RISC-V rv32 compiler and rv32i flags automatically — normally you set only `source` and `lang`. `compilerId`/`options` are optional overrides (keep the target rv32i or WARP-V cannot run the result). Set deliverToWarpV:true to also deliver a successful compile into a WARP-V pane and request a build — the equivalent of CE's 'Run on WARP-V' button; a WARP-V pane is opened if one named by warpvPane is not already open. Delivery drives the build via a direct host↔pane RPC: WARP-V compiles the generated TL-Verilog in the host Makerchip panel and relays back the host compile id, which this tool returns so you can poll compilation/simulation results with makerchip_wait_compile. Set waitForCompileId:false for fire-and-forget delivery (faster; no id returned for tracking).",
+        "modelDescription": "Headlessly compile a program through the Compiler Explorer (CE) HTTP API — no CE view required. Returns the compile outcome: exit code, the detected entry-point label (e.g. 'main'), the compiler name, the number of asm lines, stderr, and (on success) the produced assembly text. The assembly is exactly what WARP-V's ~assemble consumes. In WARP-V a program \"passes\" by returning 0 from its entry (the reset preamble does `beqz a0, pass`; a non-zero return or a cycle-limit timeout fails). Pick a `lang` (c, c++, assembly) and the tool selects the right RISC-V rv32 compiler and rv32i flags automatically — normally you set only `source` and `lang`. `compilerId`/`options` are optional overrides (keep the target rv32i or WARP-V cannot run the result). Set deliverToWarpV:true to also deliver a successful compile into a WARP-V view and request a build — the equivalent of CE's 'Run on WARP-V' button; a WARP-V view is opened if one named by warpvView is not already open. Delivery drives the build via a direct host↔view RPC: WARP-V compiles the generated TL-Verilog in the host Makerchip panel and relays back the host compile id, which this tool returns so you can poll compilation/simulation results with makerchip_wait_compile. Set waitForCompileId:false for fire-and-forget delivery (faster; no id returned for tracking).",
         "tags": [
           "makerchip",
           "compiler-explorer",
@@ -588,19 +588,19 @@
             },
             "deliverToWarpV": {
               "type": "boolean",
-              "description": "When true, deliver a successful compile into a WARP-V pane and request a build (like CE's 'Run on WARP-V' button). Default false (compile and return only)."
+              "description": "When true, deliver a successful compile into a WARP-V view and request a build (like CE's 'Run on WARP-V' button). Default false (compile and return only)."
             },
             "waitForCompileId": {
               "type": "boolean",
               "description": "When delivering to WARP-V, whether to wait for and return the host compile id (poll it with makerchip_wait_compile). Default true. Set false for fire-and-forget delivery (faster; skips the host compile round-trip)."
             },
-            "warpvPane": {
+            "warpvView": {
               "type": "string",
-              "description": "Target WARP-V pane mnemonic. Reused if already open; a new WARP-V pane is opened if it does not exist. Default 'WARP-V'."
+              "description": "Target WARP-V view mnemonic. Reused if already open; a new WARP-V view is opened if it does not exist. Default 'WARP-V'."
             },
             "warpvUrl": {
               "type": "string",
-              "description": "WARP-V pane URL override. Default 'https://warp-v.org' (production; frames fine over HTTPS). MUST be HTTPS: the IDE is itself framed over an HTTPS tunnel, so an http://localhost dev server (e.g. the WARP-V configurator on :3009) is blocked as mixed content and the pane never loads. To target a local dev WARP-V, expose it over HTTPS first (e.g. `cloudflared tunnel --url http://localhost:3009 --http-host-header localhost:3009`) and pass that https URL (with a fresh warpvPane mnemonic)."
+              "description": "WARP-V view URL override. Default 'https://warp-v.org' (production; frames fine over HTTPS). MUST be HTTPS: the IDE is itself framed over an HTTPS tunnel, so an http://localhost dev server (e.g. the WARP-V configurator on :3009) is blocked as mixed content and the view never loads. To target a local dev WARP-V, expose it over HTTPS first (e.g. `cloudflared tunnel --url http://localhost:3009 --http-host-header localhost:3009`) and pass that https URL (with a fresh warpvView mnemonic)."
             },
             "panelName": {
               "type": "string",
@@ -617,7 +617,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(device-camera)",
         "userDescription": "Capture the current VIZ visualization as an image.",
-        "modelDescription": "Captures the current Makerchip VIZ (Visual Debug) view canvas (resulting from compiled/simulated code) and returns it inline as an image for the agent to inspect — use this to iterate on VIZ development and video rendering. It can also return the current view's absolute camera keyframe (scale/focus/size) for reuse in makerchip_capture_video; one call can return the image, the keyframe, or both. The image can additionally be saved to a file for the user, or captured for the user only (skipping the inline image to spend no vision tokens). The image is at the VIZ pane's on-screen size; for another size (e.g. a narrow pane), use a one-frame makerchip_capture_video (`startCyc` == `endCyc`, `format: \"gif\"`, `mode: \"fit-relative\"`, `default: {width, height}`). COPYRIGHT: while the VIZ shows PDF content (Live Doc), it captures only with the user's `clearance`, never for a PDF whose permissions deny copying.",
+        "modelDescription": "Captures the current Makerchip VIZ (Visual Debug) view canvas (resulting from compiled/simulated code) and returns it inline as an image for the agent to inspect — use this to iterate on VIZ development and video rendering. It can also return the current camera as an absolute keyframe (scale/focus/size) for reuse in makerchip_capture_video; one call can return the image, the keyframe, or both. The image can additionally be saved to a file for the user, or captured for the user only (skipping the inline image to spend no vision tokens). The image is at the VIZ view's on-screen size; for another size (e.g. a narrow view), use a one-frame makerchip_capture_video (`startCyc` == `endCyc`, `format: \"gif\"`, `mode: \"fit-relative\"`, `default: {width, height}`). COPYRIGHT: while the VIZ shows PDF content (Live Doc), it captures only with the user's `clearance`, never for a PDF whose permissions deny copying.",
         "tags": [
           "makerchip",
           "viz",
@@ -664,7 +664,7 @@
             "response": {
               "type": "string",
               "enum": ["image", "keyframe", "both"],
-              "description": "What to return. 'both' (default) captures the image AND the current view's absolute keyframe; 'image' returns only the image; 'keyframe' returns only the keyframe (no image render — cheap). The keyframe is {cycle, scale, focus:{x,y}, width, height}, ready to drop into makerchip_capture_video's `keyframes` with `mode: 'absolute'`.",
+              "description": "What to return. 'both' (default) captures the image AND the current camera as an absolute keyframe; 'image' returns only the image; 'keyframe' returns only the keyframe (no image render — cheap). The keyframe is {cycle, scale, focus:{x,y}, width, height}, ready to drop into makerchip_capture_video's `keyframes` with `mode: 'absolute'`.",
               "default": "both"
             }
           }
@@ -787,7 +787,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(device-camera-video)",
         "userDescription": "Capture the VIZ simulation across a cycle range as a GIF, MP4, WebM, or APNG video.",
-        "modelDescription": "Captures the Makerchip VIZ (Visual Debug) canvas across a range of simulation cycles and encodes it as a video, from an open Makerchip panel with compiled/simulated code. Use this to produce an animation of a design's behavior over time. Beyond the plain cycle range, it can capture intra-cycle animation, set playback speed, animate a camera pan/zoom, record at a fixed resolution/aspect, and emit GIF, MP4, WebM, or APNG. The result is always written to a file (auto-named in the temp dir unless you pass `filename`) and the path is returned; for image formats (GIF/APNG) you can then view that file to inspect the frame(s). TIP: to calibrate framing before a full render, either (a) for fit-relative framing: do a quick single low-res single-frame render at the target width/height (same aspect ⇒ identical framing) and view it; or (b) for viz-relative framing: call makerchip_get_viz_image (response: 'both') to see the current VIZ view (as an image) and get its absolute keyframe, and reuse it with mode: 'absolute'. The user can also position the view for you to capture. COPYRIGHT: while the VIZ shows PDF content (Live Doc), it captures only with the user's `clearance`, never for a PDF whose permissions deny copying.",
+        "modelDescription": "Captures the Makerchip VIZ (Visual Debug) canvas across a range of simulation cycles and encodes it as a video, from an open Makerchip panel with compiled/simulated code. Use this to produce an animation of a design's behavior over time. Beyond the plain cycle range, it can capture intra-cycle animation, set playback speed, animate a camera pan/zoom, record at a fixed resolution/aspect, and emit GIF, MP4, WebM, or APNG. The result is always written to a file (auto-named in the temp dir unless you pass `filename`) and the path is returned; for image formats (GIF/APNG) you can then view that file to inspect the frame(s). TIP: to calibrate framing before a full render, either (a) for fit-relative framing: do a quick single low-res single-frame render at the target width/height (same aspect ⇒ identical framing) and view it; or (b) for viz-relative framing: call makerchip_get_viz_image (response: 'both') to see the current VIZ framing (as an image) and get its camera as an absolute keyframe, and reuse it with mode: 'absolute'. The user can also position the camera for you to capture. COPYRIGHT: while the VIZ shows PDF content (Live Doc), it captures only with the user's `clearance`, never for a PDF whose permissions deny copying.",
         "tags": [
           "makerchip",
           "viz",
@@ -834,11 +834,11 @@
             },
             "width": {
               "type": "number",
-              "description": "Recording width in pixels. Defaults to the live VIZ pane canvas width. Set this together with height to record at a fixed resolution/aspect independent of the pane size (rendered headless in an offscreen canvas)."
+              "description": "Recording width in pixels. Defaults to the live VIZ view canvas width. Set this together with height to record at a fixed resolution/aspect independent of the view size (rendered headless in an offscreen canvas)."
             },
             "height": {
               "type": "number",
-              "description": "Recording height in pixels. Defaults to the live VIZ pane canvas height. Set this together with width to record at a fixed resolution/aspect independent of the pane size."
+              "description": "Recording height in pixels. Defaults to the live VIZ view canvas height. Set this together with width to record at a fixed resolution/aspect independent of the view size."
             },
             "backgroundColor": {
               "type": "string",
@@ -863,7 +863,7 @@
             },
             "keyframes": {
               "type": "array",
-              "description": "Camera keyframes for pan/zoom motion across the cycle range. A single keyframe = static camera; multiple keyframes animate the camera (Catmull-Rom interpolated). Interpretation depends on `mode`: in the relative modes ('viz-relative' default, or 'fit-relative') `scale` is a multiplier on the base scale (2 = 2x zoom in, 0.5 = zoom out) and `focus` is an {x,y} offset as a fraction of the base's visible area (+x right, +y down), and keyframes may be OMITTED (records the current view, or the whole-design fit for 'fit-relative'); in 'absolute' mode `scale`/`focus` are absolute VIZ scale/coordinates, the current view is not used, and keyframes are REQUIRED (at least one entry) — `default` only fills in properties an entry omits, it does not replace the array.",
+              "description": "Camera keyframes for pan/zoom motion across the cycle range. A single keyframe = static camera; multiple keyframes animate the camera (Catmull-Rom interpolated). Interpretation depends on `mode`: in the relative modes ('viz-relative' default, or 'fit-relative') `scale` is a multiplier on the base scale (2 = 2x zoom in, 0.5 = zoom out) and `focus` is an {x,y} offset as a fraction of the base's visible area (+x right, +y down), and keyframes may be OMITTED (records the current camera, or the whole-design fit for 'fit-relative'); in 'absolute' mode `scale`/`focus` are absolute VIZ scale/coordinates, the current camera is not used, and keyframes are REQUIRED (at least one entry) — `default` only fills in properties an entry omits, it does not replace the array.",
               "items": {
                 "type": "object",
                 "properties": {
@@ -882,7 +882,7 @@
             "mode": {
               "type": "string",
               "enum": ["viz-relative", "fit-relative", "absolute"],
-              "description": "Keyframe reference frame. 'viz-relative' (default): `scale` is a multiplier on the current VIZ scale and `focus` is a fraction of the current view's visible area; keyframes may be omitted to record the current view. 'fit-relative': same relative math but the base is the whole-design contain-fit AT THE RECORDING SIZE rather than the current pane view — the reliable way to frame a capture without hand-tuning scale (scale 1 / focus 0 = whole design framed; keyframes may be omitted for the whole-design fit). 'absolute': `scale`/`focus` are absolute VIZ scale/coordinates (as returned by getKeyframe / makerchip_get_viz_image) and keyframes are REQUIRED."
+              "description": "Keyframe reference frame. 'viz-relative' (default): `scale` is a multiplier on the current VIZ scale and `focus` is a fraction of the current viewport; keyframes may be omitted to record the current camera. 'fit-relative': same relative math but the base is the whole-design contain-fit AT THE RECORDING SIZE rather than the current VIZ camera — the reliable way to frame a capture without hand-tuning scale (scale 1 / focus 0 = whole design framed; keyframes may be omitted for the whole-design fit). 'absolute': `scale`/`focus` are absolute VIZ scale/coordinates (as returned by getKeyframe / makerchip_get_viz_image) and keyframes are REQUIRED."
             },
             "default": {
               "type": "object",
@@ -899,14 +899,14 @@
         "toolReferenceName": "makerchipGetLayoutState",
         "canBeReferencedInPrompt": true,
         "icon": "$(layout)",
-        "userDescription": "Get the current IDE pane layout configuration.",
-        "modelDescription": "Retrieves the current Makerchip IDE layout state as a serializable object from an open Makerchip panel. The returned data structure refects the recursive binary tree of splits and the tabbed panes at leaf splits, identified by their mnemonics.\n\nUse this to: capture current layout for later restoration, understand current IDE configuration, or create modified layouts based on the current state. The returned object can be passed directly to makerchip_set_layout_state or modified before restoration.\n\nSEE: `.vscode-makerchip/.vscode/skills/makerchip-api-features.md` for details about working with layouts and panes",
+        "userDescription": "Get the current IDE view layout configuration.",
+        "modelDescription": "Retrieves the current Makerchip IDE layout state as a serializable object from an open Makerchip panel. The returned data structure refects the recursive binary tree of splits and the tabbed panes at leaf splits, identified by their mnemonics.\n\nUse this to: capture current layout for later restoration, understand current IDE configuration, or create modified layouts based on the current state. The returned object can be passed directly to makerchip_set_layout_state or modified before restoration.\n\nSEE: `.vscode-makerchip/.vscode/skills/makerchip-api-features.md` for details about working with layouts and views",
         "tags": [
           "makerchip",
           "ide",
           "layout",
           "state",
-          "panes",
+          "views",
           "configuration"
         ],
         "inputSchema": {
@@ -926,14 +926,14 @@
         "toolReferenceName": "makerchipSetLayoutState",
         "canBeReferencedInPrompt": true,
         "icon": "$(layout-panel)",
-        "userDescription": "Configure the IDE pane layout (create splits, arrange panes in tabs, set active pane).",
-        "modelDescription": "Sets the Makerchip IDE layout of an open Makerchip panel from a state object. You can restore a previously saved state OR craft a custom layout defining pane arrangement, splits, tabs, and active panes.\n\nThe state is either a TabbedView (single pane container with tabs) or FlexSplit (split layout with left/right or top/bottom sides). FlexSplit sides recursively contain TabbedView or nested FlexSplit states.\n\nAvailable pane mnemonics: Use makerchip_get_available_panes to get the complete list. Main panes: Log, Nav-TLV, Diagram, Viz, Waveform should typically be included. Other \"static panes\" and any third-party panes loaded using makerchip_open_third_party_pane are also available.\n\nEXAMPLES:\n\nSingle view with tabs: {\"panes\": [\"Diagram\", \"Waveform\", ...], \"activePane\": \"Diagram\"}\n\nHorizontal split (Log left, others right): {\"sides\": {\"left\": {\"panes\": [\"Log\"], \"activePane\": \"Log\"}, \"right\": {\"panes\": [\"Diagram\", \"Waveform\", ...], \"activePane\": \"Diagram\"}}, \"splitAt\": 0.3}\n\nNested 3-way (Log left, Diagram top-right, Waveform, etc. bottom-right): {\"sides\": {\"left\": {\"panes\": [\"Log\"], \"activePane\": \"Log\"}, \"right\": {\"sides\": {\"top\": {\"panes\": [\"Diagram\"], \"activePane\": \"Diagram\"}, \"bottom\": {\"panes\": [\"Waveform\", ...], \"activePane\": \"Waveform\"}}, \"splitAt\": 0.5}}, \"splitAt\": 0.3}\n\nSEE: `.vscode-makerchip/.vscode/skills/makerchip-api-features.md` for details about working with layouts and panes",
+        "userDescription": "Configure the IDE view layout (create splits, arrange views in tabs, set active view).",
+        "modelDescription": "Sets the Makerchip IDE layout of an open Makerchip panel from a state object. You can restore a previously saved state OR craft a custom layout defining view arrangement, splits, tabs, and active views.\n\nThe state is either a TabbedPane (single view container with tabs) or FlexSplit (split layout with left/right or top/bottom sides). FlexSplit sides recursively contain TabbedPane or nested FlexSplit states.\n\nAvailable view mnemonics: Use makerchip_get_available_views to get the complete list. Main views: Log, Nav-TLV, Diagram, Viz, Waveform should typically be included. Other \"static views\" and any third-party views loaded using makerchip_open_third_party_view are also available.\n\nEXAMPLES:\n\nSingle view with tabs: {\"views\": [\"Diagram\", \"Waveform\", ...], \"activeView\": \"Diagram\"}\n\nHorizontal split (Log left, others right): {\"sides\": {\"left\": {\"views\": [\"Log\"], \"activeView\": \"Log\"}, \"right\": {\"views\": [\"Diagram\", \"Waveform\", ...], \"activeView\": \"Diagram\"}}, \"splitAt\": 0.3}\n\nNested 3-way (Log left, Diagram top-right, Waveform, etc. bottom-right): {\"sides\": {\"left\": {\"views\": [\"Log\"], \"activeView\": \"Log\"}, \"right\": {\"sides\": {\"top\": {\"views\": [\"Diagram\"], \"activeView\": \"Diagram\"}, \"bottom\": {\"views\": [\"Waveform\", ...], \"activeView\": \"Waveform\"}}, \"splitAt\": 0.5}}, \"splitAt\": 0.3}\n\nSEE: `.vscode-makerchip/.vscode/skills/makerchip-api-features.md` for details about working with layouts and views",
         "tags": [
           "makerchip",
           "ide",
           "layout",
           "state",
-          "panes",
+          "views",
           "restore",
           "configuration",
           "split",
@@ -945,7 +945,7 @@
           "properties": {
             "state": {
               "$ref": "#/$defs/layoutState",
-              "description": "Layout state defining pane arrangement (TabbedView or FlexSplit)"
+              "description": "Layout state defining view arrangement (TabbedPane or FlexSplit)"
             },
             "panelName": {
               "type": "string",
@@ -955,22 +955,22 @@
           "$defs": {
             "layoutState": {
               "oneOf": [
-                { "$ref": "#/$defs/tabbedViewState" },
+                { "$ref": "#/$defs/tabbedPaneState" },
                 { "$ref": "#/$defs/flexSplitState" }
               ]
             },
-            "tabbedViewState": {
+            "tabbedPaneState": {
               "type": "object",
-              "required": ["panes"],
+              "required": ["views"],
               "properties": {
-                "panes": {
+                "views": {
                   "type": "array",
                   "items": { "type": "string" },
-                  "description": "Array of pane mnemonics in tab order"
+                  "description": "Array of view mnemonics in tab order"
                 },
-                "activePane": {
+                "activeView": {
                   "type": ["string", "null"],
-                  "description": "Mnemonic of active pane (or null)"
+                  "description": "Mnemonic of active view (or null)"
                 }
               },
               "additionalProperties": false
@@ -1016,18 +1016,18 @@
         }
       },
       {
-        "name": "makerchip_get_available_panes",
-        "when": "makerchip.enabled.makerchip_get_available_panes",
-        "displayName": "Get Available Panes",
-        "toolReferenceName": "makerchipGetAvailablePanes",
+        "name": "makerchip_get_available_views",
+        "when": "makerchip.enabled.makerchip_get_available_views",
+        "displayName": "Get Available Views",
+        "toolReferenceName": "makerchipGetAvailableViews",
         "canBeReferencedInPrompt": true,
         "icon": "$(list-tree)",
-        "userDescription": "List all available IDE panes with descriptions.",
-        "modelDescription": "Returns all panes with mnemonics (name[+uniquifier]), display names, descriptions, and availability. Main panes: Log, Nav-TLV, Diagram, Viz, Waveform. Static panes: Tutorials, Examples, Courses. Third-party panes if any. Only use panes with available=true in layout operations.",
+        "userDescription": "List all available IDE views with descriptions.",
+        "modelDescription": "Returns all views with mnemonics (name[+uniquifier]), display names, descriptions, and availability. Main views: Log, Nav-TLV, Diagram, Viz, Waveform. Static views: Tutorials, Examples, Courses. Third-party views if any. Only use views with available=true in layout operations.",
         "tags": [
           "makerchip",
           "ide",
-          "panes",
+          "views",
           "list",
           "discovery",
           "layout"
@@ -1043,18 +1043,18 @@
         }
       },
       {
-        "name": "makerchip_open_pane",
-        "when": "makerchip.enabled.makerchip_open_pane",
-        "displayName": "Open/Activate Pane",
-        "toolReferenceName": "makerchipOpenPane",
+        "name": "makerchip_open_view",
+        "when": "makerchip.enabled.makerchip_open_view",
+        "displayName": "Open/Activate View",
+        "toolReferenceName": "makerchipOpenView",
         "canBeReferencedInPrompt": true,
         "icon": "$(open-preview)",
-        "userDescription": "Open or activate a specific IDE pane by mnemonic.",
-        "modelDescription": "Opens and/or activates a pane by mnemonic in an open Makerchip panel. Works with static panes (Tutorials, Examples, opened on demand), main panes (Log, Diagram, etc.), and third-party panes. Use makerchip_get_available_panes for valid mnemonics. For complex layouts use makerchip_set_layout_state.",
+        "userDescription": "Open or activate a specific IDE view by mnemonic.",
+        "modelDescription": "Opens and/or activates a view by mnemonic in an open Makerchip panel. Works with static views (Tutorials, Examples, opened on demand), main views (Log, Diagram, etc.), and third-party views. Use makerchip_get_available_views for valid mnemonics. For complex layouts use makerchip_set_layout_state.",
         "tags": [
           "makerchip",
           "ide",
-          "pane",
+          "view",
           "open",
           "activate",
           "tutorial",
@@ -1066,11 +1066,11 @@
           "properties": {
             "mnemonic": {
               "type": "string",
-              "description": "The mnemonic (unique identifier) of the pane to open or activate. Use makerchip_get_available_panes to discover valid mnemonics."
+              "description": "The mnemonic (unique identifier) of the view to open or activate. Use makerchip_get_available_views to discover valid mnemonics."
             },
             "background": {
               "type": "boolean",
-              "description": "If true, opens the pane in the background without activating it. Default is false (activate the pane).",
+              "description": "If true, opens the view in the background without activating it. Default is false (activate the view).",
               "default": false
             },
             "panelName": {
@@ -1081,18 +1081,18 @@
         }
       },
       {
-        "name": "makerchip_fit_pane",
-        "when": "makerchip.enabled.makerchip_fit_pane",
-        "displayName": "Fit Pane to Content",
-        "toolReferenceName": "makerchipFitPane",
+        "name": "makerchip_fit_view",
+        "when": "makerchip.enabled.makerchip_fit_view",
+        "displayName": "Fit View to Content",
+        "toolReferenceName": "makerchipFitView",
         "canBeReferencedInPrompt": true,
         "icon": "$(screen-full)",
-        "userDescription": "Fit a pane's content to its viewport (zoom to fit).",
-        "modelDescription": "Sends a 'fit content' request to the pane with the given mnemonic. It is up to the pane whether it acts: VIZ and Diagram fit their scalable content to the viewport (equivalent to the Reset Zoom control), Waveform zooms to the full time range (Zoom Full), and other panes ignore the request. Returns whether the pane acted; success defaults to false when the pane is not found or does not support fitting. Use makerchip_get_available_panes for valid mnemonics.",
+        "userDescription": "Fit a view's content to its viewport (zoom to fit).",
+        "modelDescription": "Sends a 'fit content' request to the view with the given mnemonic. It is up to the view whether it acts: VIZ and Diagram fit their scalable content to the viewport (equivalent to the Reset Zoom control), Waveform zooms to the full time range (Zoom Full), and other views ignore the request. Returns whether the view acted; success defaults to false when the view is not found or does not support fitting. Use makerchip_get_available_views for valid mnemonics.",
         "tags": [
           "makerchip",
           "ide",
-          "pane",
+          "view",
           "fit",
           "zoom",
           "viz",
@@ -1105,7 +1105,7 @@
           "properties": {
             "mnemonic": {
               "type": "string",
-              "description": "The mnemonic (unique identifier) of the pane to fit (e.g. 'Viz', 'Diagram', 'Waveform'). Use makerchip_get_available_panes to discover valid mnemonics."
+              "description": "The mnemonic (unique identifier) of the view to fit (e.g. 'Viz', 'Diagram', 'Waveform'). Use makerchip_get_available_views to discover valid mnemonics."
             },
             "panelName": {
               "type": "string",
@@ -1115,18 +1115,18 @@
         }
       },
       {
-        "name": "makerchip_open_third_party_pane",
-        "when": "makerchip.enabled.makerchip_open_third_party_pane",
-        "displayName": "Open Third-Party Pane",
-        "toolReferenceName": "makerchipOpenThirdPartyPane",
+        "name": "makerchip_open_third_party_view",
+        "when": "makerchip.enabled.makerchip_open_third_party_view",
+        "displayName": "Open Third-Party View",
+        "toolReferenceName": "makerchipOpenThirdPartyView",
         "canBeReferencedInPrompt": true,
         "icon": "$(new-file)",
-        "userDescription": "Open custom content (PDFs, web pages) in IDE panes.",
-        "modelDescription": "Opens third-party pane with PDF or iframe content. PDF: uses built-in viewer, supports any URL. Iframe: embeds web pages, subject to CSP/X-Frame-Options. Provide content via either `contentUrl` (a URL/data URI) OR `filePath` (an absolute path to a local file). Prefer `filePath` for local files: the extension reads the file and builds a data: URI internally, so large file contents never pass through the model context. Mnemonic is tab label plus optional `+`-delimited uniquifier string (or allow auto-uniquification). Returns actual mnemonic used (same or uniquified).\n\nEXAMPLES:\n\nLocal file (preferred for local content): {\"mnemonic\": \"Guide\", \"contentType\": \"iframe\", \"contentParams\": {\"filePath\": \"/home/user/docs/guide.html\"}}\n\nPDF URL: {\"mnemonic\": \"Guide\", \"contentType\": \"pdf\", \"contentParams\": {\"contentUrl\": \"https://example.com/guide.pdf\"}}\n\nIframe URL: {\"mnemonic\": \"Docs\", \"contentType\": \"iframe\", \"contentParams\": {\"contentUrl\": \"https://docs.example.com\"}, \"options\": {\"background\": true}}\n\nConnected pane (channel-wired onto the IDE bus, so one pane's events drive another): pass `options.channel` (produces/subscribes/rpc) and optional `options.params`. E.g. a Compiler Explorer pane with {\"options\": {\"channel\": {\"produces\": [\"sourceAsm\"], \"rpc\": true}, \"params\": {\"ce\": {\"language\": \"c\", \"compiler\": \"rv32-cgcc1430\"}}}} paired with a WARP-V pane {\"options\": {\"channel\": {\"subscribes\": [{\"type\": \"sourceAsm\", \"sources\": [\"Compiler Explorer\"]}], \"rpc\": true}}}.",
+        "userDescription": "Open custom content (PDFs, web pages) in IDE views.",
+        "modelDescription": "Opens third-party view with PDF or iframe content. PDF: uses built-in viewer, supports any URL. Iframe: embeds web pages, subject to CSP/X-Frame-Options. Provide content via either `contentUrl` (a URL/data URI) OR `filePath` (an absolute path to a local file). Prefer `filePath` for local files: the extension reads the file and builds a data: URI internally, so large file contents never pass through the model context. Mnemonic is tab label plus optional `+`-delimited uniquifier string (or allow auto-uniquification). Returns actual mnemonic used (same or uniquified).\n\nEXAMPLES:\n\nLocal file (preferred for local content): {\"mnemonic\": \"Guide\", \"contentType\": \"iframe\", \"contentParams\": {\"filePath\": \"/home/user/docs/guide.html\"}}\n\nPDF URL: {\"mnemonic\": \"Guide\", \"contentType\": \"pdf\", \"contentParams\": {\"contentUrl\": \"https://example.com/guide.pdf\"}}\n\nIframe URL: {\"mnemonic\": \"Docs\", \"contentType\": \"iframe\", \"contentParams\": {\"contentUrl\": \"https://docs.example.com\"}, \"options\": {\"background\": true}}\n\nConnected view (channel-wired onto the IDE bus, so one view's events drive another): pass `options.channel` (produces/subscribes/rpc) and optional `options.params`. E.g. a Compiler Explorer view with {\"options\": {\"channel\": {\"produces\": [\"sourceAsm\"], \"rpc\": true}, \"params\": {\"ce\": {\"language\": \"c\", \"compiler\": \"rv32-cgcc1430\"}}}} paired with a WARP-V view {\"options\": {\"channel\": {\"subscribes\": [{\"type\": \"sourceAsm\", \"sources\": [\"Compiler Explorer\"]}], \"rpc\": true}}}.",
         "tags": [
           "makerchip",
           "ide",
-          "pane",
+          "view",
           "pdf",
           "iframe",
           "documentation",
@@ -1141,7 +1141,7 @@
           "properties": {
             "mnemonic": {
               "type": "string",
-              "description": "Display name for the pane (tab label). Will be uniquified automatically if a pane with this name already exists."
+              "description": "Display name for the view (tab label). Will be uniquified automatically if a view with this name already exists."
             },
             "contentType": {
               "type": "string",
@@ -1167,26 +1167,26 @@
               "properties": {
                 "background": {
                   "type": "boolean",
-                  "description": "If true, opens the pane without activating it (leaves current pane active). Default is false.",
+                  "description": "If true, opens the view without activating it (leaves current view active). Default is false.",
                   "default": false
                 },
                 "nonTransferrable": {
                   "type": "boolean",
-                  "description": "If true, pane construction data won't be stored for layout recovery. Use for temporary panes. Default is false.",
+                  "description": "If true, view construction data won't be stored for layout recovery. Use for temporary views. Default is false.",
                   "default": false
                 },
                 "channel": {
                   "type": "object",
-                  "description": "Optional channel contract wiring this pane onto the IDE communication bus. Enables connected multi-pane flows where one pane's events drive another (e.g. Compiler Explorer producing `sourceAsm` consumed by a WARP-V pane).",
+                  "description": "Optional channel contract wiring this view onto the IDE communication bus. Enables connected multi-view flows where one view's events drive another (e.g. Compiler Explorer producing `sourceAsm` consumed by a WARP-V view).",
                   "properties": {
                     "produces": {
                       "type": "array",
                       "items": { "type": "string" },
-                      "description": "Event types this pane may publish on the bus (e.g. [\"sourceAsm\"])."
+                      "description": "Event types this view may publish on the bus (e.g. [\"sourceAsm\"])."
                     },
                     "subscribes": {
                       "type": "array",
-                      "description": "Event types this pane receives, optionally scoped to specific source agents.",
+                      "description": "Event types this view receives, optionally scoped to specific source agents.",
                       "items": {
                         "type": "object",
                         "required": ["type"],
@@ -1195,23 +1195,23 @@
                           "sources": {
                             "type": "array",
                             "items": { "type": "string" },
-                            "description": "Source agent identities to accept this event from (e.g. the mnemonic of the producing pane, or \"ide\")."
+                            "description": "Source agent identities to accept this event from (e.g. the mnemonic of the producing view, or \"ide\")."
                           }
                         }
                       }
                     },
                     "rpc": {
                       "type": "boolean",
-                      "description": "If true, the pane may issue bounded IDE RPC calls (whitelisted safe Plugin API operations)."
+                      "description": "If true, the view may issue bounded IDE RPC calls (whitelisted safe Plugin API operations)."
                     }
                   }
                 },
                 "params": {
                   "type": "object",
-                  "description": "Optional opaque parameters delivered to the pane via its `getContext` RPC. Shape is pane-defined (e.g. Compiler Explorer expects `{\"ce\": {\"language\", \"compiler\", \"options\", \"filters\", \"source\"}}`)."
+                  "description": "Optional opaque parameters delivered to the view via its `getContext` RPC. Shape is view-defined (e.g. Compiler Explorer expects `{\"ce\": {\"language\", \"compiler\", \"options\", \"filters\", \"source\"}}`)."
                 }
               },
-              "description": "Optional settings for pane behavior."
+              "description": "Optional settings for view behavior."
             },
             "panelName": {
               "type": "string",
@@ -1246,7 +1246,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(debug-step-over)",
         "userDescription": "Get the active cycle/time step.",
-        "modelDescription": "Returns active cycle value. All \"live\" panes (Nav-TLV, Diagram, VIZ, Waveform) display data for this cycle. Cycle 0 is first cycle after reset.",
+        "modelDescription": "Returns active cycle value. All \"live\" views (Nav-TLV, Diagram, VIZ, Waveform) display data for this cycle. Cycle 0 is first cycle after reset.",
         "tags": [
           "makerchip",
           "cycle",
@@ -1275,7 +1275,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(debug-step-into)",
         "userDescription": "Set the active cycle/time step.",
-        "modelDescription": "Sets active cycle, updating all \"live\" panes (Nav-TLV, Diagram, VIZ, Waveform). Provide either 'cycle' for absolute positioning or 'offset' for relative positioning (mutually exclusive). Final value clamped to [0, endCycle].\n\nEXAMPLES:\n- Jump to cycle 42: {\"cycle\": 42}\n- Reset to start: {\"cycle\": 0}\n- Advance 10 cycles: {\"offset\": 10}\n- Go back 5 cycles: {\"offset\": -5}",
+        "modelDescription": "Sets active cycle, updating all \"live\" views (Nav-TLV, Diagram, VIZ, Waveform). Provide either 'cycle' for absolute positioning or 'offset' for relative positioning (mutually exclusive). Final value clamped to [0, endCycle].\n\nEXAMPLES:\n- Jump to cycle 42: {\"cycle\": 42}\n- Reset to start: {\"cycle\": 0}\n- Advance 10 cycles: {\"offset\": 10}\n- Go back 5 cycles: {\"offset\": -5}",
         "tags": [
           "makerchip",
           "cycle",
@@ -1317,7 +1317,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(play)",
         "userDescription": "Start or stop waveform playback animation.",
-        "modelDescription": "Controls waveform playback animation (cycle advancement). Starts or stops playback, optionally setting cycle range and playback speed.\n\nWhen starting (isPlaying=true):\n- Advances active cycle automatically at specified interval (cycleTimeout, default 1000ms)\n- Optionally jumps to startCyc before starting\n- Stops at endCyc if provided, otherwise plays to end of waveform\n- Updates all live panes (Nav-TLV, Diagram, VIZ, Waveform) each cycle\n\nWhen stopping (isPlaying=false):\n- Stops cycle advancement at current position\n- Other parameters ignored\n\nEXAMPLES:\n- Start playback from beginning at 500ms/cycle: {\"isPlaying\": true, \"cycleTimeout\": 500, \"startCyc\": 0}\n- Play cycles 10-50 at default speed: {\"isPlaying\": true, \"startCyc\": 10, \"endCyc\": 50}\n- Stop playback: {\"isPlaying\": false}",
+        "modelDescription": "Controls waveform playback animation (cycle advancement). Starts or stops playback, optionally setting cycle range and playback speed.\n\nWhen starting (isPlaying=true):\n- Advances active cycle automatically at specified interval (cycleTimeout, default 1000ms)\n- Optionally jumps to startCyc before starting\n- Stops at endCyc if provided, otherwise plays to end of waveform\n- Updates all live views (Nav-TLV, Diagram, VIZ, Waveform) each cycle\n\nWhen stopping (isPlaying=false):\n- Stops cycle advancement at current position\n- Other parameters ignored\n\nEXAMPLES:\n- Start playback from beginning at 500ms/cycle: {\"isPlaying\": true, \"cycleTimeout\": 500, \"startCyc\": 0}\n- Play cycles 10-50 at default speed: {\"isPlaying\": true, \"startCyc\": 10, \"endCyc\": 50}\n- Stop playback: {\"isPlaying\": false}",
         "tags": [
           "makerchip",
           "waveform",
@@ -1408,7 +1408,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(clear-all)",
         "userDescription": "Clear all highlighted entities from IDE views.",
-        "modelDescription": "Removes all entity highlights from all views: Diagram, Waveform, Nav-TLV panes.",
+        "modelDescription": "Removes all entity highlights from all views: Diagram, Waveform, Nav-TLV views.",
         "tags": [
           "makerchip",
           "highlight",
@@ -1434,7 +1434,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(color-mode)",
         "userDescription": "Enable or disable dark mode in the Makerchip IDE.",
-        "modelDescription": "Controls dark/light theme for all IDE views (editor, diagram, waveform). Pass true for dark mode, false for light mode. Updates localStorage and all panes immediately.",
+        "modelDescription": "Controls dark/light theme for all IDE views (editor, diagram, waveform). Pass true for dark mode, false for light mode. Updates localStorage and all views immediately.",
         "tags": [
           "makerchip",
           "dark",
@@ -1467,14 +1467,14 @@
         "toolReferenceName": "makerchipSetLiveMode",
         "canBeReferencedInPrompt": true,
         "icon": "$(pulse)",
-        "userDescription": "Enable or disable live mode for a specific pane (Diagram, Nav-TLV).",
-        "modelDescription": "Controls live/dead mode for panes that support it. Live panes auto-update as cycle changes during playback/stepping. Dead panes freeze at current cycle. Supported: Diagram, Nav-TLV. VIZ is always live. Returns true if successful, false if pane not found or doesn't support live mode.",
+        "userDescription": "Enable or disable live mode for a specific view (Diagram, Nav-TLV).",
+        "modelDescription": "Controls live/dead mode for views that support it. Live views auto-update as cycle changes during playback/stepping. Dead views freeze at current cycle. Supported: Diagram, Nav-TLV. VIZ is always live. Returns true if successful, false if view not found or doesn't support live mode.",
         "tags": [
           "makerchip",
           "live",
           "dead",
           "mode",
-          "pane",
+          "view",
           "diagram",
           "nav-tlv",
           "freeze",
@@ -1485,7 +1485,7 @@
           "properties": {
             "mnemonic": {
               "type": "string",
-              "description": "The mnemonic of the pane to control (e.g., 'Diagram', 'Nav-TLV')."
+              "description": "The mnemonic of the view to control (e.g., 'Diagram', 'Nav-TLV')."
             },
             "enabled": {
               "type": "boolean",
@@ -1615,7 +1615,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(extensions)",
         "userDescription": "Activate Makerchip capabilities by activity so only the relevant tools are offered.",
-        "modelDescription": "Activate (or release) Makerchip capabilities so the tools you need are offered without keeping the whole suite enabled (which pressures the request tool cap and can auto-disable tools). Pass a single `target` activity: `base` (compile, run, inspect panels/panes, view VIZ — the everyday essentials), `customize` (open custom third-party panes and wire pane/bus communication), `demo` (manipulate layout, playback, highlighting, dark mode), `video` (capture VIZ videos), `livedoc` (extract PDF figures), `cewarpv` (Compiler Explorer + WARP-V configurator), `dev` (extension-developer helpers). Finer-grained set and tool names are also accepted; pass any unrecognized `target` (e.g. `list`) to get the complete list back. Set `enabled: false` to release. Enables are sticky (they persist and expire after a few days). The always-on `makerchip_enable_tools` and `makerchip_invoke_tool` keep every capability reachable regardless of what is enabled. Rule of thumb: enable an activity when you will use its tools repeatedly (they then appear directly and cheaply for the rest of the conversation); for a single one-off call of an otherwise-hidden tool, prefer `makerchip_invoke_tool` (no lasting tool-set change, so no prompt-cache churn).",
+        "modelDescription": "Activate (or release) Makerchip capabilities so the tools you need are offered without keeping the whole suite enabled (which pressures the request tool cap and can auto-disable tools). Pass a single `target` activity: `base` (compile, run, inspect panels/views, view VIZ — the everyday essentials), `customize` (open custom third-party views and wire view/bus communication), `demo` (manipulate layout, playback, highlighting, dark mode), `video` (capture VIZ videos), `livedoc` (extract PDF figures), `cewarpv` (Compiler Explorer + WARP-V configurator), `dev` (extension-developer helpers). Finer-grained set and tool names are also accepted; pass any unrecognized `target` (e.g. `list`) to get the complete list back. Set `enabled: false` to release. Enables are sticky (they persist and expire after a few days). The always-on `makerchip_enable_tools` and `makerchip_invoke_tool` keep every capability reachable regardless of what is enabled. Rule of thumb: enable an activity when you will use its tools repeatedly (they then appear directly and cheaply for the rest of the conversation); for a single one-off call of an otherwise-hidden tool, prefer `makerchip_invoke_tool` (no lasting tool-set change, so no prompt-cache churn).",
         "tags": [
           "makerchip",
           "meta",

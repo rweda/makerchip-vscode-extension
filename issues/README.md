@@ -35,12 +35,12 @@ with plain file edits (AI-friendly).
 
 - [001: LM tool to open/restore a webview from the compile cache](001-restore-webview-from-compile-cache.md)
 - [003: Associate a compiled file with its Makerchip panel and reuse it](003-associate-file-with-makerchip-panel.md)
-- [004: Transfer programs/settings into the CE UI pane (in-place, no reload)](004-ce-ui-config-transfer.md)
+- [004: Transfer programs/settings into the CE UI view (in-place, no reload)](004-ce-ui-config-transfer.md)
 - [007: Serve and announce compile include files](007-serve-announce-include-files.md)
 - [009: SystemVerilog language features inside TL-Verilog](009-sv-features-in-tlv.md)
 - [010: Agent one-shot tasks via a headless IDE Component](010-headless-components.md)
 - [015: Live Doc gaps found in user-model testing](015-live-doc-gaps-from-eecs151-test.md)
-- [016: Share CE `sourceAsm` helpers between the CE pane and headless compile](016-share-ce-sourceasm-helpers.md)
+- [016: Share CE `sourceAsm` helpers between the CE view and headless compile](016-share-ce-sourceasm-helpers.md)
 - [017: Tool errors are returned as ordinary results, so batches count them ok](017-tool-errors-returned-as-results.md)
 - [018: Scope-aware grep for `.tlv` files (CLI + LM tool)](018-tlv-scope-grep.md)
 
@@ -57,7 +57,7 @@ Older entries link to deleted files; recover those with `git log --follow -- iss
   Closed 2026-10-27: misdiagnosed; batch VCDs are monotonic. Concurrent `fs.appendFile` calls
   reordered cached VCD chunks, so only restore saw backward time. Fixed by 17ae536 (serialized
   `compileCache.appendFile`).
-- [005: Headless CE-API compile path (no CE pane)](https://github.com/rweda/makerchip-vscode-extension/blob/f8c7db3/issues/005-headless-ce-api-compile.md)
+- [005: Headless CE-API compile path (no CE view)](https://github.com/rweda/makerchip-vscode-extension/blob/f8c7db3/issues/005-headless-ce-api-compile.md)
   Closed 2026-10-27: shipped as `makerchip_ce_compile` (`ceCompile.ts`), with the WARP-V delivery
   handlers deployed (mono, warp-v.org). Helper sharing with CE moved to 016; the visible-CE-UI
   variant remains in 004.
@@ -75,5 +75,5 @@ Older entries link to deleted files; recover those with `git log --follow -- iss
   BATCHING note on `InvokeToolTool` in `packages/makerchip-extension/src/makerchipTool.ts`.
 - [006: Tool gating and activation](006-tool-gating-and-activation.md)
   Closed 2026-08-28: activation-graph engine, env holders, `makerchip_enable_tools`,
-  `makerchip_invoke_tool`, and per-tool `when` gating on all 28 gated tools; Phase B pane-awareness
+  `makerchip_invoke_tool`, and per-tool `when` gating on all 28 gated tools; Phase B view-awareness
   dropped. Durable design now lives in `packages/makerchip-extension/src/toolActivation.ts`.

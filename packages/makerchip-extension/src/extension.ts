@@ -472,7 +472,7 @@ export function activate(ctx: vscode.ExtensionContext) {
         // reply handler (step 3) is guaranteed to find this entry.
         pendingIdeResults.set(requestId, { resolve, reject });
         // Step 4: safety net — if no reply arrives, reject and unregister. The default 10s suits
-        // synchronous IDE methods; callers awaiting a slow downstream op (e.g. a pane RPC that
+        // synchronous IDE methods; callers awaiting a slow downstream op (e.g. a view RPC that
         // runs a compile) pass a larger timeoutMs.
         setTimeout(() => {
           if (pendingIdeResults.has(requestId)) {

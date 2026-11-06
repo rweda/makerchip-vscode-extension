@@ -1,35 +1,35 @@
-# 004: Transfer programs/settings into the CE UI pane (in-place, no reload)
+# 004: Transfer programs/settings into the CE UI view (in-place, no reload)
 
 - Status: open
-- Area: compiler-explorer (rweda fork) / parent-bridge.ts, editor/compiler panes; mono pane RPC
+- Area: compiler-explorer (rweda fork) / parent-bridge.ts, editor/compiler panes; mono view RPC
 - Created: 2026-08-20
 
 ## Problem
 
-We want to programmatically drive the **visible Compiler Explorer GUI pane** — load a program plus
+We want to programmatically drive the **visible Compiler Explorer GUI view** — load a program plus
 settings (language, compiler, args, source) into the live CE UI so a user can watch/explore/demo the
-compilation — triggered over the pane RPC channel (the `runOnWarpV`-style method), **without a full
-pane reload** (which destroys GoldenLayout state and any other panes).
+compilation — triggered over the view RPC channel (the `runOnWarpV`-style method), **without a full
+view reload** (which destroys GoldenLayout state and any other panes).
 
 This is **deferred**. The headless CE-API path (`makerchip_ce_compile`, `ceCompile.ts`) covers compile-for-result and testing
-without any CE pane. This UI-transfer path is only needed when we specifically want the CE GUI itself
+without any CE view. This UI-transfer path is only needed when we specifically want the CE GUI itself
 to update, and is worth doing later once the environment has user momentum.
 
 ## Findings (what the exploration established)
 
-**Pane RPC plumbing.** The pane→IDE protocol is documented in
-`mono/doc-src/plugin/Third_Party_Pane_API.md`. Host→pane calls arrive as
-`{v:1, kind:'rpc-call', id, method, args}` and the pane must reply
+**View RPC plumbing.** The view→IDE protocol is documented in
+`mono/doc-src/plugin/Third_Party_View_API.md`. Host→view calls arrive as
+`{v:1, kind:'rpc-call', id, method, args}` and the view must reply
 `{v:1, kind:'rpc-call-result'|'rpc-call-error', ...}`. `parent-bridge.ts` currently handles only
-`rpc-result`/`rpc-error`/`theme` — it has **no `rpc-call` handler yet**, so no pane method can be
+`rpc-result`/`rpc-error`/`theme` — it has **no `rpc-call` handler yet**, so no view method can be
 invoked. The method name `runOnWarpV` is already referenced from
-`mono/ide-env/coffee/platform/IdePlugin.coffee` (`ide.api.callPane("Compiler Explorer+2", "runOnWarpV", [])`).
+`mono/ide-env/coffee/platform/IdePlugin.coffee` (`ide.api.callView("Compiler Explorer+2", "runOnWarpV", [])`).
 Adding a `_rpcServed` map + `serve(method, fn)` helper (per the doc's reference client) is unambiguous.
 
 **The reload problem.** CE applies language/compiler/options/source by serialising GoldenLayout state
-into `window.location.hash`; a `hashchange` triggers a full pane reload
+into `window.location.hash`; a `hashchange` triggers a full view reload
 (`compiler-explorer/static/main.ts` ~L597). `parent-bridge.ts`'s `applyInitialStateFromParams()` uses
-exactly this — which is fine **at pane open** (nothing to preserve yet) but unusable per-call because
+exactly this — which is fine **at view open** (nothing to preserve yet) but unusable per-call because
 it destroys layout and the in-memory RPC reply promise.
 
 **In-place levers that already exist (no reload, no CE-core change).** `parent-bridge.ts` already
@@ -71,7 +71,7 @@ for the target compiler pane, emit `sourceAsm` with `build:true`, and return the
 
 - **Phase 1 (no CE-core changes):** add the `rpc-call` handler + `serve()` to `parent-bridge.ts` and a
   `runOnWarpV({source?, options?})` that applies source/args in-place and returns the outcome. Keep
-  language/compiler set via the existing `params.ce` at pane open.
+  language/compiler set via the existing `params.ce` at view open.
 - **Phase 2 (2 small core edits):** add `selectCompiler` and `setEditorLanguageAndSource` events
   (wired to existing `onCompilerChange` / `changeLanguage`, with the example-load pre-seed) so
   `runOnWarpV` can switch compiler/language per-call without reopening.

@@ -50,16 +50,16 @@ const NODES: Record<string, string[]> = {
   // Shared building blocks (referenced by activities; also addressable on their own).
   base: [
     'makerchip_list_panels', 'makerchip_compile', 'makerchip_wait_compile',
-    'makerchip_get_available_panes', 'makerchip_fit_pane', 'makerchip_get_viz_image',
+    'makerchip_get_available_views', 'makerchip_fit_view', 'makerchip_get_viz_image',
     'makerchip_get_cycle', 'makerchip_set_cycle', 'makerchip_ide_call', 'makerchip_get_late_reply',
   ],
-  communicate: ['makerchip_pane_call', 'makerchip_emit'],
+  communicate: ['makerchip_view_call', 'makerchip_emit'],
 
   // Activities (the preferred public surface) — each pulls in `base`.
-  customize: ['base', 'communicate', 'makerchip_open_third_party_pane'],
+  customize: ['base', 'communicate', 'makerchip_open_third_party_view'],
   demo: [
     'base',
-    'makerchip_get_layout_state', 'makerchip_set_layout_state', 'makerchip_open_pane',
+    'makerchip_get_layout_state', 'makerchip_set_layout_state', 'makerchip_open_view',
     'makerchip_update_play_state', 'makerchip_set_live_mode', 'makerchip_highlight',
     'makerchip_clear_highlights', 'makerchip_set_dark_mode',
   ],
