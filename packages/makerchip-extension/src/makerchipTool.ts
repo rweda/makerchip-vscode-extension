@@ -1725,13 +1725,13 @@ interface ThirdPartyViewObject {
 }
 
 /**
- * Layout state structure matching Makerchip IDE's FlexSplit/TabbedView hierarchy.
+ * Layout state structure matching Makerchip IDE's FlexSplit/TabbedPane hierarchy.
  * View ordering is preserved. Views array contains mixed types:
  * - Strings: static views or non-recoverable third-party views (mnemonic only)
  * - Objects: recoverable third-party views (with full creation data)
  */
 interface LayoutState {
-  // TabbedView state (leaf nodes)
+  // TabbedPane state (leaf nodes)
   views?: Array<string | ThirdPartyViewObject>;  // Mixed types preserve ordering
   activeView?: string | null;
   path?: string;  // Optional path for restoration
@@ -1806,7 +1806,7 @@ export class GetLayoutStateTool implements vscode.LanguageModelTool<GetLayoutSta
 }
 
 interface SetLayoutStateInput {
-  /** The layout state object to restore (matches FlexSplit/TabbedView structure) */
+  /** The layout state object to restore (matches FlexSplit/TabbedPane structure) */
   state: LayoutState;
   /** Optional panel name to target. If not provided, uses the default panel. */
   panelName?: string;

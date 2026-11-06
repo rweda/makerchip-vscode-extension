@@ -900,7 +900,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(layout)",
         "userDescription": "Get the current IDE view layout configuration.",
-        "modelDescription": "Retrieves the current Makerchip IDE layout state as a serializable object from an open Makerchip panel. The returned data structure refects the recursive binary tree of splits and the tabbed views at leaf splits, identified by their mnemonics.\n\nUse this to: capture current layout for later restoration, understand current IDE configuration, or create modified layouts based on the current state. The returned object can be passed directly to makerchip_set_layout_state or modified before restoration.\n\nSEE: `.vscode-makerchip/.vscode/skills/makerchip-api-features.md` for details about working with layouts and views",
+        "modelDescription": "Retrieves the current Makerchip IDE layout state as a serializable object from an open Makerchip panel. The returned data structure refects the recursive binary tree of splits and the tabbed panes at leaf splits, identified by their mnemonics.\n\nUse this to: capture current layout for later restoration, understand current IDE configuration, or create modified layouts based on the current state. The returned object can be passed directly to makerchip_set_layout_state or modified before restoration.\n\nSEE: `.vscode-makerchip/.vscode/skills/makerchip-api-features.md` for details about working with layouts and views",
         "tags": [
           "makerchip",
           "ide",
@@ -927,7 +927,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(layout-panel)",
         "userDescription": "Configure the IDE view layout (create splits, arrange views in tabs, set active view).",
-        "modelDescription": "Sets the Makerchip IDE layout of an open Makerchip panel from a state object. You can restore a previously saved state OR craft a custom layout defining view arrangement, splits, tabs, and active views.\n\nThe state is either a TabbedView (single view container with tabs) or FlexSplit (split layout with left/right or top/bottom sides). FlexSplit sides recursively contain TabbedView or nested FlexSplit states.\n\nAvailable view mnemonics: Use makerchip_get_available_views to get the complete list. Main views: Log, Nav-TLV, Diagram, Viz, Waveform should typically be included. Other \"static views\" and any third-party views loaded using makerchip_open_third_party_view are also available.\n\nEXAMPLES:\n\nSingle view with tabs: {\"views\": [\"Diagram\", \"Waveform\", ...], \"activeView\": \"Diagram\"}\n\nHorizontal split (Log left, others right): {\"sides\": {\"left\": {\"views\": [\"Log\"], \"activeView\": \"Log\"}, \"right\": {\"views\": [\"Diagram\", \"Waveform\", ...], \"activeView\": \"Diagram\"}}, \"splitAt\": 0.3}\n\nNested 3-way (Log left, Diagram top-right, Waveform, etc. bottom-right): {\"sides\": {\"left\": {\"views\": [\"Log\"], \"activeView\": \"Log\"}, \"right\": {\"sides\": {\"top\": {\"views\": [\"Diagram\"], \"activeView\": \"Diagram\"}, \"bottom\": {\"views\": [\"Waveform\", ...], \"activeView\": \"Waveform\"}}, \"splitAt\": 0.5}}, \"splitAt\": 0.3}\n\nSEE: `.vscode-makerchip/.vscode/skills/makerchip-api-features.md` for details about working with layouts and views",
+        "modelDescription": "Sets the Makerchip IDE layout of an open Makerchip panel from a state object. You can restore a previously saved state OR craft a custom layout defining view arrangement, splits, tabs, and active views.\n\nThe state is either a TabbedPane (single view container with tabs) or FlexSplit (split layout with left/right or top/bottom sides). FlexSplit sides recursively contain TabbedPane or nested FlexSplit states.\n\nAvailable view mnemonics: Use makerchip_get_available_views to get the complete list. Main views: Log, Nav-TLV, Diagram, Viz, Waveform should typically be included. Other \"static views\" and any third-party views loaded using makerchip_open_third_party_view are also available.\n\nEXAMPLES:\n\nSingle view with tabs: {\"views\": [\"Diagram\", \"Waveform\", ...], \"activeView\": \"Diagram\"}\n\nHorizontal split (Log left, others right): {\"sides\": {\"left\": {\"views\": [\"Log\"], \"activeView\": \"Log\"}, \"right\": {\"views\": [\"Diagram\", \"Waveform\", ...], \"activeView\": \"Diagram\"}}, \"splitAt\": 0.3}\n\nNested 3-way (Log left, Diagram top-right, Waveform, etc. bottom-right): {\"sides\": {\"left\": {\"views\": [\"Log\"], \"activeView\": \"Log\"}, \"right\": {\"sides\": {\"top\": {\"views\": [\"Diagram\"], \"activeView\": \"Diagram\"}, \"bottom\": {\"views\": [\"Waveform\", ...], \"activeView\": \"Waveform\"}}, \"splitAt\": 0.5}}, \"splitAt\": 0.3}\n\nSEE: `.vscode-makerchip/.vscode/skills/makerchip-api-features.md` for details about working with layouts and views",
         "tags": [
           "makerchip",
           "ide",
@@ -945,7 +945,7 @@
           "properties": {
             "state": {
               "$ref": "#/$defs/layoutState",
-              "description": "Layout state defining view arrangement (TabbedView or FlexSplit)"
+              "description": "Layout state defining view arrangement (TabbedPane or FlexSplit)"
             },
             "panelName": {
               "type": "string",
@@ -955,11 +955,11 @@
           "$defs": {
             "layoutState": {
               "oneOf": [
-                { "$ref": "#/$defs/tabbedViewState" },
+                { "$ref": "#/$defs/tabbedPaneState" },
                 { "$ref": "#/$defs/flexSplitState" }
               ]
             },
-            "tabbedViewState": {
+            "tabbedPaneState": {
               "type": "object",
               "required": ["views"],
               "properties": {
