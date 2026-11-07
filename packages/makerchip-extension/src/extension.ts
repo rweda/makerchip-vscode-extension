@@ -1092,7 +1092,7 @@ function readTunnelUrl(file: string): string | undefined {
  *    a clone's sandhost/TUNNEL_INFO and use the first live one. F5 ("Run Extension")
  *    can't set env vars, so this is the only way to point a breakpoint-capable EDH
  *    at a clone — the developer adds the clone as a workspace folder and reloads.
- *    GATED on MAKERCHIP_LAUNCH being UNSET: when `./launch` opened this EDH it is
+ *    GATED on being an EDH (DEV_MODE), and on MAKERCHIP_LAUNCH being UNSET: when `./launch` opened this EDH it is
  *    authoritative (priorities 1/2 above), so we never second-guess it by scanning
  *    whatever folders happen to be open. Read FRESH each call, like priority 2.
  * 4. VS Code configuration (makerchip.serverUrl)
@@ -1145,14 +1145,14 @@ async function getServerUrl(panelKey?: string): Promise<string> {
     log(`MAKERCHIP_MONO_CLONE=${cloneDir} but no live tunnel at ${infoFile}; falling through.`);
   }
 
-  // 3. Discovery fallback (F5 debug flow only): ./launch did NOT open this EDH
+  // 3. Discovery fallback (F5 debug flow only): this is an EDH that ./launch did NOT open
   //    (MAKERCHIP_LAUNCH unset), so nothing pinned the server via env — scan the
   //    open workspace folders for a clone's sandhost/TUNNEL_INFO. This is how a
   //    breakpoint-capable F5 EDH is pointed at a clone: add the clone as a
   //    workspace folder and reload. Skipped entirely for a ./launch EDH so its
   //    explicit choice is never overridden by whatever folders happen to be open.
   //    readTunnelUrl is silent on ENOENT, so non-clone folders don't warn.
-  if (!process.env.MAKERCHIP_LAUNCH) {
+  if (DEV_MODE && !process.env.MAKERCHIP_LAUNCH) {
     const found: { infoFile: string; url: string }[] = [];
     for (const folder of vscode.workspace.workspaceFolders ?? []) {
       const infoFile = path.join(folder.uri.fsPath, 'sandhost', 'TUNNEL_INFO');

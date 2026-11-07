@@ -43,6 +43,7 @@ with plain file edits (AI-friendly).
 - [016: Share CE `sourceAsm` helpers between the CE view and headless compile](016-share-ce-sourceasm-helpers.md)
 - [017: Tool errors are returned as ordinary results, so batches count them ok](017-tool-errors-returned-as-results.md)
 - [018: Scope-aware grep for `.tlv` files (CLI + LM tool)](018-tlv-scope-grep.md)
+- [019: Drop the lost-quick-result workaround once the Claude harness fixes the race](019-drop-quick-result-workaround.md)
 
 ## Closed
 
