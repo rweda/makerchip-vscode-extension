@@ -516,6 +516,9 @@ echo "Launching VS Code Extension Development Host ($CODE_BIN)..."
 # server is pinned below; default mode pins nothing and falls through to
 # makerchip.serverUrl / the built-in default, still without discovery.)
 export MAKERCHIP_LAUNCH=1
+# The checkout this EDH runs. Agents in its window inherit the environment, so the
+# shared Claude skill can tell them which of several dev installs serves them.
+export MAKERCHIP_EXTENSION_PATH="$SCRIPT_DIR"
 if [ "$MODE" = "url" ]; then
   export MAKERCHIP_SERVER_URL="$SERVER_URL"
 elif [ "$MODE" = "clone" ]; then
