@@ -197,50 +197,35 @@ seed_profile() {
   done
 }
 
-# Verify a compiled extension is present and not stale relative to its TS sources.
-# The EDH runs whatever is in each out/ dir; if a compile failed or never ran, it
-# would launch STALE code. Usage: check_build <label> <src_dir> <entry> [<entry> ...]
-check_build() {
-  local label="$1"; shift
-  local src_dir="$1"; shift
+# Ensure a package's compiled output is present and not stale relative to its TS
+# sources, compiling it (npm run compile) if not. The EDH runs whatever is in each
+# out/ dir, and nothing keeps that current unless a 'watch: all' task is running,
+# which happens only in a window whose workspace includes this repo (the task runs
+# on folderOpen). So edits made with no such window open (e.g. by an agent in a
+# mono-only window, or by git pull) would otherwise launch OLD code.
+# Usage: ensure_build <label> <pkg_dir> <entry> [<entry> ...]
+ensure_build() {
+  local label="$1" pkg_dir="$2"; shift 2
 
-  local entry
+  local reason="" entry newest=""
   for entry in "$@"; do
-    if [ ! -f "$entry" ]; then
-      echo "Error: $label is not compiled (missing: $entry)." >&2
-      echo "       The Extension Development Host would launch with no/old code." >&2
-      echo "       Build it first (from the package dir): npm run compile" >&2
-      echo "       or start the 'watch: all' task, then re-run ./launch." >&2
-      exit 1
-    fi
+    if [ ! -f "$entry" ]; then reason="missing $entry"; break; fi
+    if [ -z "$newest" ] || [ "$entry" -nt "$newest" ]; then newest="$entry"; fi
   done
-
-  if [ -d "$src_dir" ]; then
-    # Freshness: treat the build as current as long as the watcher rebuilt SOME
-    # artifact after your last edit. Compare sources against the NEWEST artifact only.
-    local newest=""
-    for entry in "$@"; do
-      if [ -z "$newest" ] || [ "$entry" -nt "$newest" ]; then newest="$entry"; fi
-    done
+  if [ -z "$reason" ]; then
+    # Treat the build as current as long as SOME artifact was rebuilt after your
+    # last edit. Compare sources against the NEWEST artifact only.
     local newer
-    newer=$(find "$src_dir" -name '*.ts' -newer "$newest" -print -quit 2>/dev/null || true)
-    if [ -n "$newer" ]; then
-      echo "Warning: $label build looks STALE (source newer than newest compiled output):" >&2
-      echo "           $newer" >&2
-      echo "         is newer than" >&2
-      echo "           $newest" >&2
-      echo "" >&2
-      echo "  The Extension Development Host may run OLD code, producing confusing" >&2
-      echo "  runtime errors that don't match the source (e.g. version mismatches)." >&2
-      echo "  If a 'watch' task is running, it may just be mid-rebuild; otherwise run" >&2
-      echo "  'npm run compile' in the package dir and check for compile errors." >&2
-      echo "" >&2
-      if [ -t 0 ]; then
-        read -p "  Press ENTER to launch anyway, or Ctrl+C to cancel: "
-      else
-        echo "  (non-interactive: launching anyway)" >&2
-      fi
-    fi
+    newer=$(find "$pkg_dir/src" -name '*.ts' -newer "$newest" -print -quit 2>/dev/null || true)
+    if [ -n "$newer" ]; then reason="$newer is newer than $newest"; fi
+  fi
+  [ -n "$reason" ] || return 0
+
+  # Harmless alongside a running watcher (mid-rebuild): both write the same output.
+  echo "$label needs a build ($reason); running 'npm run compile'..." >&2
+  if ! ( cd "$pkg_dir" && npm run compile ) >&2; then
+    echo "Error: $label failed to compile; fix the errors above, then re-run ./launch." >&2
+    exit 1
   fi
 }
 
@@ -488,11 +473,11 @@ fi
 
 # makerchip-extension: main entry + the separately-compiled webview bundle
 # (webview.ts is excluded from the main tsconfig, so check it too).
-check_build "Makerchip extension" "$SCRIPT_DIR/src" \
+ensure_build "Makerchip extension" "$SCRIPT_DIR" \
   "$SCRIPT_DIR/out/extension.js" "$SCRIPT_DIR/out/webview.js"
 # tlverilog extension: a common blind spot because the makerchip watch task
 # does NOT build it.
-check_build "TL-Verilog extension" "$SCRIPT_DIR/../tlv-extension/src" \
+ensure_build "TL-Verilog extension" "$SCRIPT_DIR/../tlv-extension" \
   "$SCRIPT_DIR/../tlv-extension/out/src/extension.js"
 
 # ---------------------------------------------------------------------------
