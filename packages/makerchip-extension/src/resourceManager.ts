@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as os from 'os';
-import { populateResources, MAKERCHIP_DIR, MANAGED_ENTRIES, RESOURCES_DIR, RESOURCES_VERSION } from './populateResources';
+import { populateResources, DEV_MODE, MAKERCHIP_DIR, MANAGED_ENTRIES, RESOURCES_DIR, RESOURCES_VERSION } from './populateResources';
 import { installLiveDocSkill } from './liveDocSkill';
 import { log } from './logger';
 
@@ -135,21 +135,48 @@ async function composeLiveDocSkill(context: vscode.ExtensionContext, serverUrl: 
 }
 
 /**
- * Optionally add reference data folder to workspace
+ * Optionally add this install's data folder to the workspace, replacing any other install's.
+ *
+ * A workspace (e.g. a mono clone's) can be opened by different installs over time -- the
+ * Marketplace one, or EDHs from different checkouts -- and each has its own data folder (see
+ * makerchipDirFor). Only the running install's folder is meaningful to an agent, so others are
+ * replaced rather than accumulated. Panels restored from an earlier install's session may still
+ * refer to compile ids in that install's cache, which this install cannot restore; accepted.
  */
 async function maybeAddResourcesToWorkspace(context: vscode.ExtensionContext): Promise<void> {
   const config = vscode.workspace.getConfiguration('makerchip');
   const addResources = config.get<string>('addResourcesFolder');
-  
-  const folders = vscode.workspace.workspaceFolders || [];
-  const alreadyAdded = folders.some(f => f.uri.fsPath === MAKERCHIP_DIR);
-  
-  if (alreadyAdded || addResources === 'never') {
+  if (addResources === 'never') {
     return;
   }
-  
+
+  // An EDH's folder is named for its checkout, so it is clear which extension clone is loaded;
+  // e.g. checkout makerchip-vscode-extension_tt -> "(tt)".
+  const checkout = path.basename(path.resolve(context.extensionPath, '..', '..'))
+    .replace(/^makerchip-vscode-extension[-_](?=.)/, '');
+  const name = DEV_MODE ? `📚 Makerchip Data (${checkout})` : '📚 Makerchip Data';
+  const isOurs = (f: vscode.WorkspaceFolder) => f.uri.fsPath === MAKERCHIP_DIR && f.name === name;
+  const folders = vscode.workspace.workspaceFolders || [];
+  // Any install's data folder ends in the same directory name (see makerchipDirFor).
+  const others = folders.filter(f => path.basename(f.uri.fsPath) === path.basename(MAKERCHIP_DIR) && !isOurs(f));
+
+  if (others.length > 0) {
+    // The user opted in for this workspace (via an earlier install), so replace without asking.
+    // Last first, so earlier indices stay valid; the first is replaced in place unless ours exists.
+    const haveOurs = folders.some(isOurs);
+    for (const f of [...others].reverse()) {
+      const add = (f === others[0] && !haveOurs) ? [{ uri: vscode.Uri.file(MAKERCHIP_DIR), name }] : [];
+      await updateWorkspaceFolders(f.index, 1, ...add);
+    }
+    log(`Replaced ${others.length} other Makerchip data folder(s) in the workspace with ${MAKERCHIP_DIR}`);
+    return;
+  }
+  if (folders.some(isOurs)) {
+    return;
+  }
+
   if (addResources === 'always') {
-    await addResourcesFolder();
+    await addResourcesFolder(name);
     return;
   }
   
@@ -163,7 +190,7 @@ async function maybeAddResourcesToWorkspace(context: vscode.ExtensionContext): P
   
   if (response === 'Yes') {
     await config.update('addResourcesFolder', 'always', vscode.ConfigurationTarget.Global);
-    await addResourcesFolder();
+    await addResourcesFolder(name);
   } else if (response === 'Never') {
     await config.update('addResourcesFolder', 'never', vscode.ConfigurationTarget.Global);
   }
@@ -172,20 +199,31 @@ async function maybeAddResourcesToWorkspace(context: vscode.ExtensionContext): P
 /**
  * Add resources folder to workspace
  */
-async function addResourcesFolder(): Promise<void> {
+async function addResourcesFolder(name: string): Promise<void> {
   const numFolders = vscode.workspace.workspaceFolders?.length || 0;
-  
-  const success = vscode.workspace.updateWorkspaceFolders(
-    numFolders,
-    0,
-    {
-      uri: vscode.Uri.file(MAKERCHIP_DIR),
-      name: '📚 Makerchip Data'
-    }
-  );
-  
-  if (success) {
+  if (await updateWorkspaceFolders(numFolders, 0, { uri: vscode.Uri.file(MAKERCHIP_DIR), name })) {
     vscode.window.showInformationMessage('Makerchip data folder added to workspace');
+  }
+}
+
+/**
+ * `vscode.workspace.updateWorkspaceFolders`, resolved once the change lands: the API forbids a
+ * further call before `onDidChangeWorkspaceFolders` fires.
+ */
+async function updateWorkspaceFolders(start: number, deleteCount: number,
+    ...add: { uri: vscode.Uri; name: string }[]): Promise<boolean> {
+  let listener: vscode.Disposable | undefined;
+  const changed = new Promise<void>(resolve => {
+    listener = vscode.workspace.onDidChangeWorkspaceFolders(() => resolve());
+  });
+  try {
+    if (!vscode.workspace.updateWorkspaceFolders(start, deleteCount, ...add)) {
+      return false;
+    }
+    await changed;
+    return true;
+  } finally {
+    listener!.dispose();
   }
 }
 

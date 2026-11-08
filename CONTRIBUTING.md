@@ -60,7 +60,10 @@ An EDH coexists with a Marketplace install of the same extension:
 
 - It keeps its Makerchip data folder in the checkout, at
   `packages/makerchip-extension/.vscode-makerchip/` (git-ignored), not in
-  `~/.vscode-makerchip`. The first launch clones its resources there.
+  `~/.vscode-makerchip`. The first launch clones its resources there. In the
+  workspace it is named for the checkout (e.g. `📚 Makerchip Data (tt)` for
+  `makerchip-vscode-extension_tt`) and replaces any other install's data folder,
+  so restored panels may refer to compile results it doesn't have.
 - It wins the shared Claude skill (`~/.claude/skills/makerchip/`) without a
   version bump.
 
