@@ -44,6 +44,8 @@ with plain file edits (AI-friendly).
 - [017: Tool errors are returned as ordinary results, so batches count them ok](017-tool-errors-returned-as-results.md)
 - [018: Scope-aware grep for `.tlv` files (CLI + LM tool)](018-tlv-scope-grep.md)
 - [019: Drop the lost-quick-result workaround once the Claude harness fixes the race](019-drop-quick-result-workaround.md)
+- [020: Download resource repos on demand or just reference them](020-download-resource-repos-on-demand.md)
+- [021: Eliminate the need for SandPiper-SaaS in the TT flow](021-eliminate-sandpiper-saas.md)
 
 ## Closed
 

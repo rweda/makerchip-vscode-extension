@@ -1,0 +1,9 @@
+# 020: Download resource repos on demand or just reference them
+
+- Status: open
+- Area: resource management
+- Created: 2026-09-09
+
+## Description
+
+Currently, resource repositories are downloaded upfront. To avoid pollution, especially as resources grow, consider downloading them on agent demand or simply referencing them for agents to fetch.

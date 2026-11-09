@@ -343,16 +343,18 @@ carefully; some result in HANGS.
   tool is unsafe: *enabling* lags (fast "No such tool available", above), and *releasing* a set
   then calling one of its still-offered tools that same turn HANGS (the bridge dispatches to a
   now-unregistered tool). Let set changes settle to the next turn, or use \`makerchip_invoke_tool\`.
-- **A call that finishes too quickly can HANG, even issued alone.** The extension starts a call the
-  moment you issue it, while the harness is still approving it (about a second). If the extension
-  answers first, the result is dropped and the call hangs although it ran. Quick queries
-  (\`makerchip_get_cycle\`, \`makerchip_get_viz_image\`, \`makerchip_get_available_views\`, small
-  extractions: tens to hundreds of ms) hit this; calls of a second or more (compiles, most PDF
-  extractions) did not. The user's "Bypass Permissions" mode avoids it. Otherwise, make any call
-  that may return in under ~1.5 s through \`makerchip_invoke_tool\` with \`minDurationMs\` (e.g.
-  1500; max 10000) as a TOP-LEVEL argument, a sibling of \`calls\`/\`name\`:
-  \`{calls: [...], minDurationMs: 1500}\`. Inside any \`input\` it is silently ignored. It holds the
-  result past the approval, adding nothing to slower calls. Prefer file outputs (\`saveToFile\`, \`{file: true}\`) so a lost result is recoverable.
+- **A call that finishes too quickly can HANG, even issued alone.** The extension starts a call
+  the moment you issue it, while the harness is still approving it (about a second, sometimes
+  more). If the extension answers first, the result is dropped and the call hangs although it ran.
+  Quick queries (\`makerchip_get_cycle\`, \`makerchip_get_viz_image\`,
+  \`makerchip_get_available_views\`, small extractions: tens to hundreds of ms) hit this; calls of
+  a second or more (compiles, most PDF extractions) did not. The user's "Bypass Permissions" mode
+  avoids it. Otherwise, make any call that may return in under ~3 s through
+  \`makerchip_invoke_tool\` with \`minDurationMs\` (e.g. 3000; 1500 has proven too short; max
+  10000) as a TOP-LEVEL argument, a sibling of \`calls\`/\`name\`: \`{calls: [...], minDurationMs:
+  3000}\`. Inside any \`input\` it is silently ignored. It holds the result past the approval,
+  adding nothing to slower calls. Prefer file outputs (\`saveToFile\`, \`{file: true}\`) so a lost
+  result is recoverable.
 
 ### Extension host reloads
 
