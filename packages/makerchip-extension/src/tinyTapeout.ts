@@ -271,6 +271,20 @@ export function registerTinyTapeout(context: vscode.ExtensionContext): void {
   state = context.workspaceState;
   vscode.commands.executeCommand('setContext', FILES_CONTEXT_KEY, Object.keys(bindings()));
   context.subscriptions.push(vscode.commands.registerCommand('makerchip.ttRun', runTtFlow));
+  // The human counterpart of makerchip_tt_enable.
+  context.subscriptions.push(vscode.commands.registerCommand('makerchip.ttEnable', async (uri?: vscode.Uri) => {
+    const file = (uri ?? vscode.window.activeTextEditor?.document.uri)?.fsPath;
+    if (!file?.endsWith('.tlv')) {
+      vscode.window.showErrorMessage('Open your Tiny Tapeout project\'s src/project.tlv first.');
+      return;
+    }
+    try {
+      const { repo } = await bindFile(file);
+      vscode.window.showInformationMessage(`Added the "Run TT Flow" button to ${path.basename(file)} (github.com/${repo}).`);
+    } catch (error: any) {
+      vscode.window.showErrorMessage(`Tiny Tapeout: ${error?.message ?? error}`);
+    }
+  }));
 }
 
 interface TtEnableToolInput {

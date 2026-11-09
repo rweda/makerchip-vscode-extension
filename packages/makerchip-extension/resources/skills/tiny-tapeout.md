@@ -17,20 +17,29 @@ Your job is the one-time setup. After it, the user runs the flow with the "Run T
 
 1. **GitHub CLI.** `gh auth status`. If not logged in, ask the user to run `gh auth login` (it needs them to
    confirm a code in their browser).
-2. **Create the repo** (public; TT requires it):
-   `gh repo create <name> --template stevehoover/ttsky-makerchip-template --public --clone`.
-   Its initial commit already runs the flow once; with the template's blank project info, `gds` and `docs` fail
-   (expected).
+2. **Create the repo** (public; TT requires it). First ask the user, suggesting defaults:
+   - its name (e.g. from their project idea) and owner: their account (`gh api user --jq .login`) or an
+     organization they belong to;
+   - where to clone it: suggest a new folder beside their current projects, never inside another Git repo
+     (check with `git -C <parent> rev-parse --is-inside-work-tree`).
+
+   Then, from the chosen parent folder:
+   `gh repo create <owner>/<name> --template stevehoover/ttsky-makerchip-template --public --clone`. Its initial
+   commit already runs the flow once; with the template's blank project info, `gds` and `docs` fail (expected).
+   Offer to add the clone to the current VS Code workspace: the button you add in step 5 belongs to this
+   workspace, so it would be missing if the user opened the clone in a new window instead.
 3. **Enable GitHub Pages** right away (TT's `viewer` job deploys to it, after `gds`):
    `gh api -X POST repos/<owner>/<name>/pages -f build_type=workflow`.
 4. **Personalize.** Like Tiny Tapeout's own templates, this one leaves the project's identity and docs blank,
    and TT's checks fail the `gds` and `docs` runs until they are filled. TT wants a person to supply them, so
    ask the user; never invent them or fill in placeholders.
-   - Now: `info.yaml` `title`, `author`, `description`, and `top_module`, named
+   - Now: `info.yaml` `title`, `author`, `description` (`gds` fails without them), and `top_module`, named
      `tt_um_<github-username>_<project>`. Use the same name for `my_design` in `src/project.tlv` and the module
      instantiated in `test/tb.v`.
    - As the design takes shape (from the user's answers, or drafts they approve): `info.yaml` `pinout` (at
-     least one entry) and `docs/info.md`'s "How it works" and "How to test" sections.
+     least one entry) and `docs/info.md`'s "How it works" and "How to test" sections (`docs` fails without
+     them), and the testbench `test/test.py` (its check of the template's all-zero outputs fails once the
+     design drives them). So setup alone does not make every run pass; tell the user what remains.
    - Stage these edits (`git add`) without committing; the button's commit includes them (after asking).
 5. **Add the button:** call `makerchip_tt_enable` with the absolute path of `src/project.tlv` (enable the
    `tinytapeout` tools, or use `makerchip_invoke_tool`). Open the file in an editor for the user. Point

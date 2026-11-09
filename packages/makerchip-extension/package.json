@@ -45,6 +45,10 @@
         "icon": "$(rocket)"
       },
       {
+        "command": "makerchip.ttEnable",
+        "title": "Makerchip: Add Tiny Tapeout Button"
+      },
+      {
         "command": "makerchip.compileNew",
         "title": "Makerchip: Compile/Simulate in New Panel",
         "icon": "$(add)"
@@ -168,6 +172,10 @@
         {
           "command": "makerchip.ttRun",
           "when": "resourcePath in makerchip.ttFiles"
+        },
+        {
+          "command": "makerchip.ttEnable",
+          "when": "resourceExtname == .tlv"
         }
       ]
     },
