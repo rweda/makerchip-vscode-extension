@@ -70,6 +70,7 @@ const NODES: Record<string, string[]> = {
     'makerchip_ce_compile', 'makerchip_get_warpv_config',
     'makerchip_set_warpv_config', 'makerchip_get_warpv_tlv',
   ],
+  tinytapeout: ['base', 'makerchip_tt_enable'],
   dev: ['base', 'communicate', 'makerchip_reload_panels'],
 };
 

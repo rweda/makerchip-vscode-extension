@@ -6,6 +6,7 @@ This directory contains static Copilot skills bundled with the extension.
 
 - **tlv-ecosystem.md**: TL-Verilog ecosystem, tools, and resources
 - **ce-warpv.md**: Compiler Explorer → WARP-V workflow (running software on a WARP-V core)
+- **tiny-tapeout.md**: Tiny Tapeout project setup and the "Run TT Flow" button
 
 ## Auto-Generated Skills
 

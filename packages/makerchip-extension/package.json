@@ -40,6 +40,11 @@
         "icon": "resources/icons/makerchip-themed.svg"
       },
       {
+        "command": "makerchip.ttRun",
+        "title": "Makerchip: Run TT Flow (Tiny Tapeout)",
+        "icon": "$(rocket)"
+      },
+      {
         "command": "makerchip.compileNew",
         "title": "Makerchip: Compile/Simulate in New Panel",
         "icon": "$(add)"
@@ -152,6 +157,17 @@
           "command": "makerchip.compile",
           "when": "editorLangId == tlverilog || resourceExtname == .tlv",
           "group": "navigation"
+        },
+        {
+          "command": "makerchip.ttRun",
+          "when": "resourcePath in makerchip.ttFiles",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "makerchip.ttRun",
+          "when": "resourcePath in makerchip.ttFiles"
         }
       ]
     },
@@ -1427,6 +1443,40 @@
         }
       },
       {
+        "name": "makerchip_tt_enable",
+        "when": "makerchip.enabled.makerchip_tt_enable",
+        "displayName": "Enable Tiny Tapeout Button",
+        "toolReferenceName": "makerchipTtEnable",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(rocket)",
+        "userDescription": "Add (or remove) the \"Run TT Flow\" button for a TL-Verilog file in a Tiny Tapeout project.",
+        "modelDescription": "Binds a TL-Verilog file in a Tiny Tapeout (TT) project repo (a GitHub clone made from a ttXX-makerchip-template, with info.yaml at its root) to that repo, adding a \"Run TT Flow\" button to the file's editor title bar. The button lets the user run the TT flow without an agent: it compiles the file in Makerchip and, with SandPiper-SaaS, for TT (writing the .sv beside it), then commits (with a user-editable message) and pushes, which runs the TT flow on GitHub Actions. The repo must be open in VS Code's Git support and have a GitHub remote. Bindings persist per workspace.",
+        "tags": [
+          "makerchip",
+          "tiny tapeout",
+          "tapeout",
+          "asic",
+          "gds",
+          "github"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "filePath": {
+              "type": "string",
+              "description": "Absolute path of the TL-Verilog file (typically <repo>/src/project.tlv)."
+            },
+            "enabled": {
+              "type": "boolean",
+              "description": "false to remove the button (unbind). Default true."
+            }
+          },
+          "required": [
+            "filePath"
+          ]
+        }
+      },
+      {
         "name": "makerchip_set_dark_mode",
         "when": "makerchip.enabled.makerchip_set_dark_mode",
         "displayName": "Set Dark Mode",
@@ -1615,7 +1665,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(extensions)",
         "userDescription": "Activate Makerchip capabilities by activity so only the relevant tools are offered.",
-        "modelDescription": "Activate (or release) Makerchip capabilities so the tools you need are offered without keeping the whole suite enabled (which pressures the request tool cap and can auto-disable tools). Pass a single `target` activity: `base` (compile, run, inspect panels/views, view VIZ — the everyday essentials), `customize` (open custom third-party views and wire view/bus communication), `demo` (manipulate layout, playback, highlighting, dark mode), `video` (capture VIZ videos), `livedoc` (extract PDF figures), `cewarpv` (Compiler Explorer + WARP-V configurator), `dev` (extension-developer helpers). Finer-grained set and tool names are also accepted; pass any unrecognized `target` (e.g. `list`) to get the complete list back. Set `enabled: false` to release. Enables are sticky (they persist and expire after a few days). The always-on `makerchip_enable_tools` and `makerchip_invoke_tool` keep every capability reachable regardless of what is enabled. Rule of thumb: enable an activity when you will use its tools repeatedly (they then appear directly and cheaply for the rest of the conversation); for a single one-off call of an otherwise-hidden tool, prefer `makerchip_invoke_tool` (no lasting tool-set change, so no prompt-cache churn).",
+        "modelDescription": "Activate (or release) Makerchip capabilities so the tools you need are offered without keeping the whole suite enabled (which pressures the request tool cap and can auto-disable tools). Pass a single `target` activity: `base` (compile, run, inspect panels/views, view VIZ — the everyday essentials), `customize` (open custom third-party views and wire view/bus communication), `demo` (manipulate layout, playback, highlighting, dark mode), `video` (capture VIZ videos), `livedoc` (extract PDF figures), `cewarpv` (Compiler Explorer + WARP-V configurator), `tinytapeout` (Tiny Tapeout flow setup), `dev` (extension-developer helpers). Finer-grained set and tool names are also accepted; pass any unrecognized `target` (e.g. `list`) to get the complete list back. Set `enabled: false` to release. Enables are sticky (they persist and expire after a few days). The always-on `makerchip_enable_tools` and `makerchip_invoke_tool` keep every capability reachable regardless of what is enabled. Rule of thumb: enable an activity when you will use its tools repeatedly (they then appear directly and cheaply for the rest of the conversation); for a single one-off call of an otherwise-hidden tool, prefer `makerchip_invoke_tool` (no lasting tool-set change, so no prompt-cache churn).",
         "tags": [
           "makerchip",
           "meta",
@@ -1629,7 +1679,7 @@
           "properties": {
             "target": {
               "type": "string",
-              "description": "An activity to (de)activate: base, customize, demo, video, livedoc, cewarpv, dev. (Individual set and tool names are also accepted; pass any unrecognized value such as `list` to get the complete accepted list.)"
+              "description": "An activity to (de)activate: base, customize, demo, video, livedoc, cewarpv, tinytapeout, dev. (Individual set and tool names are also accepted; pass any unrecognized value such as `list` to get the complete accepted list.)"
             },
             "enabled": {
               "type": "boolean",

@@ -92,7 +92,7 @@ const KEPT_FOREIGN_KEY = 'makerchip.keptForeignEntries';
 
 // Bump whenever a populate run must happen on existing installs — the path is otherwise gated to
 // a version change or 7 days (see checkResourcesNeedUpdate).
-export const RESOURCES_VERSION = '2.2.0';
+export const RESOURCES_VERSION = '2.3.0';
 
 interface Repository {
   name: string;

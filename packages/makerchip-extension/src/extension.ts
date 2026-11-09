@@ -22,6 +22,7 @@ import * as path from 'path';
 import { initializeResources, updateResources } from './resourceManager';
 import { initMakerchipDir, DEV_MODE } from './populateResources';
 import { registerMakerchipTool } from './makerchipTool';
+import { registerTinyTapeout } from './tinyTapeout';
 import { initToolActivation, getToolActivation } from './toolActivation';
 import { registerMakerchipParticipant } from './makerchipParticipant';
 import { reconcileClaudeSkill } from './claudeSkill';
@@ -258,6 +259,9 @@ export function activate(ctx: vscode.ExtensionContext) {
   } catch (error) {
     console.error('Failed to register Makerchip tool:', error);
   }
+
+  // Tiny Tapeout: the "Run TT Flow" button for files bound by makerchip_tt_enable.
+  registerTinyTapeout(context);
 
   // Register Chat Participant for @makerchip (user-initiated)
   try {
