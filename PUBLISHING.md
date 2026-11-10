@@ -11,7 +11,7 @@ Nothing durable belongs here.
 ## Remaining
 
 Both extensions are live on the Marketplace (`RedwoodEDA.tlverilog` 0.0.2,
-`RedwoodEDA.makerchip` 0.0.1). The grammar's first npm release is still to do.
+`RedwoodEDA.makerchip` 0.0.3). The grammar's first npm release is still to do.
 
 - Settle `engines.vscode` against the README: the manifest says `^1.95.0`, the
   README says 1.110. Raising `engines` blocks older VS Code and possibly
