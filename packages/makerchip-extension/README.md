@@ -36,6 +36,13 @@ VS Code also installs the companion [TL-Verilog](https://marketplace.visualstudi
 2. Press `Ctrl+Shift+Enter`, click the Makerchip icon, or run "Makerchip: Compile/Simulate" from the command palette. (Use "Makerchip: Compile/Simulate in Panel..." to select or create named panels.)
 3. Explore the results in the Makerchip panel's views: Log, Diagram (a live logic diagram), Waveform, Nav-TLV (navigable, expanded source), and VIZ (custom visualizations)
 
+**Making a chip with [Tiny Tapeout](https://tinytapeout.com):** in a project made from
+[tt-makerchip-template](https://github.com/stevehoover/tt-makerchip-template), the design's `.tlv` file gets a
+"Run TT Flow" button (a rocket) next to the Makerchip icon. It checks the project information Tiny Tapeout
+requires, generates the Verilog, commits and pushes, which runs Tiny Tapeout's flow on GitHub Actions, and
+follows the run in the Makerchip panel's TT Progress and TT Layout views. An AI agent can set up the project
+for you (see below).
+
 ### With AI Agents
 
 AI Agents can:
@@ -47,12 +54,14 @@ AI Agents can:
 - Capture images and videos (GIF, MP4, WebM, APNG) of simulation visualizations, with camera pan and zoom
 - Compile C, C++, or assembly through Compiler Explorer and run it on a configurable [WARP-V](https://warp-v.org) RISC-V CPU
 - Build Live Docs: extract a figure from a PDF, such as a slide or a textbook diagram, and animate it with simulation values (asking first about your rights to the document)
+- Set up a [Tiny Tapeout](https://tinytapeout.com) chip project on GitHub, ready for the "Run TT Flow" button
 
 Example prompts:
 - "Show me how a UART controller works."
 - "Open my CPU in Makerchip and show the waveform and live logic diagram at the time of the first memory write, highlighting the write data signal."
 - "Demonstrate a pipeline design in TL-Verilog"
 - "Create a tic-tac-toe game in TL-Verilog with VIZ and show it in Makerchip"
+- "Set up a Tiny Tapeout project with Makerchip."
 - "I'm having trouble understanding 'when' conditions. Create a simple course with exercises to step me through it interactively in Makerchip."
 
 ## Agent Resources

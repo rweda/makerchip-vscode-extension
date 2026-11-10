@@ -6,6 +6,27 @@ uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Tiny Tapeout.** A "Run TT Flow" button on the `.tlv` design file of a Tiny Tapeout project (in `src/` of a
+  project with `info.yaml`, such as one made from
+  [tt-makerchip-template](https://github.com/stevehoover/tt-makerchip-template)). It checks the project
+  information Tiny Tapeout requires, compiles in Makerchip and, for Tiny Tapeout, with SandPiper-SaaS (no
+  install needed), commits and pushes, which runs the flow on GitHub Actions. TT Progress and TT Layout views
+  then follow the run.
+- An agent skill for setting up a Tiny Tapeout project on GitHub.
+
+### Changed
+
+- Compiling brings the Makerchip panel to the front.
+- The "Makerchip Data" workspace folder replaces another Makerchip install's, rather than being added beside it.
+
+### Fixed
+
+- A console error on resizing the Makerchip panel (from resize forwarding that could not work, now removed).
+- After a window reload, views whose compile stage had failed (e.g. Waveform and VIZ on a simulation failure)
+  showed as still working.
+
 ## [0.0.2] — 2026-11-06
 
 ### Added

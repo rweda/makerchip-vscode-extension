@@ -601,6 +601,8 @@ export interface RestoreData {
   available: boolean;
   /** Cached result file contents keyed by file name (only present when available). */
   files?: Partial<Record<RestoreFileName, string>>;
+  /** Which files were fully received; streamed files may otherwise be partial (e.g. cut off by an error). */
+  fileComplete?: Partial<Record<RestoreFileName, boolean>>;
   /** Exit codes captured during the original compilation. */
   exitStatus?: { sandpiper?: number; verilator?: number };
   /**
@@ -609,6 +611,11 @@ export interface RestoreData {
    * without re-deriving the exit-code threshold the server owns.
    */
   sandpiperFailed?: boolean;
+  /**
+   * The server `err` event types recorded for this compile (see recordFileError), so restore can
+   * replay them; otherwise views awaiting a failed stage (e.g. 'vcd') would restore as working.
+   */
+  errorTypes?: string[];
   /**
    * Original source for recompile fallback when results were pruned. A plain
    * string for single-file compiles, or a multi-file payload when sibling source
@@ -669,10 +676,15 @@ export async function getRestoreData(id: string): Promise<RestoreData> {
     id,
     available,
     files: available ? files : undefined,
+    fileComplete: metadata?.fileComplete,
     exitStatus: metadata?.exitStatus,
     // A SandPiper-stage failure was recorded at the compilation level (metadata.error); regenerate
     // the verdict from that settled state rather than storing it separately.
     sandpiperFailed: metadata?.error != null && SANDPIPER_ERROR_TYPES.has(metadata.error.type),
+    errorTypes: [
+      ...(metadata?.error ? [metadata.error.type] : []),
+      ...Object.values(metadata?.fileError ?? {}).map(e => e!.type),
+    ],
     source,
   };
 }

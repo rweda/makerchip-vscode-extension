@@ -1012,8 +1012,10 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string, isRestore: boo
             compileId: msg.compileId,
             available: data.available,
             files: data.files,
+            fileComplete: data.fileComplete,
             exitStatus: data.exitStatus,
             sandpiperFailed: data.sandpiperFailed,
+            errorTypes: data.errorTypes,
             source: data.source
           });
         } catch (error) {
