@@ -6,6 +6,8 @@ uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.0.3] — 2026-11-10
+
 ### Added
 
 - **Tiny Tapeout.** A "Run TT Flow" button on the `.tlv` design file of a Tiny Tapeout project (in `src/` of a
