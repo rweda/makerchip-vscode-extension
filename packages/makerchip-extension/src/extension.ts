@@ -108,7 +108,7 @@ async function ensurePanelReady(name?: string, createIfNeeded: boolean = false, 
     // disposed"; drop the stale tracking and fall through to recreate a fresh
     // panel instead of surfacing the error to the caller.
     try {
-      panels.get(panelKey)!.reveal(vscode.ViewColumn.Beside, true);
+      revealPanel(panels.get(panelKey)!);
       return Promise.resolve();
     } catch (err) {
       log(`Makerchip panel '${panelKey}' is stale (${err instanceof Error ? err.message : String(err)}); ` +
@@ -154,9 +154,19 @@ export async function callIDE(method: string, args?: any[], panelName?: string, 
     throw new Error(`Panel '${name}' not found`);
   }
 
+  // A compile brings its panel to the front, so the user sees the results; other calls (e.g. an agent's
+  // queries) leave the panel where it is.
+  if (method === 'compile') {
+    revealPanel(panel);
+  }
   const message: Record<string, any> = { type: 'ide', method, args: args || [] };
   if (requestId !== undefined) { message.requestId = requestId; }
   panel.webview.postMessage(message);
+}
+
+/** Bring `panel` to the front of its editor group, keeping keyboard focus where it is (e.g. the editor). */
+function revealPanel(panel: vscode.WebviewPanel): void {
+  panel.reveal(panel.viewColumn, true);
 }
 
 /**

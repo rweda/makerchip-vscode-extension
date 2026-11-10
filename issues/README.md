@@ -46,12 +46,14 @@ with plain file edits (AI-friendly).
 - [019: Drop the lost-quick-result workaround once the Claude harness fixes the race](019-drop-quick-result-workaround.md)
 - [020: Download resource repos on demand or just reference them](020-download-resource-repos-on-demand.md)
 - [021: Eliminate the need for SandPiper-SaaS in the TT flow](021-eliminate-sandpiper-saas-use.md)
-- [022: Investigate resize forwarding into the IDE iframe (cross-origin jQuery access)](022-webview-resize-forwarding.md)
 
 ## Closed
 
 Older entries link to deleted files; recover those with `git log --follow -- issues/NNN-slug.md`.
 
+- [022: Investigate resize forwarding into the IDE iframe (cross-origin jQuery access)](https://github.com/rweda/makerchip-vscode-extension/blob/c8d5f4f/issues/022-webview-resize-forwarding.md)
+  - 2026-11-10: Forwarding was dead (cross-origin) and redundant; removed. The VIZ resize bug was a lone root
+    TabbedPane never getting resize() (no jQuery Layout); fixed in mono `IDE.coffee`.
 - [013: Large results from batched `makerchip_invoke_tool` calls overwrite each other](https://github.com/rweda/makerchip-vscode-extension/blob/7a1e27b/issues/013-batched-large-results-overwrite.md)
   Closed 2026-10-27: verified; a 5-entry, 78 KB batch returned one merged text part, spilled to one file.
 - [012: An IDE call made while a panel is still connecting times out](https://github.com/rweda/makerchip-vscode-extension/blob/7a1e27b/issues/012-ide-call-timeout-vs-panel-readiness.md)

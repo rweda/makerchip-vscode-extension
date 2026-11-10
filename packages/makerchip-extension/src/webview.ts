@@ -681,29 +681,9 @@ import(`${serverUrl}/dist/makerchip-plugin.js`).then((module: any) => {
   // extension hangs).
   // @ts-ignore - VSCodeMakerchip derives from an `any`-typed IdePlugin base
   return VSCodeMakerchip.create('webview-makerchip', { hasEditor: false, defaultDarkMode: window.DEFAULT_DARK_MODE, termsAcceptedAt: window.TERMS_ACCEPTED_AT }).then((ide: VSCodeMakerchip) => {
-    // Forward a resize into the IDE iframe so jQuery Layout and the VizView canvas re-fit. VS Code
-    // webviews don't propagate these automatically, and unlike the CSS-driven views the VizView's
-    // Fabric canvas is sized in JS (fixed pixel width/height), so it keeps stale dimensions until
-    // something calls its resize().
-    const forwardResizeToIframe = () => {
-      const iframeWindow = ide.iframe?.contentWindow as any;
-      if (!iframeWindow) { return; }
-      // jQuery Layout listens for jQuery's resize event, not native DOM events.
-      if (iframeWindow.jQuery) {
-        iframeWindow.jQuery(iframeWindow).trigger('resize');
-      } else {
-        iframeWindow.dispatchEvent(new Event('resize'));
-      }
-    };
-    // Parent window resize (panel / editor-group resized while the webview is visible). Forwarded
-    // as a backstop; the IDE also observes its own #ide-root, which covers hosts (older servers,
-    // or reshow-after-hidden) where this event doesn't fire. Both funnel through jQuery Layout's
-    // single, deduped window-resize handler, so this never causes a double relayout.
-    window.addEventListener('resize', () => {
-      ide.schedulePersist();
-      // Let the browser resize the iframe first, then forward.
-      setTimeout(forwardResizeToIframe, 0);
-    });
+    // Capture layout on resize (see header). The IDE iframe (cross-origin) re-lays itself out by
+    // observing its own #ide-root.
+    window.addEventListener('resize', () => ide.schedulePersist());
     // Handle messages from the extension host.
     window.addEventListener('message', async (event: MessageEvent) => {
       const msg = event.data;
