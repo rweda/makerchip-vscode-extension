@@ -5,25 +5,18 @@ import { log } from './logger';
 import { requireTermsAccepted } from './terms';
 
 /**
- * Tiny Tapeout (TT) support. A TL-Verilog file in a repo made from a ttXX-makerchip-template is
- * bound to that GitHub repo (by an agent, via `makerchip_tt_enable`), which shows a "Run TT Flow"
- * button in its editor title bar. The button compiles the file for TT, commits and pushes it, and
- * the push runs the TT flow on GitHub Actions — no agent needed. Roadmap: mono's
- * issues/036-tiny-tapeout-in-makerchip.md.
+ * Tiny Tapeout (TT) support. A TL-Verilog file in a TT project (see ttProjectRoot), such as one made
+ * from a ttXX-makerchip-template, gets a "Run TT Flow" button in its editor title bar. The button
+ * compiles the file for TT, commits and pushes it, and the push runs the TT flow on GitHub Actions.
+ * Roadmap: mono's issues/036-tiny-tapeout-in-makerchip.md.
  */
 
 /** SandPiper arguments for TT's Verilog; keep in sync with the template's `make verilog` (test/Makefile). */
 const TT_SANDPIPER_ARGS = '--inlineGen --noline --clkAlways --bestsv --iArgs';
 const SANDPIPER_SAAS_URL = 'https://faas.makerchip.com/function/sandpiper-faas';
 
-const BINDINGS_KEY = 'makerchip.tt.bindings';
-/** Context key listing bound file paths; the button's `when` is `resourcePath in makerchip.ttFiles`. */
+/** Context key listing visible TT design files; the button's `when` is `resourcePath in makerchip.ttFiles`. */
 const FILES_CONTEXT_KEY = 'makerchip.ttFiles';
-
-/** A bound file's GitHub repo, as `owner/name`. */
-interface TtBinding {
-  repo: string;
-}
 
 /** The subset of the built-in Git extension's API (extensions/git/src/api/git.d.ts) used here. */
 interface GitRepository {
@@ -38,19 +31,18 @@ interface GitRepository {
   push(): Promise<void>;
 }
 
-let state: vscode.Memento;
-
-function bindings(): Record<string, TtBinding> {
-  return state.get<Record<string, TtBinding>>(BINDINGS_KEY, {});
+/** The TT project of `file`, if it is a TT design: a `.tlv` in `<root>/src/`, where `<root>` has `info.yaml`. */
+async function ttProjectRoot(file: string): Promise<string | undefined> {
+  const root = path.dirname(path.dirname(file));
+  const isDesign = path.extname(file) === '.tlv' && path.basename(path.dirname(file)) === 'src';
+  return isDesign && await fs.access(path.join(root, 'info.yaml')).then(() => true, () => false) ? root : undefined;
 }
 
-async function setBinding(file: string, binding: TtBinding | undefined): Promise<void> {
-  const all = { ...bindings(), [file]: binding };
-  if (!binding) {
-    delete all[file];
-  }
-  await state.update(BINDINGS_KEY, all);
-  await vscode.commands.executeCommand('setContext', FILES_CONTEXT_KEY, Object.keys(all));
+/** Show the button for the visible editors' TT design files. */
+async function updateTtFiles(): Promise<void> {
+  const files = await Promise.all(vscode.window.visibleTextEditors.map(async ({ document: { uri } }) =>
+    uri.scheme === 'file' && await ttProjectRoot(uri.fsPath) ? uri.fsPath : undefined));
+  await vscode.commands.executeCommand('setContext', FILES_CONTEXT_KEY, files.filter(f => f !== undefined));
 }
 
 interface GitApi {
@@ -81,20 +73,14 @@ async function gitRepository(file: string): Promise<GitRepository> {
   return repo;
 }
 
-/** Bind `file` to the GitHub repo of the clone it is in, showing the TT button for it. */
-async function bindFile(file: string): Promise<TtBinding> {
-  const repo = await gitRepository(file);
-  await fs.access(path.join(repo.rootUri.fsPath, 'info.yaml')).catch(() => {
-    throw new Error(`${repo.rootUri.fsPath} has no info.yaml, so it is not a Tiny Tapeout project.`);
-  });
+/** The GitHub repo (`owner/name`) that `repo` is a clone of, from its `origin` (or first) remote. */
+function gitHubRepo(repo: GitRepository): string {
   const remote = repo.state.remotes.find(r => r.name === 'origin') ?? repo.state.remotes[0];
   const match = (remote?.pushUrl ?? remote?.fetchUrl)?.match(/github\.com[:/]([^/]+)\/(.+?)(?:\.git)?\/?$/);
   if (!match) {
     throw new Error(`${repo.rootUri.fsPath} is not a clone of a GitHub repository (no GitHub remote).`);
   }
-  const binding = { repo: `${match[1]}/${match[2]}` };
-  await setBinding(file, binding);
-  return binding;
+  return `${match[1]}/${match[2]}`;
 }
 
 /**
@@ -193,7 +179,7 @@ const TT_VIEWS = [
     channel: { subscribes: [{ type: 'tt/run-start' }, { type: 'tt/run-status' }], rpc: true } },
 ];
 
-/** Open (in the background) any TT views not already open, and point them all at `sha`. */
+/** Open any TT views not already open, point them all at `sha`, and show TT Progress (the one to watch). */
 async function showTtViews(repo: string, sha: string): Promise<void> {
   const ide = (method: string, ...args: unknown[]) =>
     vscode.commands.executeCommand<any>('makerchip.callIdeMethodWithResult', method, args);
@@ -203,14 +189,15 @@ async function showTtViews(repo: string, sha: string): Promise<void> {
       { channel: view.channel, params: { repo, sha }, background: true });
   }
   await vscode.commands.executeCommand('makerchip.busEmit', 'tt/run-start', { repo, sha });
+  await ide('activateView', TT_VIEWS[0].mnemonic);
 }
 
 /** The TT button: compile for Makerchip and TT, commit, and push (which runs the TT flow). */
 async function runTtFlow(uri?: vscode.Uri): Promise<void> {
   const file = (uri ?? vscode.window.activeTextEditor?.document.uri)?.fsPath;
-  const binding = file ? bindings()[file] : undefined;
-  if (!file || !binding) {
-    vscode.window.showErrorMessage('This file is not set up for the Tiny Tapeout flow.');
+  const root = file ? await ttProjectRoot(file) : undefined;
+  if (!file || !root) {
+    vscode.window.showErrorMessage('The Tiny Tapeout flow runs on a .tlv file in the src/ folder of a project with info.yaml.');
     return;
   }
   try {
@@ -219,7 +206,8 @@ async function runTtFlow(uri?: vscode.Uri): Promise<void> {
       await doc.save();
     }
     const repo = await gitRepository(file);
-    if (!await checkProjectInfo(repo.rootUri.fsPath)) {
+    const gitHub = gitHubRepo(repo);
+    if (!await checkProjectInfo(root)) {
       return;
     }
     // Keep the Makerchip views in step with what is pushed. Not a gate: the TT compile fails on errors.
@@ -259,7 +247,7 @@ async function runTtFlow(uri?: vscode.Uri): Promise<void> {
       { location: vscode.ProgressLocation.Notification, title: 'Tiny Tapeout: committing and pushing...' },
       async () => { await repo.commit(message); await repo.push(); });
     const sha = repo.state.HEAD?.commit ?? '';
-    await showTtViews(binding.repo, sha);
+    await showTtViews(gitHub, sha);
     vscode.window.showInformationMessage(
       `Pushed ${sha.slice(0, 7)}; the Tiny Tapeout flow is running on GitHub Actions (see the TT Progress view).`);
   } catch (error: any) {
@@ -268,59 +256,9 @@ async function runTtFlow(uri?: vscode.Uri): Promise<void> {
 }
 
 export function registerTinyTapeout(context: vscode.ExtensionContext): void {
-  state = context.workspaceState;
-  vscode.commands.executeCommand('setContext', FILES_CONTEXT_KEY, Object.keys(bindings()));
-  context.subscriptions.push(vscode.commands.registerCommand('makerchip.ttRun', runTtFlow));
-  // The human counterpart of makerchip_tt_enable.
-  context.subscriptions.push(vscode.commands.registerCommand('makerchip.ttEnable', async (uri?: vscode.Uri) => {
-    const file = (uri ?? vscode.window.activeTextEditor?.document.uri)?.fsPath;
-    if (!file?.endsWith('.tlv')) {
-      vscode.window.showErrorMessage('Open your Tiny Tapeout project\'s src/project.tlv first.');
-      return;
-    }
-    try {
-      const { repo } = await bindFile(file);
-      vscode.window.showInformationMessage(`Added the "Run TT Flow" button to ${path.basename(file)} (github.com/${repo}).`);
-    } catch (error: any) {
-      vscode.window.showErrorMessage(`Tiny Tapeout: ${error?.message ?? error}`);
-    }
-  }));
-}
-
-interface TtEnableToolInput {
-  filePath: string;
-  enabled?: boolean;
-}
-
-/** `makerchip_tt_enable`: bind (or unbind) a file's TT button. */
-export class TtEnableTool implements vscode.LanguageModelTool<TtEnableToolInput> {
-  async prepareInvocation(
-    options: vscode.LanguageModelToolInvocationPrepareOptions<TtEnableToolInput>,
-    _token: vscode.CancellationToken
-  ): Promise<vscode.PreparedToolInvocation> {
-    const verb = options.input.enabled === false ? 'Removing' : 'Adding';
-    return { invocationMessage: `${verb} the Tiny Tapeout button for ${path.basename(options.input.filePath)}...` };
-  }
-
-  async invoke(
-    options: vscode.LanguageModelToolInvocationOptions<TtEnableToolInput>,
-    _token: vscode.CancellationToken
-  ): Promise<vscode.LanguageModelToolResult> {
-    const file = path.resolve(options.input.filePath);
-    let text: string;
-    try {
-      if (options.input.enabled === false) {
-        await setBinding(file, undefined);
-        text = `Removed the Tiny Tapeout button from ${file}.`;
-      } else {
-        const { repo } = await bindFile(file);
-        text = `Bound ${file} to github.com/${repo}. Its editor title bar now has a "Run TT Flow" button, ` +
-          'which compiles it for Tiny Tapeout (writing the .sv beside it), commits, and pushes, running the flow ' +
-          'on GitHub Actions.';
-      }
-    } catch (error: any) {
-      text = `Error: ${error?.message ?? error}`;
-    }
-    return new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(text)]);
-  }
+  context.subscriptions.push(
+    vscode.commands.registerCommand('makerchip.ttRun', runTtFlow),
+    vscode.window.onDidChangeVisibleTextEditors(updateTtFiles),
+  );
+  updateTtFiles();
 }

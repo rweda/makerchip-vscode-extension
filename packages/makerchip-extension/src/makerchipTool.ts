@@ -6,7 +6,6 @@ import { log } from './logger';
 import * as compileCache from './compileCache';
 import { RESOURCES_DIR, CACHE_DIR } from './populateResources';
 import { CeCompileTool } from './ceCompile';
-import { TtEnableTool } from './tinyTapeout';
 import { EnableToolsTool, getToolActivation } from './toolActivation';
 
 interface MakerchipToolInput {
@@ -3449,7 +3448,6 @@ export function registerMakerchipTool(context: vscode.ExtensionContext): void {
   reg('makerchip_set_warpv_config', new SetWarpvConfigTool());
   reg('makerchip_get_warpv_tlv', new GetWarpvTlvTool());
   reg('makerchip_ce_compile', new CeCompileTool());
-  reg('makerchip_tt_enable', new TtEnableTool());
   reg('makerchip_invoke_tool', new InvokeToolTool());
   reg('makerchip_enable_tools', new EnableToolsTool());
 

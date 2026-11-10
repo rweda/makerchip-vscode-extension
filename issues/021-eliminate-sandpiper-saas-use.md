@@ -4,6 +4,11 @@
 - Area: platform independence
 - Created: 2026-09-09
 
-## Description
+The "Run TT Flow" button (`src/tinyTapeout.ts`, `compileForTt`) no longer needs any install: it calls
+SandPiper-SaaS's JSON API directly. What remains:
 
-To avoid any potential platform dependency and minimize system installs, should we avoid pipx install sandpiper-saas? I guess we do need to invoke SandPiper from the command-line. Is there a cleaner way?
+- The manual path, `cd test && make verilog` in the Tiny Tapeout template, still needs
+  `pipx install sandpiper-saas`.
+- Both paths depend on the SandPiper-SaaS service being up. Compiling through the connected Makerchip server
+  instead (with TT's flags and without `MAKERCHIP`) would remove that dependency for the button, and would
+  also work for Makerchip in the browser.

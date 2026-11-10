@@ -260,7 +260,7 @@ export function activate(ctx: vscode.ExtensionContext) {
     console.error('Failed to register Makerchip tool:', error);
   }
 
-  // Tiny Tapeout: the "Run TT Flow" button for files bound by makerchip_tt_enable.
+  // Tiny Tapeout: the "Run TT Flow" button on TT projects' .tlv files.
   registerTinyTapeout(context);
 
   // Register Chat Participant for @makerchip (user-initiated)

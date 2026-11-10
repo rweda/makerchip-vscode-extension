@@ -7,9 +7,10 @@ user-invocable: true
 # Tiny Tapeout with Makerchip
 
 A TT project is a GitHub repo made from
-[stevehoover/ttsky-makerchip-template](https://github.com/stevehoover/ttsky-makerchip-template) (SKY130). The
-design is `src/project.tlv`; `src/project.sv` is generated from it and committed, and pushing runs TT's flow
-(`gds`, `test`, `docs` workflows) on GitHub Actions. The template README covers the project files.
+[stevehoover/tt-makerchip-template](https://github.com/stevehoover/tt-makerchip-template) (any TT process;
+`project.pdk` in `info.yaml`). The design is `src/project.tlv`; `src/project.sv` is generated from it and
+committed, and pushing runs TT's flow (`gds`, `test`, `docs` workflows) on GitHub Actions. The template README
+covers the project files.
 
 Your job is the one-time setup. After it, the user runs the flow with the "Run TT Flow" button, without you.
 
@@ -24,32 +25,30 @@ Your job is the one-time setup. After it, the user runs the flow with the "Run T
      (check with `git -C <parent> rev-parse --is-inside-work-tree`).
 
    Then, from the chosen parent folder:
-   `gh repo create <owner>/<name> --template stevehoover/ttsky-makerchip-template --public --clone`. Its initial
+   `gh repo create <owner>/<name> --template stevehoover/tt-makerchip-template --public --clone`. Its initial
    commit already runs the flow once; with the template's blank project info, `gds` and `docs` fail (expected).
-   Offer to add the clone to the current VS Code workspace: the button you add in step 5 belongs to this
-   workspace, so it would be missing if the user opened the clone in a new window instead.
+   Offer to open the clone in VS Code (add it to the current workspace, or `code <dir>` for a new window).
 3. **Enable GitHub Pages** right away (TT's `viewer` job deploys to it, after `gds`):
    `gh api -X POST repos/<owner>/<name>/pages -f build_type=workflow`.
 4. **Personalize.** Like Tiny Tapeout's own templates, this one leaves the project's identity and docs blank,
    and TT's checks fail the `gds` and `docs` runs until they are filled. TT wants a person to supply them, so
    ask the user; never invent them or fill in placeholders.
-   - Now: `info.yaml` `title`, `author`, `description` (`gds` fails without them), and `top_module`, named
-     `tt_um_<github-username>_<project>`. Use the same name for `my_design` in `src/project.tlv` and the module
-     instantiated in `test/tb.v`.
+   - Now: `info.yaml` `pdk`, the process of the shuttle they're targeting (`sky130A`, `gf180mcuD`,
+     `ihp-sg13cmos5l` or `ihp-sg13g2`; open shuttles and their processes are at https://tinytapeout.com/chips/,
+     and the default is `sky130A`); `title`, `author`, `description` (`gds` fails without them); and `top_module`,
+     named `tt_um_<github-username>_<project>`. Use the same name for `my_design` in `src/project.tlv` and the
+     module instantiated in `test/tb.v`.
    - As the design takes shape (from the user's answers, or drafts they approve): `info.yaml` `pinout` (at
      least one entry) and `docs/info.md`'s "How it works" and "How to test" sections (`docs` fails without
      them), and the testbench `test/test.py` (its check of the template's all-zero outputs fails once the
      design drives them). So setup alone does not make every run pass; tell the user what remains.
    - Stage these edits (`git add`) without committing; the button's commit includes them (after asking).
-5. **Add the button:** call `makerchip_tt_enable` with the absolute path of `src/project.tlv` (enable the
-   `tinytapeout` tools, or use `makerchip_invoke_tool`). Open the file in an editor for the user. Point
-   out to the user its Makerchip button as well as this "Run TT Flow" button in the editor title bar, and
-   describe their behavior briefly. E.g. "The Makerchip button in the `project.tlv` editor panel's title bar
-   runs compilation/simulation. The TT button next to it
-   runs the Tiny Tapeout flow: checks for and names any missing data (`info.yaml` and `docs/info.md`), if
-   everything is present, compiles/simulates in Makerchip, regenerates `src/project.sv` (with
-   SandPiper-SaaS), asks for a commit message, commits (asking first if other files, such as those I
-   configured for you, have been staged), and pushes."
+5. **Show the user the buttons:** open `src/project.tlv` in an editor. Its title bar has the Makerchip button and,
+   because the file is in `src/` of a project with `info.yaml`, a "Run TT Flow" button. Describe both briefly,
+   e.g. "The Makerchip button compiles and simulates your design. The rocket next to it runs the Tiny Tapeout
+   flow: it checks for missing project information (`info.yaml` and `docs/info.md`), compiles in Makerchip,
+   regenerates `src/project.sv` (with SandPiper-SaaS), asks for a commit message, commits (asking first if
+   other files, such as the ones I edited for you, are staged), and pushes."
 
 ## Watching a run
 
@@ -67,8 +66,15 @@ render, TT's 3D viewer, and Tiny Tapeout Explorer, from the repo's GitHub Pages)
 
 ## Notes
 
-- Without the button, the same compile is `cd test && make verilog` (needs `pipx install sandpiper-saas`); commit
-  `src/project.sv` with the `.tlv`.
+- The design is `src/project.tlv`. `src/project.sv` is generated from it and committed; never edit it by hand.
+  Without the button, regenerate it with `cd test && make verilog` (needs `pipx install sandpiper-saas`) and
+  commit it with the `.tlv`.
 - Makerchip compiles of `project.tlv` define `MAKERCHIP`, which adds the TT demo-board VIZ and random stimulus;
   the TT compile does not, so the pushed Verilog contains only the design.
+- To retarget another shuttle's process, change `project.pdk` in `info.yaml` (and check that `tiles` is valid for
+  it: `tech/<pdk>/tile_sizes.yaml` in TinyTapeout/tt-support-tools), then run the flow again. TT's app rejects a
+  submission hardened for a different PDK than the shuttle's.
+- Missing project info (step 4) fails `gds` at "Fetch verilog and build config" and `docs` with "Errors in
+  info.yaml"/"docs/info.md". Each build's tool and PDK versions are in its `tt_submission` artifact's `pdk.json`.
 - Submitting to a shuttle happens at [app.tinytapeout.com](https://app.tinytapeout.com), not here.
+- The template's own `tt-makerchip-template-dev` skill is for maintaining the template, not for projects.
