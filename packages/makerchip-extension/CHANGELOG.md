@@ -18,6 +18,10 @@ uses [semantic versioning](https://semver.org/).
 
 ### Changed
 
+- Each source file compiles into its own Makerchip panel, whose tab shows the file's name and the Makerchip icon
+  (with the file's folder added when two open files share a name). Code with no file (inline agent code, unsaved
+  editors) shares a `no file` panel. Agent tools given no panel name use the current panel: the one most
+  recently compiled into or focused.
 - Compiling brings the Makerchip panel to the front.
 - The "Makerchip Data" workspace folder replaces another Makerchip install's, rather than being added beside it.
 

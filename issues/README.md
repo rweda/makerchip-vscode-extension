@@ -46,6 +46,8 @@ with plain file edits (AI-friendly).
 - [019: Drop the lost-quick-result workaround once the Claude harness fixes the race](019-drop-quick-result-workaround.md)
 - [020: Download resource repos on demand or just reference them](020-download-resource-repos-on-demand.md)
 - [021: Eliminate the need for SandPiper-SaaS in the TT flow](021-eliminate-sandpiper-saas-use.md)
+- [023: Help users see which Makerchip panel goes with which editor](023-pair-editors-with-panels.md)
+- [024: Link editor lines and Nav-TLV lines, as the Makerchip IDE does](024-editor-nav-tlv-line-linking.md)
 
 ## Closed
 

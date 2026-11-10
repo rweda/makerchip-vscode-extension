@@ -179,16 +179,19 @@ const TT_VIEWS = [
     channel: { subscribes: [{ type: 'tt/run-start' }, { type: 'tt/run-status' }], rpc: true } },
 ];
 
-/** Open any TT views not already open, point them all at `sha`, and show TT Progress (the one to watch). */
-async function showTtViews(repo: string, sha: string): Promise<void> {
+/**
+ * In `panel`, open any TT views not already open, point them all at `sha`, and show TT Progress (the one to
+ * watch).
+ */
+async function showTtViews(panel: string, repo: string, sha: string): Promise<void> {
   const ide = (method: string, ...args: unknown[]) =>
-    vscode.commands.executeCommand<any>('makerchip.callIdeMethodWithResult', method, args);
+    vscode.commands.executeCommand<any>('makerchip.callIdeMethodWithResult', method, args, panel);
   const open = new Set((await ide('getAvailableViews') as { mnemonic: string }[]).map(v => v.mnemonic));
   for (const view of TT_VIEWS.filter(v => !open.has(v.mnemonic))) {
     await ide('openThirdPartyView', view.mnemonic, 'iframe', { contentUrl: TT_VIEWS_URL + view.page },
       { channel: view.channel, params: { repo, sha }, background: true });
   }
-  await vscode.commands.executeCommand('makerchip.busEmit', 'tt/run-start', { repo, sha });
+  await vscode.commands.executeCommand('makerchip.busEmit', 'tt/run-start', { repo, sha }, undefined, undefined, panel);
   await ide('activateView', TT_VIEWS[0].mnemonic);
 }
 
@@ -247,7 +250,8 @@ async function runTtFlow(uri?: vscode.Uri): Promise<void> {
       { location: vscode.ProgressLocation.Notification, title: 'Tiny Tapeout: committing and pushing...' },
       async () => { await repo.commit(message); await repo.push(); });
     const sha = repo.state.HEAD?.commit ?? '';
-    await showTtViews(gitHub, sha);
+    // In the design file's panel, where its compile just went.
+    await showTtViews(await vscode.commands.executeCommand<string>('makerchip.panelForFile', file), gitHub, sha);
     vscode.window.showInformationMessage(
       `Pushed ${sha.slice(0, 7)}; the Tiny Tapeout flow is running on GitHub Actions (see the TT Progress view).`);
   } catch (error: any) {

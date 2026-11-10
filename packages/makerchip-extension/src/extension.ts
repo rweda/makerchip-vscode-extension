@@ -70,11 +70,18 @@ const pendingIdeResults = new Map<string, {resolve: (result: any) => void, rejec
 let lastLateReply: {requestId: string, method: string, kind: 'result' | 'error', value: any, timestamp: number} | null = null;
 let panelCounter = 1;
 let requestCounter = 0;
+// The panel used when a caller names none: the one most recently compiled into or focused.
+let currentPanelKey: string | undefined;
+// Panels compile per source file (see panelNameForFile). Workspace state maps each file panel's name to its
+// file, so a panel restored after a reload stays its file's.
+const PANEL_FILES_KEY = 'makerchip.panelFiles';
+// The panel shared by code with no file (inline code, unsaved editors), and the default when no panel is current.
+const NO_FILE_PANEL = 'no file';
 let context: vscode.ExtensionContext;
 
 /**
  * Ensure a Makerchip panel is open and ready to receive messages.
- * @param name Optional panel name. If not provided, uses 'default' for single-panel usage.
+ * @param name Optional panel name. If not provided, the current panel (or NO_FILE_PANEL if there is none).
  * @param createIfNeeded If true, creates a new panel if it doesn't exist. If false, throws error.
  * @param serverUrl Optional explicit server/sandhost URL to open a NEW panel against
  *   (the imperative open-time hook). Ignored when the panel already exists; pin it
@@ -82,7 +89,7 @@ let context: vscode.ExtensionContext;
  * @returns Promise that resolves when panel is ready
  */
 async function ensurePanelReady(name?: string, createIfNeeded: boolean = false, serverUrl?: string): Promise<void> {
-  const panelKey = name || 'default';
+  const panelKey = name || currentPanelKey || NO_FILE_PANEL;
 
   if (degradedPanels.has(panelKey)) {
     // The panel exists but its server was unreachable at its last render, so it
@@ -140,14 +147,14 @@ async function ensurePanelReady(name?: string, createIfNeeded: boolean = false, 
  * Call an IDE method, ensuring the panel is open and ready.
  * @param method IDE method name to invoke
  * @param args Arguments to pass to the method
- * @param panelName Optional panel name to target. Defaults to 'default'.
+ * @param panelName Optional panel name to target. Defaults to the current panel (or NO_FILE_PANEL).
  * @param createIfNeeded If true, creates panel if it doesn't exist. Default false.
  * @param requestId Optional request ID; when provided, the IDE will echo it back in its reply.
  * @param serverUrl Optional explicit server/sandhost URL to open a NEW panel against
  *   (open-time hook; ignored if the panel already exists).
  */
 export async function callIDE(method: string, args?: any[], panelName?: string, createIfNeeded: boolean = false, requestId?: string, serverUrl?: string): Promise<void> {
-  const name = panelName || 'default';
+  const name = panelName || currentPanelKey || NO_FILE_PANEL;
   await ensurePanelReady(name, createIfNeeded, serverUrl);
   const panel = panels.get(name);
   if (!panel) {
@@ -158,6 +165,7 @@ export async function callIDE(method: string, args?: any[], panelName?: string, 
   // queries) leave the panel where it is.
   if (method === 'compile') {
     revealPanel(panel);
+    currentPanelKey = name;
   }
   const message: Record<string, any> = { type: 'ide', method, args: args || [] };
   if (requestId !== undefined) { message.requestId = requestId; }
@@ -167,6 +175,56 @@ export async function callIDE(method: string, args?: any[], panelName?: string, 
 /** Bring `panel` to the front of its editor group, keeping keyboard focus where it is (e.g. the editor). */
 function revealPanel(panel: vscode.WebviewPanel): void {
   panel.reveal(panel.viewColumn, true);
+}
+
+/**
+ * The name of the panel that compiles `file` (a path, or an untitled document's name): its base name, plus its
+ * nearest differing folder (or a number) if another open panel has that name. Stable while the panel is open, and
+ * across reloads.
+ */
+function panelNameForFile(file?: string): string {
+  if (!file) {
+    return NO_FILE_PANEL;
+  }
+  const files = context.workspaceState.get<Record<string, string>>(PANEL_FILES_KEY, {});
+  const taken = (name: string) => panels.has(name) || panelReadyPromises.has(name);
+  // Keep the name of the file's open (or restored) panel; otherwise name it afresh.
+  const existing = Object.keys(files).find(name => files[name] === file && taken(name));
+  if (existing) {
+    return existing;
+  }
+  const base = path.basename(file);
+  let name = base;
+  if (taken(name)) {
+    // Like VS Code's own tab labels, add the nearest folder that differs from the open same-named files' (for
+    // src/project.tlv in two projects, the project folder rather than `src`).
+    const dirs = path.dirname(file).split(path.sep).reverse();
+    const rivals = Object.keys(files).filter(n => taken(n) && path.basename(files[n]) === base)
+      .map(n => path.dirname(files[n]).split(path.sep).reverse());
+    const i = dirs.findIndex((dir, depth) => rivals.every(rival => rival[depth] !== dir));
+    if (i >= 0) {
+      name = `${base} (${dirs[i]})`;
+    }
+  }
+  for (let i = 2; taken(name); i++) {
+    name = `${base} (${i})`;
+  }
+  const kept = Object.fromEntries(Object.entries(files).filter(([, f]) => f !== file));
+  context.workspaceState.update(PANEL_FILES_KEY, { ...kept, [name]: file });
+  return name;
+}
+
+/** The panel for a document: its file's, or (untitled) its name's. */
+function panelNameForDocument(doc: vscode.TextDocument): string {
+  return panelNameForFile(doc.isUntitled ? undefined : doc.uri.fsPath);
+}
+
+/** A panel's tab title: a file panel shows its name (the tab's Makerchip icon tells it from the editor). */
+function panelTitle(panelKey: string): string {
+  if (panelKey === NO_FILE_PANEL || panelKey in context.workspaceState.get<Record<string, string>>(PANEL_FILES_KEY, {})) {
+    return panelKey;
+  }
+  return `Makerchip: ${panelKey}`;
 }
 
 /**
@@ -334,7 +392,7 @@ export function activate(ctx: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.window.registerWebviewPanelSerializer('makerchip', {
       async deserializeWebviewPanel(panel: vscode.WebviewPanel, state: any) {
-        const panelKey = state?.panelKey || 'default';
+        const panelKey = state?.panelKey || NO_FILE_PANEL;
         log(`Restoring Makerchip panel '${panelKey}' after reload`);
         if (!await ensureTermsAccepted()) { panel.dispose(); return; }
         // Keep auto-generated names ('Panel N') unique across reloads: advance the
@@ -353,7 +411,7 @@ export function activate(ctx: vscode.ExtensionContext) {
     })
   );
 
-  // COMPILE/SIMULATE COMMAND (uses default panel)
+  // COMPILE/SIMULATE COMMAND (into the active document's own panel)
   context.subscriptions.push(
     vscode.commands.registerCommand('makerchip.compile', async () => {
 
@@ -365,8 +423,8 @@ export function activate(ctx: vscode.ExtensionContext) {
 
       const code = editor.document.getText();
 
-      // Call IDE to compile the code (default panel, creating it if needed)
-      await callIDE('compile', [code], 'default', true);
+      // Compile into the document's own panel, creating it if needed.
+      await callIDE('compile', [code], panelNameForDocument(editor.document), true);
     })
   );
 
@@ -399,7 +457,7 @@ export function activate(ctx: vscode.ExtensionContext) {
       const items: vscode.QuickPickItem[] = [
         ...existingPanels.map(name => ({
           label: name,
-          description: name === 'default' ? '(current)' : ''
+          description: name === currentPanelKey ? '(current)' : ''
         })),
         { label: '', kind: vscode.QuickPickItemKind.Separator } as vscode.QuickPickItem,
         { label: '$(add) New Panel...', alwaysShow: true }
@@ -455,6 +513,12 @@ export function activate(ctx: vscode.ExtensionContext) {
     vscode.commands.registerCommand('makerchip.invokeIdeMethod', async (method: string, args: any[] = [], panelName?: string, createIfNeeded: boolean = false) => {
       await callIDE(method, args, panelName, createIfNeeded);
     })
+  );
+
+  // PANEL FOR FILE (internal): the name of the panel that compiles a file (see panelNameForFile), for tools and
+  // the Tiny Tapeout button, which reach this module only through commands.
+  context.subscriptions.push(
+    vscode.commands.registerCommand('makerchip.panelForFile', (file?: string) => panelNameForFile(file))
   );
 
   // BUS EMIT COMMAND (publish an application event onto the IDE bus as a `platform` participant).
@@ -529,8 +593,9 @@ export function activate(ctx: vscode.ExtensionContext) {
 
   // GET PANEL NAMES COMMAND (for tools)
   context.subscriptions.push(
-    vscode.commands.registerCommand('makerchip.getPanelNames', async (): Promise<string[]> => {
-      return Array.from(panels.keys());
+    vscode.commands.registerCommand('makerchip.getPanels', async (): Promise<{ name: string; file?: string; current: boolean }[]> => {
+      const files = context.workspaceState.get<Record<string, string>>(PANEL_FILES_KEY, {});
+      return Array.from(panels.keys()).map(name => ({ name, file: files[name], current: name === currentPanelKey }));
     })
   );
 
@@ -639,7 +704,7 @@ async function openMakerchipPanel(panelKey: string, serverUrl?: string): Promise
   if (serverUrl) {
     panelServerUrlOverrides.set(panelKey, serverUrl);
   }
-  const displayName = panelKey === 'default' ? 'Makerchip IDE' : `Makerchip: ${panelKey}`;
+  const displayName = panelTitle(panelKey);
   const panel = vscode.window.createWebviewPanel(
     'makerchip', displayName,
     vscode.ViewColumn.Beside,
@@ -809,8 +874,10 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string, isRestore: boo
       ));
     }, READY_TIMEOUT_MS);
 
-    // Create display name
-    const displayName = panelKey === 'default' ? 'Makerchip IDE' : `Makerchip: ${panelKey}`;
+    // Title and icon (the Makerchip button's), also for panels restored after a reload.
+    const displayName = panelTitle(panelKey);
+    panel.title = displayName;
+    panel.iconPath = vscode.Uri.joinPath(context.extensionUri, 'resources', 'icons', 'makerchip-themed.svg');
 
     // Ensure scripts are enabled. Required for panels restored by the serializer
     // (VS Code does not preserve WebviewOptions across reloads); harmless for
@@ -1025,6 +1092,12 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string, isRestore: boo
       }
     });
 
+    panel.onDidChangeViewState(e => {
+      if (e.webviewPanel.active) {
+        currentPanelKey = panelKey;
+      }
+    });
+
     panel.onDidDispose(() => {
       clearReadyTimeout();
       // If the panel is closed before it ever became ready, reject any pending
@@ -1042,6 +1115,9 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string, isRestore: boo
         panelReadyPromises.delete(panelKey);
         degradedPanels.delete(panelKey);
         panelServerUrlOverrides.delete(panelKey);
+        if (currentPanelKey === panelKey) {
+          currentPanelKey = undefined;
+        }
       }
     });
   });

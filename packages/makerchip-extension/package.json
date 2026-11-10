@@ -180,7 +180,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(circuit-board)",
         "userDescription": "Compile and open TL-Verilog in Makerchip IDE.",
-        "modelDescription": "Opens/focuses a VS Code editor panel and a Makerchip panel for the given TL-Verilog file (`filePath` argument) and compiles the code into the Makerchip panel. The `.tlv` code can alternatively be given inline via the `code` argument. In this case the code will be loaded into a new, unsaved editor panel before compilation. `oneShot: true` can be used for quick experiments to avoid opening the code panel for editing to minimize clutter. This tool waits up to `waitSeconds` (default 30s) for the compilation and simulation and returns a status summary on completion or timeout. By default, this tool does NOT wait for the diagram (SVG) response, which can lag (controlled by the `waitForDiagram` argument). To continue waiting, call `makerchip_wait_compile` with the returned compile ID. Set `waitSeconds` to 0 to return immediately with just the compile ID. Return status includes SandPiper/Verilator exit codes, pass/fail, and a log excerpt on failure — no need to read `metadata.json` via the shell.",
+        "modelDescription": "Opens/focuses a VS Code editor panel and a Makerchip panel for the given TL-Verilog file (`filePath` argument) and compiles the code into the Makerchip panel. The `.tlv` code can alternatively be given inline via the `code` argument. In this case the code will be loaded into a new, unsaved editor panel before compilation. `oneShot: true` can be used for quick experiments to avoid opening the code panel for editing to minimize clutter. This tool waits up to `waitSeconds` (default 30s) for the compilation and simulation and returns a status summary on completion or timeout. By default, this tool does NOT wait for the diagram (SVG) response, which can lag (controlled by the `waitForDiagram` argument). To continue waiting, call `makerchip_wait_compile` with the returned compile ID. Set `waitSeconds` to 0 to return immediately with just the compile ID. Return status includes SandPiper/Verilator exit codes, pass/fail, and a log excerpt on failure — no need to read `metadata.json` via the shell.\n\nPANELS (the `panelName` parameter of every Makerchip tool): each source file compiles into its own Makerchip panel, named for the file (e.g. `project.tlv`; the nearest differing folder, or a number, is added when another open panel has that name). Code with no file (inline `code`, or an unsaved editor) compiles into the shared `no file` panel. The CURRENT PANEL is the one most recently compiled into or focused by the user (`no file` if none is open); tools given no `panelName` use it. makerchip_list_panels shows each panel's name, its file, and which is current.",
         "tags": [
           "makerchip",
           "tlv",
@@ -219,7 +219,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`. Use this to open multiple Makerchip panels for different designs or comparisons."
+              "description": "Optional panel name to target. Default: the source file's own panel (see PANELS above). Name another panel to compare designs side by side."
             },
             "serverUrl": {
               "type": "string",
@@ -329,7 +329,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           }
         }
@@ -383,7 +383,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           }
         }
@@ -439,7 +439,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           }
         }
@@ -469,7 +469,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           }
         }
@@ -511,7 +511,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           }
         }
@@ -541,7 +541,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           }
         }
@@ -620,7 +620,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target when delivering to WARP-V. Default: `default`."
+              "description": "Optional panel name to target when delivering to WARP-V. Default: the current panel (see makerchip_compile)."
             }
           }
         }
@@ -662,7 +662,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             },
             "clearance": {
               "type": "string",
@@ -789,7 +789,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           },
           "required": []
@@ -866,7 +866,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             },
             "clearance": {
               "type": "string",
@@ -930,7 +930,7 @@
           "properties": {
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           }
         }
@@ -965,7 +965,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           },
           "$defs": {
@@ -1053,7 +1053,7 @@
           "properties": {
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           }
         }
@@ -1091,7 +1091,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           }
         }
@@ -1125,7 +1125,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           }
         }
@@ -1231,7 +1231,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional VS Code panel name to target. Default: `default`."
+              "description": "Optional VS Code panel name to target. Default: the current panel (see makerchip_compile)."
             }
           }
         }
@@ -1278,7 +1278,7 @@
           "properties": {
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           }
         }
@@ -1316,7 +1316,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           },
           "oneOf": [
@@ -1370,7 +1370,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           }
         }
@@ -1411,7 +1411,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           }
         }
@@ -1437,7 +1437,7 @@
           "properties": {
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           }
         }
@@ -1468,7 +1468,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           },
           "required": [
@@ -1509,7 +1509,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           },
           "required": [
@@ -1526,7 +1526,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(list-tree)",
         "userDescription": "List all currently open Makerchip IDE panels.",
-        "modelDescription": "Returns open panel names. Use these in 'panelName' parameter to target specific IDE instances. New panels are created only via makerchip_compile with a code or filePath argument.",
+        "modelDescription": "Lists the open Makerchip panels: each one's name (for the `panelName` parameter), the source file it compiles, and which is the current panel (defined in makerchip_compile, which also creates panels).",
         "tags": [
           "makerchip",
           "panels",
