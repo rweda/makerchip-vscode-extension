@@ -1796,7 +1796,7 @@
             },
             "minDurationMs": {
               "type": "number",
-              "description": "Return no sooner than this many ms after the call starts (max 10000; slower calls are not delayed further). Use only if your harness loses quick results (your Makerchip skill says when)."
+              "description": "Return no sooner than this many ms after the call starts (max 10000; slower calls are not delayed further). Every call is already held for 3000 ms, for harnesses that lose quick results; raise it only if your Makerchip skill says to."
             }
           }
         }

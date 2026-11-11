@@ -94,8 +94,8 @@
  *    ~5 ms later), and the call hangs. Calls returning in <= 760 ms hung; >= 847 ms succeeded.
  *    In "Bypass Permissions" mode, 50 ms and similar calls succeeded (2 of 2), so the approval step
  *    is the slow side of the race. Workaround (verified 2026-10-19): makerchip_invoke_tool's
- *    top-level `minDurationMs`. Untested
- *    alternative: an allow rule for mcp__client__makerchip*.
+ *    top-level `minDurationMs`; since 2026-11-11 the extension also holds every call for 3 s
+ *    (MIN_RESULT_MS in makerchipTool.ts). Untested alternative: an allow rule for mcp__client__makerchip*.
  *  - Skill invocation is a model judgement, not an interlock. The description makes the
  *    common path correct; it cannot make it guaranteed.
  *
@@ -348,13 +348,12 @@ carefully; some result in HANGS.
   more). If the extension answers first, the result is dropped and the call hangs although it ran.
   Quick queries (\`makerchip_get_cycle\`, \`makerchip_get_viz_image\`,
   \`makerchip_get_available_views\`, small extractions: tens to hundreds of ms) hit this; calls of
-  a second or more (compiles, most PDF extractions) did not. The user's "Bypass Permissions" mode
-  avoids it. Otherwise, make any call that may return in under ~3 s through
-  \`makerchip_invoke_tool\` with \`minDurationMs\` (e.g. 3000; 1500 has proven too short; max
-  10000) as a TOP-LEVEL argument, a sibling of \`calls\`/\`name\`: \`{calls: [...], minDurationMs:
-  3000}\`. Inside any \`input\` it is silently ignored. It holds the result past the approval,
-  adding nothing to slower calls. Prefer file outputs (\`saveToFile\`, \`{file: true}\`) so a lost
-  result is recoverable.
+  a second or more (compiles, most PDF extractions) did not. The extension now holds every call's
+  result for at least 3 s, which has covered the approval so far, so quick calls need no special
+  handling. If one is still lost, raise the hold with \`makerchip_invoke_tool\`'s \`minDurationMs\`
+  (max 10000) as a TOP-LEVEL argument, a sibling of \`calls\`/\`name\`: \`{calls: [...],
+  minDurationMs: 6000}\`. Inside any \`input\` it is silently ignored. Prefer file outputs
+  (\`saveToFile\`, \`{file: true}\`) so a lost result is recoverable.
 
 ### Extension host reloads
 
@@ -382,8 +381,8 @@ Try to avoid hangs, but if you slip and hit one, rule out the turn-local causes 
   turn. Fix: let it settle to the next turn, or use \`makerchip_invoke_tool\`. No fresh chat.
 - **Lost quick result** — a LONE call that should return in under a second HANGS, yet its work
   WAS done (file written, cycle set, ...). The user must cancel it. Do not redo it blindly: check
-  the side effect, and use \`minDurationMs\` from then on (see the call rules), or raise it if you
-  already did. Slow calls still work. No fresh chat.
+  the side effect, and raise the hold with \`minDurationMs\` from then on (see the call rules).
+  Slow calls still work. No fresh chat.
 - **Reload mid-turn** — a LONE, serial call HANGS, even a slow one like a compile, with no gating
   change this turn, after the extension host reloaded, updated or crashed; retrying this turn keeps
   hanging. Fix: stop and ask the user to reply (the next turn rebinds). Only if it still hangs at

@@ -77,5 +77,11 @@ render, TT's 3D viewer, and Tiny Tapeout Explorer, from the repo's GitHub Pages)
   submission hardened for a different PDK than the shuttle's.
 - Missing project info (step 4) fails `gds` at "Fetch verilog and build config" and `docs` with "Errors in
   info.yaml"/"docs/info.md". Each build's tool and PDK versions are in its `tt_submission` artifact's `pdk.json`.
+- **Seeing the design's VIZ.** In Makerchip, the design's `\viz_js` is drawn in the demo board's small, square
+  chip window, so a whole-board `makerchip_get_viz_image` is too small to read. Zoom in with a one-frame
+  `makerchip_capture_video` in `absolute` mode. The window is `BOARD_7_FPGA_WHERE` (in board-image pixels) in
+  Virtual-FPGA-Lab's `tlv_lib/fpga_includes.tlv`, at the commit included by the `tiny_tapeout_lib.tlv` that
+  `src/project.tlv` includes (follow the pinned `m4_include_lib` URLs; the resources copy of Virtual-FPGA-Lab is
+  newer and may differ).
 - Submitting to a shuttle happens at [app.tinytapeout.com](https://app.tinytapeout.com), not here.
 - The template's own `tt-makerchip-template-dev` skill is for maintaining the template, not for projects.

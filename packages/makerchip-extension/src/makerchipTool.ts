@@ -1571,6 +1571,13 @@ export class CaptureVideoTool implements vscode.LanguageModelTool<CaptureVideoIn
       // For image formats (single-frame GIF/APNG, e.g. a calibration capture) the saved file can be
       // viewed directly to inspect the frame; real videos are only referenced by path.
       const isImageFormat = actualFormat === 'gif' || actualFormat === 'apng' || actualFormat === 'png';
+      // A keyframe's width/height is easily mistaken for the recording size; say so when it may have been.
+      const kfSized = [...(Array.isArray(keyframes) ? keyframes : []), keyframeDefault ?? {}]
+        .some(kf => typeof kf?.width === 'number' || typeof kf?.height === 'number');
+      const sizeNote = typeof width !== 'number' && typeof height !== 'number' && kfSized
+        ? '\n\nNote: recorded at the VIZ view\'s size. A keyframe\'s (or `default`\'s) width/height only says what ' +
+          'size its absolute `scale` was measured at; to choose the recording size, set the top-level `width` and `height`.'
+        : '';
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
           `Successfully captured VIZ simulation${panelInfo} as ${actualFormat.toUpperCase()} video.\n` +
@@ -1579,7 +1586,8 @@ export class CaptureVideoTool implements vscode.LanguageModelTool<CaptureVideoIn
           `Duration: ${(cycles / cyclesPerSecond).toFixed(2)}s at ${cyclesPerSecond} cycle(s)/s (${Math.round(1000 / cyclesPerSecond)}ms/cycle)\n` +
           `File: ${savedPath}\n` +
           `Size: ${Math.round(videoBuffer.length / 1024)}KB` +
-          (isImageFormat ? `\n\nThis is an image format — view ${savedPath} to inspect the frame(s).` : '')
+          (isImageFormat ? `\n\nThis is an image format — view ${savedPath} to inspect the frame(s).` : '') +
+          sizeNote
         )
       ]);
 
@@ -3143,6 +3151,23 @@ interface InvokeToolInput extends InvokeToolCall {
 /** Upper bound on a batch, so a runaway list cannot produce an unbounded single result. */
 const MAX_BATCH_CALLS = 100;
 const MAX_MIN_DURATION_MS = 10000;
+/**
+ * Every (outermost) tool call's floor: the Claude harness loses a result that arrives before it has finished
+ * approving the call (~1 s, sometimes more), and the call hangs. See "Lost quick result" in claudeSkill.ts.
+ * Remove with issues/019-drop-quick-result-workaround.md.
+ */
+const MIN_RESULT_MS = 3000;
+
+/** Wait until `deadline` (ms since the epoch), or until `token` is cancelled. */
+async function holdUntil(deadline: number, token: vscode.CancellationToken): Promise<void> {
+  const wait = deadline - Date.now();
+  if (wait > 0) {
+    await new Promise<void>(resolve => {
+      const timer = setTimeout(resolve, wait);
+      token.onCancellationRequested(() => { clearTimeout(timer); resolve(); });
+    });
+  }
+}
 
 /**
  * Universal fallback tool: invoke (or describe) any registered Language Model tool by name —
@@ -3223,13 +3248,7 @@ export class InvokeToolTool implements vscode.LanguageModelTool<InvokeToolInput>
         // Single call: return the target's result verbatim, unchanged from before batching existed.
         : (await this.runCall(options.input, options, token)).result;
     } finally {
-      const wait = Math.min(minDurationMs ?? 0, MAX_MIN_DURATION_MS) - (Date.now() - start);
-      if (wait > 0) {
-        await new Promise<void>(resolve => {
-          const timer = setTimeout(resolve, wait);
-          token.onCancellationRequested(() => { clearTimeout(timer); resolve(); });
-        });
-      }
+      await holdUntil(start + Math.min(minDurationMs ?? 0, MAX_MIN_DURATION_MS), token);
     }
   }
 
@@ -3415,10 +3434,26 @@ export function registerMakerchipTool(context: vscode.ExtensionContext): void {
   // active use keeps enabled tools alive (see toolActivation.ts), and (b) disposes with the
   // extension. Proxied makerchip_invoke_tool calls dispatch through the same wrapped impl, so they
   // touch too.
+  // It also holds each result (and error) for MIN_RESULT_MS, but only for outermost calls: holding
+  // makerchip_invoke_tool's inner calls too would multiply a batch's time. (Calls are counted as inner while
+  // another is running; a harness's parallel calls are then not held, which is no worse than before.)
   let count = 0;
+  let running = 0;
   const reg = (name: string, tool: vscode.LanguageModelTool<any>): void => {
     const invoke = tool.invoke.bind(tool);
-    tool.invoke = (options, token) => { getToolActivation()?.touch(); return invoke(options, token); };
+    tool.invoke = async (options, token) => {
+      getToolActivation()?.touch();
+      const start = Date.now();
+      const outermost = running++ === 0;
+      try {
+        return await invoke(options, token);
+      } finally {
+        running--;
+        if (outermost) {
+          await holdUntil(start + MIN_RESULT_MS, token);
+        }
+      }
+    };
     context.subscriptions.push(vscode.lm.registerTool(name, tool));
     count++;
   };

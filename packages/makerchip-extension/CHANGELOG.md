@@ -6,16 +6,11 @@ uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Added
-
-- The Tiny Tapeout template, `tt-makerchip-template`, among the reference resources.
-
 ### Changed
 
-- "Run TT Flow" names the repo it pushes to, and refuses to push to a template repository (such as a clone of the
-  template itself).
-- A Makerchip panel that times out while opening says whether its webview failed to load (fixed by reloading the
-  window) or the Makerchip IDE did not finish loading in it.
+- "Run TT Flow" refuses to push to a template repository, such as a clone of the template itself.
+- Agent tools return no sooner than 3 seconds after they are called, so the Claude harness no longer loses quick
+  results (hanging the call).
 
 ### Fixed
 
