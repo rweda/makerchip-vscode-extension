@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import { log } from './logger';
 import { requireTermsAccepted } from './terms';
 
@@ -11,7 +13,10 @@ import { requireTermsAccepted } from './terms';
  * Roadmap: mono's issues/036-tiny-tapeout-in-makerchip.md.
  */
 
-/** SandPiper arguments for TT's Verilog; keep in sync with the template's `make verilog` (test/Makefile). */
+/**
+ * SandPiper arguments for TT's Verilog: the project's own, from `SANDPIPER_ARGS = ...` in its test/Makefile (as
+ * `make verilog` uses them), or these, as in projects made before the template defined it.
+ */
 const TT_SANDPIPER_ARGS = '--inlineGen --noline --clkAlways --bestsv --iArgs';
 const SANDPIPER_SAAS_URL = 'https://faas.makerchip.com/function/sandpiper-faas';
 
@@ -91,8 +96,10 @@ function gitHubRepo(repo: GitRepository): string {
  * `.sv` beside it. Unlike a Makerchip compile, `MAKERCHIP` is not defined, so the template's
  * Makerchip-only parts (lab, stimulus) drop out. Returns the `.sv` path and any warnings.
  */
-async function compileForTt(tlvFile: string): Promise<{ svFile: string; warnings?: string }> {
+async function compileForTt(tlvFile: string, root: string): Promise<{ svFile: string; warnings?: string }> {
   await requireTermsAccepted();  // SandPiper-SaaS is a Makerchip service.
+  const makefile = await fs.readFile(path.join(root, 'test', 'Makefile'), 'utf-8').catch(() => '');
+  const args = makefile.match(/^SANDPIPER_ARGS\s*:?=[ \t]*(.*?)[ \t]*(?:#.*)?$/m)?.[1] ?? TT_SANDPIPER_ARGS;
   const name = path.basename(tlvFile);
   const svName = name.replace(/\.tlv$/, '.sv');
   // The JSON API (see faas-mono functions/sandpiper-faas/README.md) answers with
@@ -101,7 +108,7 @@ async function compileForTt(tlvFile: string): Promise<{ svFile: string; warnings
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      args: `-i ${name} -o ${svName} ${TT_SANDPIPER_ARGS}`,
+      args: `-i ${name} -o ${svName} ${args}`,
       IAgreeToSLA: true,
       sv_url_inc: true,
       responseType: 'json',
@@ -174,6 +181,39 @@ async function checkProjectInfo(root: string): Promise<boolean> {
   return false;
 }
 
+/**
+ * If the `makerchip.tinyTapeout.runTestsBeforePush` setting is on, run the project's testbench as TT's `test`
+ * workflow does, and if it fails (or can't run), say so. Advisory, like checkProjectInfo. Returns whether to proceed.
+ */
+async function runTests(root: string): Promise<boolean> {
+  if (!vscode.workspace.getConfiguration('makerchip', vscode.Uri.file(root)).get<boolean>('tinyTapeout.runTestsBeforePush')) {
+    return true;
+  }
+  const testDir = path.join(root, 'test');
+  // Judge by results.xml, as TT's workflow does: depending on the cocotb version, `make` may succeed even if tests
+  // fail. (`make clean` deletes it, so it is this run's.)
+  const output = await vscode.window.withProgress(
+    { location: vscode.ProgressLocation.Notification, title: 'Tiny Tapeout: running the tests...' },
+    () => promisify(exec)('make clean && make', { cwd: testDir, timeout: 600_000, maxBuffer: 64 * 1024 * 1024 })
+      .then(({ stdout, stderr }) => stdout + stderr, (e: any) => `${e?.stdout ?? ''}${e?.stderr ?? ''}${e?.message ?? e}`));
+  log(`TT tests in ${testDir}:\n${output}`);
+  const results = await fs.readFile(path.join(testDir, 'results.xml'), 'utf-8').catch(() => undefined);
+  const problem = results === undefined
+    ? 'The tests could not run. They need cocotb (pip install -r test/requirements.txt) and Icarus Verilog.'
+    : /<(failure|error)\b/.test(results) ? 'The tests failed.'
+    : !/<testcase\b/.test(results) ? 'No tests ran. (Is cocotb the version in test/requirements.txt?)'
+    : undefined;
+  if (!problem) {
+    return true;
+  }
+  const pushAnyway = 'Push Anyway';
+  const choice = await vscode.window.showWarningMessage(problem, {
+    modal: true,
+    detail: 'See the Makerchip output channel. (Tests run because makerchip.tinyTapeout.runTestsBeforePush is on.)',
+  }, pushAnyway);
+  return choice === pushAnyway;
+}
+
 /** Whether GitHub marks `gitHub` (`owner/name`) as a template repo. False if GitHub can't say (offline, rate limit). */
 async function isTemplateRepo(gitHub: string): Promise<boolean> {
   const resp = await fetch(`https://api.github.com/repos/${gitHub}`).catch(() => undefined);
@@ -235,7 +275,7 @@ async function runTtFlow(uri?: vscode.Uri): Promise<void> {
 
     const { svFile, warnings } = await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: 'Tiny Tapeout: compiling with SandPiper-SaaS...' },
-      () => compileForTt(file));
+      () => compileForTt(file, root));
 
     const ours = [file, svFile];
     await repo.status();
@@ -252,6 +292,9 @@ async function runTtFlow(uri?: vscode.Uri): Promise<void> {
         return;
       }
     } else {
+      if (!await runTests(root)) {
+        return;
+      }
       const others = indexChanges.filter(c => !ours.includes(c.uri.fsPath));
       if (others.length > 0) {
         const include = 'Include Them';

@@ -6,6 +6,11 @@ uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `makerchip.tinyTapeout.runTestsBeforePush`: a setting (off by default) for "Run TT Flow" to run the project's
+  testbench locally before pushing.
+
 ### Changed
 
 - "Run TT Flow" refuses to push to a template repository, such as a clone of the template itself.

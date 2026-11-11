@@ -48,12 +48,15 @@ with plain file edits (AI-friendly).
 - [021: Eliminate the need for SandPiper-SaaS in the TT flow](021-eliminate-sandpiper-saas-use.md)
 - [023: Help users see which Makerchip panel goes with which editor](023-pair-editors-with-panels.md)
 - [024: Link editor lines and Nav-TLV lines, as the Makerchip IDE does](024-editor-nav-tlv-line-linking.md)
-- [025: Feedback from first test drive](025-test-drive-feedback.md)
 
 ## Closed
 
 Older entries link to deleted files; recover those with `git log --follow -- issues/NNN-slug.md`.
 
+- [025: Feedback from first test drive](https://github.com/rweda/makerchip-vscode-extension/blob/1e289e2/issues/025-test-drive-feedback.md)
+  - 2026-11-11: All findings resolved or declined. Run TT Flow: retryable push, template-repo refusal, an optional
+    pre-push test setting, SandPiper flags read from the project's `test/Makefile`. A 3 s hold on tool results.
+    Template testbench and output-connection fixes. VIZ fit is mono's issue 043.
 - [022: Investigate resize forwarding into the IDE iframe (cross-origin jQuery access)](https://github.com/rweda/makerchip-vscode-extension/blob/c8d5f4f/issues/022-webview-resize-forwarding.md)
   - 2026-11-10: Forwarding was dead (cross-origin) and redundant; removed. The VIZ resize bug was a lone root
     TabbedPane never getting resize() (no jQuery Layout); fixed in mono `IDE.coffee`.

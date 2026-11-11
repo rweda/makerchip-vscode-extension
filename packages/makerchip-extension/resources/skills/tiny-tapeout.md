@@ -77,6 +77,11 @@ render, TT's 3D viewer, and Tiny Tapeout Explorer, from the repo's GitHub Pages)
   submission hardened for a different PDK than the shuttle's.
 - Missing project info (step 4) fails `gds` at "Fetch verilog and build config" and `docs` with "Errors in
   info.yaml"/"docs/info.md". Each build's tool and PDK versions are in its `tt_submission` artifact's `pdk.json`.
+- **Running the tests before each push** (optional): the setting `makerchip.tinyTapeout.runTestsBeforePush` makes
+  the button run the testbench locally first (`make` in `test/`, as TT's `test` workflow does) and warn if it
+  fails. It's off by default, since Makerchip's simulation is usually the test. Offer it when the user works on
+  `test/test.py`: install cocotb (`pip install -r test/requirements.txt`) and Icarus Verilog (`iverilog`), then
+  set it to `true` in the project's `.vscode/settings.json`.
 - **Seeing the design's VIZ.** In Makerchip, the design's `\viz_js` is drawn in the demo board's small, square
   chip window, so a whole-board `makerchip_get_viz_image` is too small to read. Zoom in with a one-frame
   `makerchip_capture_video` in `absolute` mode. The window is `BOARD_7_FPGA_WHERE` (in board-image pixels) in

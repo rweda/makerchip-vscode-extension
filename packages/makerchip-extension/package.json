@@ -146,6 +146,12 @@
               "fdc3": "https://your-clone-tunnel.trycloudflare.com"
             }
           ]
+        },
+        "makerchip.tinyTapeout.runTestsBeforePush": {
+          "type": "boolean",
+          "default": false,
+          "scope": "resource",
+          "markdownDescription": "Before \"Run TT Flow\" commits and pushes a Tiny Tapeout project, run its testbench locally (`make` in `test/`, as Tiny Tapeout's `test` workflow does), and say if it fails. Needs cocotb (`pip install -r test/requirements.txt`) and Icarus Verilog (`iverilog`). Off by default, since Makerchip's own simulation is usually the test; turn it on for a project in its workspace settings."
         }
       }
     },
