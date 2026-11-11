@@ -44,6 +44,7 @@ The `resources/` directory contains cloned Git repositories:
 - **tlv_flow_lib** - Transaction flow components
 - **Virtual-FPGA-Lab** - FPGA design in Makerchip
 - **M5** - M5 macro processor source
+- **tt-makerchip-template** - Template for Tiny Tapeout projects in TL-Verilog
 
 See [.vscode/skills/tlv-ecosystem.md](.vscode/skills/tlv-ecosystem.md#documentation-references) for detailed documentation references.
 

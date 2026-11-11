@@ -69,6 +69,7 @@ When helping with TL-Verilog, **reference these primary sources** in the Makerch
 - **[resources/warp-v_includes/](../../resources/warp-v_includes/)** - RISC-V ISA definitions and library patterns
 - **[resources/tlv_lib/](../../resources/tlv_lib/)** - General-purpose TL-Verilog component libraries
 - **[resources/tlv_flow_lib/](../../resources/tlv_flow_lib/)** - Transaction flow components and `$ANY` patterns
+- **[resources/tt-makerchip-template/](../../resources/tt-makerchip-template/)** - Tiny Tapeout project template (see the `tiny-tapeout` skill)
 
 Note: For development, there may be a more recent working version of `Makerchip-public` in the workspace to reference instead.
 

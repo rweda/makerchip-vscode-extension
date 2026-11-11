@@ -92,7 +92,7 @@ const KEPT_FOREIGN_KEY = 'makerchip.keptForeignEntries';
 
 // Bump whenever a populate run must happen on existing installs — the path is otherwise gated to
 // a version change or 7 days (see checkResourcesNeedUpdate).
-export const RESOURCES_VERSION = '2.3.0';
+export const RESOURCES_VERSION = '2.4.0';
 
 interface Repository {
   name: string;
@@ -112,6 +112,7 @@ const REPOSITORIES: Repository[] = [
   { name: 'Virtual-FPGA-Lab', url: 'https://github.com/os-fpga/Virtual-FPGA-Lab.git'},
   { name: 'M5', url: 'https://github.com/rweda/M5.git' },
   { name: 'LLM_TLV', url: 'https://github.com/stevehoover/LLM_TLV' },
+  { name: 'tt-makerchip-template', url: 'https://github.com/stevehoover/tt-makerchip-template.git' },
 ];
 
 const EXPECTED_RESOURCES = [

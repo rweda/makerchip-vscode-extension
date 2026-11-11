@@ -6,6 +6,10 @@ uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- The Tiny Tapeout template, `tt-makerchip-template`, among the reference resources.
+
 ## [0.0.3] — 2026-11-10
 
 ### Added

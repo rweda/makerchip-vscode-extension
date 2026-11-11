@@ -10,7 +10,8 @@ A TT project is a GitHub repo made from
 [stevehoover/tt-makerchip-template](https://github.com/stevehoover/tt-makerchip-template) (any TT process;
 `project.pdk` in `info.yaml`). The design is `src/project.tlv`; `src/project.sv` is generated from it and
 committed, and pushing runs TT's flow (`gds`, `test`, `docs` workflows) on GitHub Actions. The template README
-covers the project files.
+covers the project files. (A reference copy of the repo is in
+[resources/tt-makerchip-template/](../../resources/tt-makerchip-template/), but the one on GitHub may be newer).
 
 Your job is the one-time setup. After it, the user runs the flow with the "Run TT Flow" button, without you.
 

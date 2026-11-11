@@ -6,7 +6,7 @@ import { requireTermsAccepted } from './terms';
 
 /**
  * Tiny Tapeout (TT) support. A TL-Verilog file in a TT project (see ttProjectRoot), such as one made
- * from a ttXX-makerchip-template, gets a "Run TT Flow" button in its editor title bar. The button
+ * from tt-makerchip-template, gets a "Run TT Flow" button in its editor title bar. The button
  * compiles the file for TT, commits and pushes it, and the push runs the TT flow on GitHub Actions.
  * Roadmap: mono's issues/036-tiny-tapeout-in-makerchip.md.
  */
@@ -102,6 +102,7 @@ async function compileForTt(tlvFile: string): Promise<{ svFile: string; warnings
       IAgreeToSLA: true,
       sv_url_inc: true,
       responseType: 'json',
+      // Only the top file: local includes (e.g. a sibling file's m4_include_lib) would need adding here.
       files: { [name]: await fs.readFile(tlvFile, 'utf-8') },
     }),
   });
