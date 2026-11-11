@@ -10,6 +10,18 @@ uses [semantic versioning](https://semver.org/).
 
 - The Tiny Tapeout template, `tt-makerchip-template`, among the reference resources.
 
+### Changed
+
+- "Run TT Flow" names the repo it pushes to, and refuses to push to a template repository (such as a clone of the
+  template itself).
+- A Makerchip panel that times out while opening says whether its webview failed to load (fixed by reloading the
+  window) or the Makerchip IDE did not finish loading in it.
+
+### Fixed
+
+- "Run TT Flow" after a failed push: it said the flow had already run, and could not retry the push. It now offers
+  to push the unpushed commit.
+
 ## [0.0.3] — 2026-11-10
 
 ### Added

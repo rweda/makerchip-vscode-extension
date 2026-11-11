@@ -17,8 +17,8 @@ Your job is the one-time setup. After it, the user runs the flow with the "Run T
 
 ## Setup
 
-1. **GitHub CLI.** `gh auth status`. If not logged in, ask the user to run `gh auth login` (it needs them to
-   confirm a code in their browser).
+1. **GitHub CLI.** `gh auth status`. If `gh` is missing, offer to install it (https://cli.github.com/). If not
+   logged in, ask the user to run `gh auth login` (it needs them to confirm a code in their browser).
 2. **Create the repo** (public; TT requires it). First ask the user, suggesting defaults:
    - its name (e.g. from their project idea) and owner: their account (`gh api user --jq .login`) or an
      organization they belong to;

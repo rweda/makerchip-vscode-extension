@@ -48,6 +48,7 @@ with plain file edits (AI-friendly).
 - [021: Eliminate the need for SandPiper-SaaS in the TT flow](021-eliminate-sandpiper-saas-use.md)
 - [023: Help users see which Makerchip panel goes with which editor](023-pair-editors-with-panels.md)
 - [024: Link editor lines and Nav-TLV lines, as the Makerchip IDE does](024-editor-nav-tlv-line-linking.md)
+- [025: Feedback from first test drive](025-test-drive-feedback.md)
 
 ## Closed
 

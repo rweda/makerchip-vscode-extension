@@ -261,7 +261,7 @@
             },
             "dot": {
               "type": "boolean",
-              "description": "Whether to generate the diagram (SVG) (default true). Pass false to save unnecessary processing. Other results are unaffected. The IDE's diagram view shows no-result status."
+              "description": "Whether to generate the diagram (SVG) (default true). Pass false to save unnecessary processing (though the resulting no-result tab status in the Diagram view may confuse a user)."
             },
             "fetchIntermediateFiles": {
               "type": "boolean",

@@ -827,6 +827,8 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string, isRestore: boo
     let settled = false;
 
     let readyTimeout: ReturnType<typeof setTimeout> | undefined;
+    // Whether the webview's script has run (its 'booted' message), which tells the cause of a timeout.
+    let booted = false;
 
     const clearReadyTimeout = () => {
       if (readyTimeout) {
@@ -870,7 +872,10 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string, isRestore: boo
     // arm this only after the probe, leaving a pre-probe stall unguarded.)
     readyTimeout = setTimeout(() => {
       settleReject(new Error(
-        `Makerchip panel '${panelKey}' did not become ready within ${READY_TIMEOUT_MS / 1000}s.`
+        `Makerchip panel '${panelKey}' did not become ready within ${READY_TIMEOUT_MS / 1000}s. ` + (booted
+          ? 'The Makerchip IDE did not finish loading in it.'
+          // E.g. VS Code's "Could not register service worker: InvalidStateError" (in the webview's devtools console).
+          : 'Its webview failed to load, which is a VS Code problem: run "Developer: Reload Window" and try again.')
       ));
     }, READY_TIMEOUT_MS);
 
@@ -948,6 +953,10 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string, isRestore: boo
       // Only log message type, not the entire payload (which can be huge for VCD data)
       if (msg.type !== 'compileFileChunk') {
         log(`[webview → extension] ${msg.type}`);
+      }
+
+      if (msg.type === 'booted') {
+        booted = true;
       }
 
       if (msg.type === 'ready') {

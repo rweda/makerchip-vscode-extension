@@ -22,10 +22,13 @@ const FILES_CONTEXT_KEY = 'makerchip.ttFiles';
 interface GitRepository {
   readonly rootUri: vscode.Uri;
   readonly state: {
-    readonly HEAD?: { readonly commit?: string };
+    readonly HEAD?: { readonly commit?: string; readonly ahead?: number };
     readonly remotes: readonly { readonly name: string; readonly fetchUrl?: string; readonly pushUrl?: string }[];
     readonly indexChanges: readonly { readonly uri: vscode.Uri }[];
+    readonly workingTreeChanges: readonly { readonly uri: vscode.Uri }[];
+    readonly untrackedChanges?: readonly { readonly uri: vscode.Uri }[];
   };
+  status(): Promise<void>;
   add(paths: string[]): Promise<void>;
   commit(message: string): Promise<void>;
   push(): Promise<void>;
@@ -135,7 +138,7 @@ function yamlValue(yaml: string, key: string): string | undefined {
  * tt-support-tools' project_info.py and project_checks.py (TT's own check needs Python and tt-support-tools,
  * and its CI log needs GitHub sign-in to read). If any looks missing, say what, rather than pushing a run
  * that fails a minute in on a cryptic step. Advisory: the user may push anyway, so a mirror that drifts from
- * TT's checks costs at most a warning. Returns whether to proceed.
+ * TT's checks costs at most a warning. Deliberately minimal (CI is the real check). Returns whether to proceed.
  */
 async function checkProjectInfo(root: string): Promise<boolean> {
   const yaml = await fs.readFile(path.join(root, 'info.yaml'), 'utf-8');
@@ -144,7 +147,7 @@ async function checkProjectInfo(root: string): Promise<boolean> {
   if (!pins.some(pin => yamlValue(yaml, pin))) {
     infoMissing.push('pinout (at least one pin)');
   }
-  const docs = await fs.readFile(path.join(root, 'docs', 'info.md'), 'utf-8').catch(() => '');
+  const docs = (await fs.readFile(path.join(root, 'docs', 'info.md'), 'utf-8').catch(() => '')).replace(/\r\n/g, '\n');
   const docsMissing = [['How it works', 'Explain how your project works'], ['How to test', 'Explain how to use your project']]
     .filter(([heading, text]) => docs.includes(`# ${heading}\n\n${text}`)).map(([heading]) => `"${heading}"`);
   const missing = [['info.yaml', infoMissing], [path.join('docs', 'info.md'), docsMissing]] as const;
@@ -169,6 +172,12 @@ async function checkProjectInfo(root: string): Promise<boolean> {
     }
   }
   return false;
+}
+
+/** Whether GitHub marks `gitHub` (`owner/name`) as a template repo. False if GitHub can't say (offline, rate limit). */
+async function isTemplateRepo(gitHub: string): Promise<boolean> {
+  const resp = await fetch(`https://api.github.com/repos/${gitHub}`).catch(() => undefined);
+  return resp?.ok ? ((await resp.json()) as { is_template?: boolean }).is_template === true : false;
 }
 
 /** The TT views, hosted from github.com/stevehoover/makerchip-tt-views (see its README). */
@@ -211,6 +220,12 @@ async function runTtFlow(uri?: vscode.Uri): Promise<void> {
     }
     const repo = await gitRepository(file);
     const gitHub = gitHubRepo(repo);
+    // E.g. a clone of tt-makerchip-template rather than a project made from it.
+    if (await isTemplateRepo(gitHub)) {
+      vscode.window.showErrorMessage(`${gitHub} is a template repository. Make your own project from it, as its README ` +
+        'describes, and run the flow there.');
+      return;
+    }
     if (!await checkProjectInfo(root)) {
       return;
     }
@@ -223,34 +238,49 @@ async function runTtFlow(uri?: vscode.Uri): Promise<void> {
       () => compileForTt(file));
 
     const ours = [file, svFile];
-    const others = repo.state.indexChanges.filter(c => !ours.includes(c.uri.fsPath));
-    if (others.length > 0) {
-      const include = 'Include Them';
-      const choice = await vscode.window.showWarningMessage(
-        `${others.length} other staged change(s) would be committed along with ${path.basename(file)}:`,
-        { modal: true, detail: others.map(c => vscode.workspace.asRelativePath(c.uri)).join('\n') }, include);
-      if (choice !== include) {
+    await repo.status();
+    const { indexChanges, workingTreeChanges, untrackedChanges = [] } = repo.state;
+    if (indexChanges.length === 0 && ![...workingTreeChanges, ...untrackedChanges].some(c => ours.includes(c.uri.fsPath))) {
+      // Nothing to commit. A commit whose push failed is still to push.
+      if (!repo.state.HEAD?.ahead) {
+        vscode.window.showInformationMessage('Nothing has changed since your last push, so the Tiny Tapeout flow has already run on it.');
         return;
       }
+      const push = 'Push';
+      if (await vscode.window.showInformationMessage(`Nothing has changed, but your last commit isn't pushed to ${gitHub} yet.`,
+        { modal: true }, push) !== push) {
+        return;
+      }
+    } else {
+      const others = indexChanges.filter(c => !ours.includes(c.uri.fsPath));
+      if (others.length > 0) {
+        const include = 'Include Them';
+        const choice = await vscode.window.showWarningMessage(
+          `${others.length} other staged change(s) would be committed along with ${path.basename(file)}:`,
+          { modal: true, detail: others.map(c => vscode.workspace.asRelativePath(c.uri)).join('\n') }, include);
+        if (choice !== include) {
+          return;
+        }
+      }
+      const message = await vscode.window.showInputBox({
+        title: `Commit and push to ${gitHub} to run the Tiny Tapeout flow`,
+        prompt: (warnings ? 'SandPiper reported warnings (see the Makerchip output channel). ' : '') + 'Commit message:',
+        value: `Update ${path.basename(file)}`,
+        ignoreFocusOut: true,
+      });
+      if (message === undefined) {
+        return;
+      }
+      await repo.add(ours);
+      await repo.commit(message);
     }
-    const message = await vscode.window.showInputBox({
-      title: 'Commit and push to run the Tiny Tapeout flow',
-      prompt: (warnings ? 'SandPiper reported warnings (see the Makerchip output channel). ' : '') + 'Commit message:',
-      value: `Update ${path.basename(file)}`,
-      ignoreFocusOut: true,
-    });
-    if (message === undefined) {
-      return;
-    }
-    await repo.add(ours);
-    if (repo.state.indexChanges.length === 0) {
-      vscode.window.showInformationMessage('Nothing has changed since the last commit, so the Tiny Tapeout flow has already run on it.');
-      return;
-    }
-    await vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Notification, title: 'Tiny Tapeout: committing and pushing...' },
-      async () => { await repo.commit(message); await repo.push(); });
     const sha = repo.state.HEAD?.commit ?? '';
+    await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: `Tiny Tapeout: pushing to ${gitHub}...` },
+      () => repo.push().catch((e: any) => {
+        throw new Error(`Committed ${sha.slice(0, 7)}, but pushing it failed: ${e?.message ?? e} ` +
+          'Once that is fixed, click the button again to push it.');
+      }));
     // In the design file's panel, where its compile just went.
     await showTtViews(await vscode.commands.executeCommand<string>('makerchip.panelForFile', file), gitHub, sha);
     vscode.window.showInformationMessage(

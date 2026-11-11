@@ -117,6 +117,11 @@ interface ReadyMessage {
   type: 'ready';
 }
 
+/** Posted as soon as this script runs, so the extension can tell a webview that failed to load from a slow IDE. */
+interface BootedMessage {
+  type: 'booted';
+}
+
 /**
  * Cached compilation result files.
  *  - stdall / make.out / vlt_dump.vcd are streamed in chunks.
@@ -241,9 +246,10 @@ interface TermsAcceptedMessage {
   acceptedAt: string;
 }
 
-type ToExtensionMessage = IdeResultMessage | IdeErrorMessage | ReadyMessage | CompileFileChunkMessage | CompileStartMessage | CompileErrorMessage | CompileExitStatusMessage | CompileDeniedMessage | NotificationMessage | InitErrorMessage | RestoreRequestMessage | TermsAcceptedMessage;
+type ToExtensionMessage = IdeResultMessage | IdeErrorMessage | ReadyMessage | CompileFileChunkMessage | CompileStartMessage | CompileErrorMessage | CompileExitStatusMessage | CompileDeniedMessage | NotificationMessage | InitErrorMessage | RestoreRequestMessage | TermsAcceptedMessage | BootedMessage;
 
 const vscode = acquireVsCodeApi();
+vscode.postMessage({ type: 'booted' } as BootedMessage);
 
 // Expected IdePlugin version (semver). 2.x introduced the static create() factory
 // in place of the promise-returning constructor.
