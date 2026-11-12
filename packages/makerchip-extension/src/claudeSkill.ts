@@ -18,10 +18,11 @@
  *
  *  1. MCP server `instructions` (the `InitializeResult` field intended for exactly this).
  *     Not available to us. We are not an MCP server — we register VS Code Language Model
- *     tools (`vscode.lm.registerTool` + `contributes.languageModelTools`). Anthropic's
- *     claude-code extension bridges all VS Code LM tools into the agent as a single pseudo
- *     server it names `client` (hence `mcp__client__makerchip*`). That server is theirs, not
- *     ours, and the `languageModelTools` contribution point has no server-level field.
+ *     tools (`vscode.lm.registerTool` + `contributes.languageModelTools`). Microsoft's Claude
+ *     harness bridges all VS Code LM tools into the agent as a single pseudo server it names
+ *     `client` (hence `mcp__client__makerchip*`); Anthropic's own Claude Code extension does
+ *     not get them at all. That server is theirs, not ours, and the `languageModelTools`
+ *     contribution point has no server-level field.
  *
  *  2. Tool `modelDescription`. This was the ORIGINAL mechanism: a "read the guidance first"
  *     pointer on `makerchip_invoke_tool`, chosen because that tool is always offered

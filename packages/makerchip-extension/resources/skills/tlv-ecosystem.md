@@ -203,6 +203,8 @@ Complete API documentation available at:
 
 ### Managing IDE Views and Layout
 
+**Terminology:** views were called "panes" until November 2026 (e.g. `makerchip_open_third_party_pane`, `openPane`). Older docs, code, and users may still say "pane"; read it as "view". (Delete this note after June 2027.)
+
 **View Identification:**
 - Views are identified by **mnemonics** (unique identifiers like `"Diagram"`, `"Waveform"`, `"Log"`)
 - Mnemonics may include uniquifiers: `"Course Slides+Udemy"`, `"RISC-V Videos+Workshop"`. (The "+" uniquifier delimiter in mnemonics must be URL-encoded as "%2B" when used in URLs)
@@ -228,7 +230,7 @@ These file names **exactly match** the mnemonics returned by `makerchip_get_avai
 
 **Layout**: You can configure the layout of IDE views programmatically.
 
-**Details**: See `.vscode-makerchip/.vscode/skills/makerchip-api-features.md` for details on working with third-party views, managing the layout, and the layout data structure.
+**Details**: See `.vscode-makerchip/.vscode/skills/makerchip-api-features.md` for details on working with third-party views, managing the layout, and the layout data structure. To author a third-party view, or to wire one onto the IDE bus (`options.channel`, IDE events such as `compile-result`, view RPC), see `~/.vscode-makerchip/resources/Makerchip-public/docs/plugin_api/Third_Party_View_API.md`.
 
 ### Best Practices for Assistance
 

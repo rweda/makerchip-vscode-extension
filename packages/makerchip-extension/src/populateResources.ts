@@ -923,8 +923,10 @@ applyTo:
 
 `;
 
-    // Combine frontmatter with source content
-    const skillContent = frontmatter + sourceContent;
+    // Combine frontmatter with source content, pointing its relative links (e.g. to
+    // Third_Party_View_API.md) back at the docs folder, since the skill lives elsewhere.
+    const skillContent = frontmatter + sourceContent.replace(
+      /\]\((?![a-z]+:|#|\/)([^)]+)\)/g, `](${path.dirname(apiDocsPath)}/$1)`);
 
     // Write to target
     const targetPath = path.join(targetDir, 'makerchip-api-features.md');

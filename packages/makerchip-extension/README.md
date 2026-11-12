@@ -23,7 +23,7 @@ VS Code extension for Makerchip IDE integration and AI-collaborative Verilog/TL-
 - Desktop VS Code 1.110.0 or higher (not vscode.dev or github.dev)
 - An internet connection to Makerchip (and GitHub, for agent reference data)
 - `git`, to download agent reference data
-- GitHub Copilot or Microsoft's Claude/Codex harness (for AI features)
+- GitHub Copilot or Microsoft's Claude/Codex harness, in VS Code's Chat view (for AI features). Anthropic's Claude Code extension does not support the tools.
 
 VS Code also installs the companion [TL-Verilog](https://marketplace.visualstudio.com/items?itemName=RedwoodEDA.tlverilog) language extension, for syntax highlighting of `.tlv` files.
 
@@ -73,7 +73,7 @@ The extension manages `~/.vscode-makerchip/` containing reference data for AI as
 
 `~/.vscode-makerchip/` can be large. It is left intact for future use when the extension is uninstalled, but it can be removed manually.
 
-If Claude Code is installed, the extension also writes a Makerchip skill to `~/.claude/skills/makerchip/`, so that Claude learns the rules for Makerchip tools before its first call. It is removed when the extension is uninstalled.
+For Microsoft's Claude harness, the extension also writes a Makerchip skill to `~/.claude/skills/makerchip/`, so that Claude learns the rules for Makerchip tools before its first call. It is removed when the extension is uninstalled.
 
 ## Contributing
 
