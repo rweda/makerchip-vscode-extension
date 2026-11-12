@@ -1897,7 +1897,7 @@ interface OpenThirdPartyViewInput {
   mnemonic: string;
   /** Content type: "pdf" for PDF viewer or "iframe" for embedded web content */
   contentType: 'pdf' | 'iframe';
-  /** Content parameters - must include either contentUrl or filePath */
+  /** Content parameters - must include exactly one of contentUrl, sourceUrl (iframe) and filePath */
   contentParams: {
     /**
      * URL to the content. The IDE sandbox CSP governs what is actually reachable:
@@ -1908,6 +1908,13 @@ interface OpenThirdPartyViewInput {
      * To show a local file, use `filePath` -- do not hand-build a file:// or data: URL.
      */
     contentUrl?: string;
+    /**
+     * Iframe only: URL of an HTML file not served as a page (e.g. on raw.githubusercontent.com),
+     * which the IDE fetches and frames at an opaque origin. Passed through to the IDE.
+     */
+    sourceUrl?: string;
+    /** With sourceUrl: resolve the page's relative URLs. Passed through to the IDE. */
+    rewriteRelativeUrls?: boolean;
     /**
      * Absolute path to a local file to load. Read by the extension, so the (potentially large)
      * contents never pass through the model context window. Takes precedence over contentUrl.
@@ -2156,9 +2163,9 @@ export class OpenThirdPartyViewTool implements vscode.LanguageModelTool<OpenThir
         ]);
       }
 
-      if (!contentParams || (!contentParams.contentUrl && !contentParams.filePath)) {
+      if (!contentParams || (!contentParams.contentUrl && !contentParams.sourceUrl && !contentParams.filePath)) {
         return new vscode.LanguageModelToolResult([
-          new vscode.LanguageModelTextPart('contentParams must include either contentUrl or filePath')
+          new vscode.LanguageModelTextPart('contentParams must include one of contentUrl, sourceUrl and filePath')
         ]);
       }
 
@@ -2174,8 +2181,12 @@ export class OpenThirdPartyViewTool implements vscode.LanguageModelTool<OpenThir
       //             So the bytes are pushed to the viewer over the view channel instead, via the
       //             bridge's `openData` -- as base64, since extension->webview messages are
       //             JSON-serialized and a Uint8Array would not survive that hop.
-      const resolvedParams: { contentUrl?: string } = {};
+      const resolvedParams: { contentUrl?: string; sourceUrl?: string; rewriteRelativeUrls?: boolean } = {};
       if (contentParams.contentUrl) { resolvedParams.contentUrl = contentParams.contentUrl; }
+      if (contentParams.sourceUrl) {
+        resolvedParams.sourceUrl = contentParams.sourceUrl;
+        if (contentParams.rewriteRelativeUrls) { resolvedParams.rewriteRelativeUrls = true; }
+      }
       let pdfBase64: string | null = null;
       let fileBaseName: string | null = null;
       if (contentParams.filePath) {
@@ -2192,6 +2203,9 @@ export class OpenThirdPartyViewTool implements vscode.LanguageModelTool<OpenThir
         }
         const base64 = fs.readFileSync(filePath).toString('base64');
         fileBaseName = path.basename(filePath);
+        // filePath takes precedence; the IDE requires exactly one content source.
+        delete resolvedParams.sourceUrl;
+        delete resolvedParams.rewriteRelativeUrls;
         if (contentType === 'pdf') {
           pdfBase64 = base64;
           // No contentUrl: the viewer opens empty and we feed it below.
