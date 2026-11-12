@@ -355,6 +355,13 @@ carefully; some result in HANGS.
   (max 10000) as a TOP-LEVEL argument, a sibling of \`calls\`/\`name\`: \`{calls: [...],
   minDurationMs: 6000}\`. Inside any \`input\` it is silently ignored. Prefer file outputs
   (\`saveToFile\`, \`{file: true}\`) so a lost result is recoverable.
+- **This race is not Makerchip-specific: every \`mcp__client__*\` tool can lose a quick result**,
+  and only the Makerchip tools have the built-in hold. Seen with the integrated browser:
+  \`mcp__client__runPlaywrightCode\` returning in milliseconds hung, and
+  \`mcp__client__screenshotPage\` hung outright. Make such calls take at least 3 s yourself (for
+  Playwright, start the snippet with \`await page.waitForTimeout(3000)\`). Avoid tools that can't
+  be padded (\`screenshotPage\`: screenshot inside a padded \`runPlaywrightCode\` instead, saving
+  to a file), or drive a headless browser from the shell, which bypasses the bridge.
 
 ### Extension host reloads
 
@@ -381,8 +388,9 @@ Try to avoid hangs, but if you slip and hit one, rule out the turn-local causes 
 - **Same-turn set change** — HANGS; you released a set and called one of its tools in the same
   turn. Fix: let it settle to the next turn, or use \`makerchip_invoke_tool\`. No fresh chat.
 - **Lost quick result** — a LONE call that should return in under a second HANGS, yet its work
-  WAS done (file written, cycle set, ...). The user must cancel it. Do not redo it blindly: check
-  the side effect, and raise the hold with \`minDurationMs\` from then on (see the call rules).
+  WAS done (file written, cycle set, ...). Any \`mcp__client__*\` tool, not just Makerchip's. The
+  user must cancel it. Do not redo it blindly: check the side effect, and raise the hold with
+  \`minDurationMs\` (or pad a non-Makerchip call) from then on (see the call rules).
   Slow calls still work. No fresh chat.
 - **Reload mid-turn** — a LONE, serial call HANGS, even a slow one like a compile, with no gating
   change this turn, after the extension host reloaded, updated or crashed; retrying this turn keeps
