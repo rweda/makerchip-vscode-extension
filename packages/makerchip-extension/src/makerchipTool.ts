@@ -3154,23 +3154,20 @@ interface InvokeToolInput extends InvokeToolCall {
    * top-level `name`/`input`/`describe`. See BATCHING on InvokeToolTool for why this exists.
    */
   calls?: InvokeToolCall[];
-  /**
-   * Hold the result until at least this many ms after the invocation started (capped at
-   * MAX_MIN_DURATION_MS). Lets the agent work around a harness that loses results returned before
-   * it finishes approving the call; see "Lost quick result" in claudeSkill.ts.
-   */
+  /** Overrides the result hold's DEFAULT_MIN_DURATION_MS; see registerMakerchipTool. */
   minDurationMs?: number;
 }
 
 /** Upper bound on a batch, so a runaway list cannot produce an unbounded single result. */
 const MAX_BATCH_CALLS = 100;
-const MAX_MIN_DURATION_MS = 10000;
 /**
- * Every (outermost) tool call's floor: the Claude harness loses a result that arrives before it has finished
- * approving the call (~1 s, sometimes more), and the call hangs. See "Lost quick result" in claudeSkill.ts.
- * Remove with issues/019-drop-quick-result-workaround.md.
+ * Every (outermost) tool call's result hold, unless its `minDurationMs` overrides it (capped at
+ * MAX_MIN_DURATION_MS): the Claude harness loses a result that arrives before it has finished
+ * approving the call (~1 s, sometimes more), and the call hangs. See "Lost quick result" in
+ * claudeSkill.ts. Remove with issues/019-drop-quick-result-workaround.md.
  */
-const MIN_RESULT_MS = 3000;
+const DEFAULT_MIN_DURATION_MS = 3000;
+const MAX_MIN_DURATION_MS = 10000;
 
 /** Wait until `deadline` (ms since the epoch), or until `token` is cancelled. */
 async function holdUntil(deadline: number, token: vscode.CancellationToken): Promise<void> {
@@ -3249,21 +3246,15 @@ export class InvokeToolTool implements vscode.LanguageModelTool<InvokeToolInput>
     options: vscode.LanguageModelToolInvocationOptions<InvokeToolInput>,
     token: vscode.CancellationToken
   ): Promise<vscode.LanguageModelToolResult> {
-    const start = Date.now();
-    const { calls, minDurationMs } = options.input;
-    // The hold applies to errors too: a quick error is lost just like a quick result.
-    try {
-      if (calls !== undefined && !Array.isArray(calls)) {
-        throw new Error(`\`calls\` must be an array, not a ${typeof calls}. (A JSON string here suggests ` +
-          'your harness had not loaded this tool\'s schema. Load it, e.g. via tool search, and resend.)');
-      }
-      return calls !== undefined
-        ? await this.invokeBatch(calls, options, token)
-        // Single call: return the target's result verbatim, unchanged from before batching existed.
-        : (await this.runCall(options.input, options, token)).result;
-    } finally {
-      await holdUntil(start + Math.min(minDurationMs ?? 0, MAX_MIN_DURATION_MS), token);
+    const { calls } = options.input;
+    if (calls !== undefined && !Array.isArray(calls)) {
+      throw new Error(`\`calls\` must be an array, not a ${typeof calls}. (A JSON string here suggests ` +
+        'your harness had not loaded this tool\'s schema. Load it, e.g. via tool search, and resend.)');
     }
+    return calls !== undefined
+      ? await this.invokeBatch(calls, options, token)
+      // Single call: return the target's result verbatim, unchanged from before batching existed.
+      : (await this.runCall(options.input, options, token)).result;
   }
 
   /**
@@ -3448,7 +3439,8 @@ export function registerMakerchipTool(context: vscode.ExtensionContext): void {
   // active use keeps enabled tools alive (see toolActivation.ts), and (b) disposes with the
   // extension. Proxied makerchip_invoke_tool calls dispatch through the same wrapped impl, so they
   // touch too.
-  // It also holds each result (and error) for MIN_RESULT_MS, but only for outermost calls: holding
+  // It also holds each result (and error) for DEFAULT_MIN_DURATION_MS, or the call's own
+  // `minDurationMs` (declared only by makerchip_invoke_tool), but only for outermost calls: holding
   // makerchip_invoke_tool's inner calls too would multiply a batch's time. (Calls are counted as inner while
   // another is running; a harness's parallel calls are then not held, which is no worse than before.)
   let count = 0;
@@ -3464,7 +3456,8 @@ export function registerMakerchipTool(context: vscode.ExtensionContext): void {
       } finally {
         running--;
         if (outermost) {
-          await holdUntil(start + MIN_RESULT_MS, token);
+          const ms = options.input?.minDurationMs ?? DEFAULT_MIN_DURATION_MS;
+          await holdUntil(start + Math.min(ms, MAX_MIN_DURATION_MS), token);
         }
       }
     };

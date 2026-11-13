@@ -95,8 +95,8 @@
  *    ~5 ms later), and the call hangs. Calls returning in <= 760 ms hung; >= 847 ms succeeded.
  *    In "Bypass Permissions" mode, 50 ms and similar calls succeeded (2 of 2), so the approval step
  *    is the slow side of the race. Workaround (verified 2026-10-19): makerchip_invoke_tool's
- *    top-level `minDurationMs`; since 2026-11-11 the extension also holds every call for 3 s
- *    (MIN_RESULT_MS in makerchipTool.ts). Untested alternative: an allow rule for mcp__client__makerchip*.
+ *    top-level `minDurationMs`; since 2026-11-11 it defaults to 3 s for every call
+ *    (DEFAULT_MIN_DURATION_MS in makerchipTool.ts). Untested alternative: an allow rule for mcp__client__makerchip*.
  *  - Skill invocation is a model judgement, not an interlock. The description makes the
  *    common path correct; it cannot make it guaranteed.
  *
