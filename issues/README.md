@@ -31,6 +31,14 @@ with plain file edits (AI-friendly).
 - When you consciously defer a big or cross-cutting change, add an issue here rather than leaving a
   buried `TODO`, and reference it from related code (e.g. `// See issues/NNN-slug.md`).
 
+## TODO
+
+[`TODO.md`](TODO.md) is lighter weight than an issue: immediate work in this clone/worktree that
+should be finished before the clone is deleted. Add items below its placeholder text and delete them
+when done; work that won't be finished in this clone becomes an issue instead. **Never commit
+changes to `TODO.md`**, so items stay with the clone and remain visible as uncommitted changes.
+Stage other files explicitly (e.g. not `git commit -a`) while it has items.
+
 ## Index
 
 - [001: LM tool to open/restore a webview from the compile cache](001-restore-webview-from-compile-cache.md)
