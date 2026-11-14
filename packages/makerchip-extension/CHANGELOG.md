@@ -10,6 +10,9 @@ uses [semantic versioning](https://semver.org/).
 
 - `makerchip.tinyTapeout.runTestsBeforePush`: a setting (off by default) for "Run TT Flow" to run the project's
   testbench locally before pushing.
+- Tiny Tapeout VGA designs (the template's `vga` setting): compiling one opens the TT VGA view, which runs each
+  Makerchip compile live in VGA Playground, and "Run TT Flow" offers to fill in `info.yaml`'s VGA clock and pins.
+- "Run TT Flow" stamps the generated `.sv` with its `.tlv`'s hash, so CI can tell whether a pushed `.sv` is stale.
 
 ### Changed
 

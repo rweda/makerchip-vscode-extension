@@ -40,8 +40,9 @@ VS Code also installs the companion [TL-Verilog](https://marketplace.visualstudi
 [tt-makerchip-template](https://github.com/stevehoover/tt-makerchip-template), the design's `.tlv` file gets a
 "Run TT Flow" button (a rocket) next to the Makerchip icon. It checks the project information Tiny Tapeout
 requires, generates the Verilog, commits and pushes, which runs Tiny Tapeout's flow on GitHub Actions, and
-follows the run in the Makerchip panel's TT Progress and TT Layout views. An AI agent can set up the project
-for you (see below).
+follows the run in the Makerchip panel's TT Progress and TT Layout views. For a VGA design (the template's `vga`
+setting), compiling it in Makerchip opens TT VGA, which runs each compile live in VGA Playground, and the button
+also checks `info.yaml`'s VGA clock and pins. An AI agent can set up the project for you (see below).
 
 ### With AI Agents
 

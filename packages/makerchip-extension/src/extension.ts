@@ -22,7 +22,7 @@ import * as path from 'path';
 import { initializeResources, updateResources } from './resourceManager';
 import { initMakerchipDir, DEV_MODE } from './populateResources';
 import { registerMakerchipTool } from './makerchipTool';
-import { registerTinyTapeout } from './tinyTapeout';
+import { registerTinyTapeout, showTtVgaIfMarked } from './tinyTapeout';
 import { initToolActivation, getToolActivation } from './toolActivation';
 import { registerMakerchipParticipant } from './makerchipParticipant';
 import { reconcileClaudeSkill } from './claudeSkill';
@@ -1067,6 +1067,10 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string, isRestore: boo
           await compileCache.recordExitStatus(msg.id, msg.stage, msg.exitCode);
         } catch (error) {
           console.error('Failed to record exit status:', error);
+        }
+        const file = context.workspaceState.get<Record<string, string>>(PANEL_FILES_KEY, {})[panelKey];
+        if (msg.stage === 'sandpiper' && msg.exitCode === 0 && file) {
+          showTtVgaIfMarked(file, panelKey, msg.id, serverUrl).catch(e => log(`TT VGA: ${e?.message ?? e}`));
         }
       }
 

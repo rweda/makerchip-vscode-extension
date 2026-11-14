@@ -2,7 +2,9 @@ import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { exec } from 'child_process';
+import { createHash } from 'crypto';
 import { promisify } from 'util';
+import { loadMetadata } from './compileCache';
 import { log } from './logger';
 import { requireTermsAccepted } from './terms';
 
@@ -102,6 +104,7 @@ async function compileForTt(tlvFile: string, root: string): Promise<{ svFile: st
   const args = makefile.match(/^SANDPIPER_ARGS\s*:?=[ \t]*(.*?)[ \t]*(?:#.*)?$/m)?.[1] ?? TT_SANDPIPER_ARGS;
   const name = path.basename(tlvFile);
   const svName = name.replace(/\.tlv$/, '.sv');
+  const tlv = await fs.readFile(tlvFile, 'utf-8');
   // The JSON API (see faas-mono functions/sandpiper-faas/README.md) answers with
   // {compile_id, status, stdout, stderr, sla, "out/<output>": content, ...}.
   const resp = await fetch(SANDPIPER_SAAS_URL, {
@@ -113,7 +116,7 @@ async function compileForTt(tlvFile: string, root: string): Promise<{ svFile: st
       sv_url_inc: true,
       responseType: 'json',
       // Only the top file: local includes (e.g. a sibling file's m4_include_lib) would need adding here.
-      files: { [name]: await fs.readFile(tlvFile, 'utf-8') },
+      files: { [name]: tlv },
     }),
   });
   if (!resp.ok) {
@@ -129,7 +132,10 @@ async function compileForTt(tlvFile: string, root: string): Promise<{ svFile: st
     throw new Error(`SandPiper failed to compile ${name} for Tiny Tapeout (status ${status}). See the Makerchip output channel.`);
   }
   const svFile = path.join(path.dirname(tlvFile), svName);
-  await fs.writeFile(svFile, sv);
+  // Stamp the .tlv's hash (line endings normalized), so CI can tell whether the committed .sv is still generated
+  // from the committed .tlv (convention: makerchip-tt-views README, "Where a TT run's results land").
+  const hash = createHash('sha256').update(tlv.replace(/\r\n/g, '\n')).digest('hex');
+  await fs.writeFile(svFile, `// makerchip-tt: tlv-sha256 ${hash}  (Generated from ${name}.)\n${sv}`);
   return { svFile, warnings: status === 1 ? output : undefined };
 }
 
@@ -138,6 +144,13 @@ function yamlValue(yaml: string, key: string): string | undefined {
   const k = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const m = yaml.match(new RegExp(`^\\s*${k}:[ \\t]*(?:"([^"]*)"|'([^']*)'|([^#\\n]*?))[ \\t]*(?:#.*)?$`, 'm'));
   return m ? (m[1] ?? m[2] ?? m[3] ?? '') : undefined;
+}
+
+/** `yaml` with `key`'s scalar (on a `key: value  # comment` line) replaced by `value` (as written, e.g. quoted). */
+function setYamlValue(yaml: string, key: string, value: string): string {
+  const k = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return yaml.replace(new RegExp(`^(\\s*${k}:[ \\t]*)(?:"[^"]*"|'[^']*'|[^#\\n]*?)([ \\t]*(?:#.*)?)$`, 'm'),
+    (_m, head: string, tail: string) => head + value + tail);
 }
 
 /**
@@ -179,6 +192,38 @@ async function checkProjectInfo(root: string): Promise<boolean> {
     }
   }
   return false;
+}
+
+/** The comment that marks a VGA design's Verilog (convention: makerchip-tt-views README, "Designs for TT VGA"). */
+const VGA_MARKER = /\/\/ makerchip-tt: vga\b/;
+/** info.yaml for the Tiny VGA Pmod, as VGA Playground's project export writes it. */
+const VGA_INFO: [string, string][] = [['clock_hz', '25175000'],
+  ...['R1', 'G1', 'B1', 'VSync', 'R0', 'G0', 'B0', 'HSync'].map((label, i): [string, string] => [`uo[${i}]`, `"${label}"`])];
+
+/**
+ * For a VGA design, check that info.yaml declares the VGA clock and sync pins, which TT's datasheet and Tiny Tapeout
+ * Explorer (its VGA panel) read, offering to fill in VGA_INFO. Advisory, like checkProjectInfo. Returns whether to
+ * proceed, and whether it changed info.yaml.
+ */
+async function checkVgaInfo(root: string): Promise<{ proceed: boolean; changed?: boolean }> {
+  const file = path.join(root, 'info.yaml');
+  const yaml = await fs.readFile(file, 'utf-8');
+  if (yamlValue(yaml, 'clock_hz') === '25175000' && /hsync/i.test(yamlValue(yaml, 'uo[7]') ?? '') &&
+      /vsync/i.test(yamlValue(yaml, 'uo[3]') ?? '')) {
+    return { proceed: true };
+  }
+  const fill = 'Fill In';
+  const pushAnyway = 'Push Anyway';
+  const choice = await vscode.window.showWarningMessage('This is a VGA design, but info.yaml doesn\'t say so.', {
+    modal: true,
+    detail: 'Tiny Tapeout\'s datasheet and Tiny Tapeout Explorer read its clock and pins. Fill In sets ' +
+      VGA_INFO.map(([key, value]) => `${key}: ${value}`).join(', ') + '.',
+  }, fill, pushAnyway);
+  if (choice === fill) {
+    await fs.writeFile(file, VGA_INFO.reduce((y, [key, value]) => setYamlValue(y, key, value), yaml));
+    return { proceed: true, changed: true };
+  }
+  return { proceed: choice === pushAnyway };
 }
 
 /**
@@ -227,22 +272,51 @@ const TT_VIEWS = [
     channel: { produces: ['tt/run-status'], subscribes: [{ type: 'tt/run-start' }], rpc: true } },
   { mnemonic: 'TT Layout', page: 'layout.html',
     channel: { subscribes: [{ type: 'tt/run-start' }, { type: 'tt/run-status' }], rpc: true } },
+  { mnemonic: 'TT VGA', page: 'vga.html', vga: true,  // Only for a VGA design.
+    channel: { subscribes: [{ type: 'compile-result', sources: ['ide'] }, { type: 'theme', sources: ['ide'] }], rpc: true } },
 ];
 
-/**
- * In `panel`, open any TT views not already open, point them all at `sha`, and show TT Progress (the one to
- * watch).
- */
-async function showTtViews(panel: string, repo: string, sha: string): Promise<void> {
-  const ide = (method: string, ...args: unknown[]) =>
+/** Calls an IDE method in `panel`. */
+function ideIn(panel: string) {
+  return (method: string, ...args: unknown[]) =>
     vscode.commands.executeCommand<any>('makerchip.callIdeMethodWithResult', method, args, panel);
+}
+
+/** In `panel`, open those of `views` not already open. */
+async function openTtViews(panel: string, views: typeof TT_VIEWS, params: object, background: boolean): Promise<void> {
+  const ide = ideIn(panel);
   const open = new Set((await ide('getAvailableViews') as { mnemonic: string }[]).map(v => v.mnemonic));
-  for (const view of TT_VIEWS.filter(v => !open.has(v.mnemonic))) {
+  for (const view of views.filter(v => !open.has(v.mnemonic))) {
     await ide('openThirdPartyView', view.mnemonic, 'iframe', { contentUrl: TT_VIEWS_URL + view.page },
-      { channel: view.channel, params: { repo, sha }, background: true });
+      { channel: view.channel, params, background });
   }
+}
+
+/**
+ * In `panel`, open any TT views not already open (TT VGA only if `vga`), point them all at `sha`, and show TT
+ * Progress (the one to watch).
+ */
+async function showTtViews(panel: string, repo: string, sha: string, vga: boolean): Promise<void> {
+  await openTtViews(panel, TT_VIEWS.filter(v => vga || !v.vga), { repo, sha }, true);
   await vscode.commands.executeCommand('makerchip.busEmit', 'tt/run-start', { repo, sha }, undefined, undefined, panel);
-  await ide('activateView', TT_VIEWS[0].mnemonic);
+  await ideIn(panel)('activateView', TT_VIEWS[0].mnemonic);
+}
+
+/**
+ * After a successful Makerchip compile (`id`, on `serverUrl`) of `file` into `panel`: if `file` is a TT design whose
+ * Verilog is marked VGA, open TT VGA there (unless open), to show the design running without a push.
+ */
+export async function showTtVgaIfMarked(file: string, panel: string, id: string, serverUrl: string): Promise<void> {
+  if (!await ttProjectRoot(file)) {
+    return;
+  }
+  // The generated Verilog, as announced for the compile (named for the top file; see compileCache.initCompile).
+  const sv = Object.entries((await loadMetadata(id))?.intermediateFiles ?? {})
+    .find(([name]) => name.endsWith('.sv') && !name.endsWith('_gen.sv'))?.[1];
+  const resp = sv && await fetch(serverUrl.replace(/\/$/, '') + sv.url);
+  if (resp && resp.ok && VGA_MARKER.test(await resp.text())) {
+    await openTtViews(panel, TT_VIEWS.filter(v => v.vga), {}, false);
+  }
 }
 
 /** The TT button: compile for Makerchip and TT, commit, and push (which runs the TT flow). */
@@ -278,6 +352,16 @@ async function runTtFlow(uri?: vscode.Uri): Promise<void> {
       () => compileForTt(file, root));
 
     const ours = [file, svFile];
+    const vga = VGA_MARKER.test(await fs.readFile(svFile, 'utf-8'));
+    if (vga) {
+      const { proceed, changed } = await checkVgaInfo(root);
+      if (!proceed) {
+        return;
+      }
+      if (changed) {
+        ours.push(path.join(root, 'info.yaml'));
+      }
+    }
     await repo.status();
     const { indexChanges, workingTreeChanges, untrackedChanges = [] } = repo.state;
     if (indexChanges.length === 0 && ![...workingTreeChanges, ...untrackedChanges].some(c => ours.includes(c.uri.fsPath))) {
@@ -325,7 +409,7 @@ async function runTtFlow(uri?: vscode.Uri): Promise<void> {
           'Once that is fixed, click the button again to push it.');
       }));
     // In the design file's panel, where its compile just went.
-    await showTtViews(await vscode.commands.executeCommand<string>('makerchip.panelForFile', file), gitHub, sha);
+    await showTtViews(await vscode.commands.executeCommand<string>('makerchip.panelForFile', file), gitHub, sha, vga);
     vscode.window.showInformationMessage(
       `Pushed ${sha.slice(0, 7)}; the Tiny Tapeout flow is running on GitHub Actions (see the TT Progress view).`);
   } catch (error: any) {
