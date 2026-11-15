@@ -178,6 +178,12 @@ interface CompileExitStatusMessage {
   exitCode: number;
 }
 
+/** A web page for a view to open (IdePlugin#openUrl): a webview can't open windows itself. */
+interface OpenExternalMessage {
+  type: 'openExternal';
+  url: string;
+}
+
 interface CompileDeniedMessage {
   type: 'compileDenied';
   reason: string;
@@ -246,7 +252,7 @@ interface TermsAcceptedMessage {
   acceptedAt: string;
 }
 
-type ToExtensionMessage = IdeResultMessage | IdeErrorMessage | ReadyMessage | CompileFileChunkMessage | CompileStartMessage | CompileErrorMessage | CompileExitStatusMessage | CompileDeniedMessage | NotificationMessage | InitErrorMessage | RestoreRequestMessage | TermsAcceptedMessage | BootedMessage;
+type ToExtensionMessage = IdeResultMessage | IdeErrorMessage | ReadyMessage | CompileFileChunkMessage | CompileStartMessage | CompileErrorMessage | CompileExitStatusMessage | CompileDeniedMessage | NotificationMessage | InitErrorMessage | RestoreRequestMessage | TermsAcceptedMessage | BootedMessage | OpenExternalMessage;
 
 const vscode = acquireVsCodeApi();
 vscode.postMessage({ type: 'booted' } as BootedMessage);
@@ -606,6 +612,12 @@ import(`${serverUrl}/dist/makerchip-plugin.js`).then((module: any) => {
     // file) or a `{files, top}` multi-file payload (top plus m4_include'd siblings);
     // the extension's initCompile() splits the latter into top.tlv + src/ siblings,
     // so extra source files are cached too.
+    // A view's web page (IDE's openUrl RPC, which checks it is http/https): opened by the extension, since a
+    // webview can't open windows.
+    openUrl(url: string) {
+      vscode.postMessage({ type: 'openExternal', url } as OpenExternalMessage);
+    }
+
     onCompilationStart(info: { id: string; source: string | { files: Record<string, string>; top?: string }; sim: boolean; dot: boolean }) {
       vscode.postMessage({
         type: 'compileStart',

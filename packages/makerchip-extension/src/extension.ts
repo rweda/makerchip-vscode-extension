@@ -1074,6 +1074,14 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string, isRestore: boo
         }
       }
 
+      if (msg.type === 'openExternal') {
+        // A view's link (IdePlugin#openUrl). VS Code asks the user before opening an unfamiliar site.
+        const uri = vscode.Uri.parse(msg.url);
+        if (uri.scheme === 'http' || uri.scheme === 'https') {
+          vscode.env.openExternal(uri);
+        }
+      }
+
       if (msg.type === 'compileDenied') {
         // Show denial message to user
         log(`Compilation denied: ${msg.reason}`);
