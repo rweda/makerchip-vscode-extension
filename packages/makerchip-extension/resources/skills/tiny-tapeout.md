@@ -75,6 +75,9 @@ Build with `makerchip_view_call`. More detail is on GitHub:
   commit it with the `.tlv`.
 - Makerchip compiles of `project.tlv` define `MAKERCHIP`, which adds the TT demo-board VIZ and random stimulus;
   the TT compile does not, so the pushed Verilog contains only the design.
+- **Submitting** is the user's, in Tiny Tapeout's app (app.tinytapeout.com; GitHub sign-in, and buying tiles or
+  applying a coupon), once a commit's `gds` and `docs` runs pass; TT Build shows whether they do, and links the app.
+  The first time, they create a project from the repo; for each version to fabricate, they submit a new revision.
 - To retarget another shuttle's process, change `project.pdk` in `info.yaml` (and check that `tiles` is valid for
   it: `tech/<pdk>/tile_sizes.yaml` in TinyTapeout/tt-support-tools), then run the flow again. TT's app rejects a
   submission hardened for a different PDK than the shuttle's.
