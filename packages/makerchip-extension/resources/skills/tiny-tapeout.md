@@ -54,11 +54,12 @@ Your job is the one-time setup. After it, the user runs the flow with the "Run T
 ## Watching a run
 
 After pushing, the button opens (or reuses) two Makerchip views, whose tab status follows the run: **TT
-Progress** (runs, jobs, and current steps, polled anonymously from the GitHub API) and **TT Layout** (the
-render, TT's 3D viewer, and Tiny Tapeout Explorer, from the repo's GitHub Pages). For a VGA design (the
+Build** (runs, jobs, and current steps, polled anonymously from the GitHub API, then the results: why a job failed,
+tests, precheck, layout metrics, and every published log and report) and **TT Layout** (the render, TT's 3D viewer,
+and Tiny Tapeout Explorer, from the repo's GitHub Pages). For a VGA design (the
 template's `vga` setting), a Makerchip compile opens **TT VGA**, which runs each compile live in VGA Playground,
 and the button first offers to fill in `info.yaml`'s VGA clock and pins. For the status as data, call `getRunStatus` on TT
-Progress with `makerchip_view_call`. More detail is on GitHub:
+Build with `makerchip_view_call`. More detail is on GitHub:
 
 - `gh run list -R <owner>/<name>`, `gh run watch <id> -R <owner>/<name> --exit-status`.
 - Failures: `gh run view <id> -R <owner>/<name> --log-failed`. The first failing step is the cause; TT's summary

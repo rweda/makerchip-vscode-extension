@@ -22,7 +22,7 @@ import * as path from 'path';
 import { initializeResources, updateResources } from './resourceManager';
 import { initMakerchipDir, DEV_MODE } from './populateResources';
 import { registerMakerchipTool } from './makerchipTool';
-import { registerTinyTapeout, showTtVgaIfMarked } from './tinyTapeout';
+import { registerTinyTapeout, onTtCompile } from './tinyTapeout';
 import { initToolActivation, getToolActivation } from './toolActivation';
 import { registerMakerchipParticipant } from './makerchipParticipant';
 import { reconcileClaudeSkill } from './claudeSkill';
@@ -1064,13 +1064,13 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string, isRestore: boo
         // Record exit status from compilation stage
         log(`${msg.stage} exit: ${msg.exitCode}`);
         try {
-          await compileCache.recordExitStatus(msg.id, msg.stage, msg.exitCode);
+          await compileCache.recordExitStatus(msg.id, msg.stage, msg.exitCode, msg.artifacts);
         } catch (error) {
           console.error('Failed to record exit status:', error);
         }
         const file = context.workspaceState.get<Record<string, string>>(PANEL_FILES_KEY, {})[panelKey];
-        if (msg.stage === 'sandpiper' && msg.exitCode === 0 && file) {
-          showTtVgaIfMarked(file, panelKey, msg.id, serverUrl).catch(e => log(`TT VGA: ${e?.message ?? e}`));
+        if (msg.stage === 'sandpiper' && file) {
+          onTtCompile(file, panelKey, msg.id, serverUrl, msg.exitCode === 0).catch(e => log(`TT views: ${e?.message ?? e}`));
         }
       }
 
@@ -1102,6 +1102,7 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string, isRestore: boo
             files: data.files,
             fileComplete: data.fileComplete,
             exitStatus: data.exitStatus,
+            artifacts: data.artifacts,
             sandpiperFailed: data.sandpiperFailed,
             errorTypes: data.errorTypes,
             source: data.source

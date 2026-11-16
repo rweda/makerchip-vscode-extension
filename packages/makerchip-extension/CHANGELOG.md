@@ -13,11 +13,13 @@ uses [semantic versioning](https://semver.org/).
 - Tiny Tapeout VGA designs (the template's `vga` setting): compiling one opens the TT VGA view, which runs each
   Makerchip compile live in VGA Playground, and "Run TT Flow" offers to fill in `info.yaml`'s VGA clock and pins.
 - "Run TT Flow" stamps the generated `.sv` with its `.tlv`'s hash, so CI can tell whether a pushed `.sv` is stale.
-- TT Progress shows a run's published results: why a job failed, tests, precheck, layout metrics, and every
-  published file (logs, reports, test results).
+- The TT Progress view, renamed TT Build, shows a run's published results: why a job failed, tests, precheck,
+  layout metrics, and every published file (logs, reports, test results), with a text search.
+- TT Build's and TT Layout's check turns gray when the design compiled in Makerchip isn't the one built.
 
 ### Fixed
 
+- After a reload, views that read the restored compile's files (such as TT VGA, which kept spinning) get its artifact list.
 - Links in Makerchip's third-party views (e.g. the TT views) open in the browser; VS Code had blocked them.
 
 ### Changed

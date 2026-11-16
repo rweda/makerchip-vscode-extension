@@ -4,7 +4,7 @@ import * as path from 'path';
 import { exec } from 'child_process';
 import { createHash } from 'crypto';
 import { promisify } from 'util';
-import { loadMetadata } from './compileCache';
+import { getCompileDir, loadMetadata } from './compileCache';
 import { log } from './logger';
 import { requireTermsAccepted } from './terms';
 
@@ -132,10 +132,9 @@ async function compileForTt(tlvFile: string, root: string): Promise<{ svFile: st
     throw new Error(`SandPiper failed to compile ${name} for Tiny Tapeout (status ${status}). See the Makerchip output channel.`);
   }
   const svFile = path.join(path.dirname(tlvFile), svName);
-  // Stamp the .tlv's hash (line endings normalized), so CI can tell whether the committed .sv is still generated
-  // from the committed .tlv (convention: makerchip-tt-views README, "Where a TT run's results land").
-  const hash = createHash('sha256').update(tlv.replace(/\r\n/g, '\n')).digest('hex');
-  await fs.writeFile(svFile, `// makerchip-tt: tlv-sha256 ${hash}  (Generated from ${name}.)\n${sv}`);
+  // Stamp the .tlv's hash, so CI can tell whether the committed .sv is still generated from the committed .tlv
+  // (convention: makerchip-tt-views README, "Where a TT run's results land").
+  await fs.writeFile(svFile, `// makerchip-tt: tlv-sha256 ${tlvHash(tlv)}  (Generated from ${name}.)\n${sv}`);
   return { svFile, warnings: status === 1 ? output : undefined };
 }
 
@@ -265,15 +264,22 @@ async function isTemplateRepo(gitHub: string): Promise<boolean> {
   return resp?.ok ? ((await resp.json()) as { is_template?: boolean }).is_template === true : false;
 }
 
+/** A .tlv's SHA-256, with line endings normalized, as the .sv stamp and `tt/compiled` give it. */
+function tlvHash(tlv: string): string {
+  return createHash('sha256').update(tlv.replace(/\r\n/g, '\n')).digest('hex');
+}
+
 /** The TT views, hosted from github.com/stevehoover/makerchip-tt-views (see its README). */
 const TT_VIEWS_URL = 'https://stevehoover.github.io/makerchip-tt-views/';
+const TT_COMPILED = { type: 'tt/compiled', sources: ['platform'] };  // (From onTtCompile.)
+const THEME = { type: 'theme', sources: ['ide'] };
 const TT_VIEWS = [
-  { mnemonic: 'TT Progress', page: 'progress.html',
-    channel: { produces: ['tt/run-status'], subscribes: [{ type: 'tt/run-start' }], rpc: true } },
+  { mnemonic: 'TT Build', page: 'progress.html',  // (Formerly TT Progress.)
+    channel: { produces: ['tt/run-status'], subscribes: [{ type: 'tt/run-start' }, TT_COMPILED, THEME], rpc: true } },
   { mnemonic: 'TT Layout', page: 'layout.html',
-    channel: { subscribes: [{ type: 'tt/run-start' }, { type: 'tt/run-status' }], rpc: true } },
+    channel: { subscribes: [{ type: 'tt/run-start' }, { type: 'tt/run-status' }, TT_COMPILED, THEME], rpc: true } },
   { mnemonic: 'TT VGA', page: 'vga.html', vga: true,  // Only for a VGA design.
-    channel: { subscribes: [{ type: 'compile-result', sources: ['ide'] }, { type: 'theme', sources: ['ide'] }], rpc: true } },
+    channel: { subscribes: [{ type: 'compile-result', sources: ['ide'] }, THEME], rpc: true } },
 ];
 
 /** Calls an IDE method in `panel`. */
@@ -303,11 +309,22 @@ async function showTtViews(panel: string, repo: string, sha: string, vga: boolea
 }
 
 /**
- * After a successful Makerchip compile (`id`, on `serverUrl`) of `file` into `panel`: if `file` is a TT design whose
- * Verilog is marked VGA, open TT VGA there (unless open), to show the design running without a push.
+ * After a Makerchip compile (`id`, on `serverUrl`; `success` if SandPiper succeeded) of `file` into `panel`, if `file`
+ * is a TT design: tell the panel's TT views the compiled source's hash (`tt/compiled`), so they can show whether their
+ * build is of it; and, if its Verilog is marked VGA, open TT VGA there (unless open), to show the design running
+ * without a push.
  */
-export async function showTtVgaIfMarked(file: string, panel: string, id: string, serverUrl: string): Promise<void> {
-  if (!await ttProjectRoot(file)) {
+export async function onTtCompile(file: string, panel: string, id: string, serverUrl: string, success: boolean): Promise<void> {
+  const root = await ttProjectRoot(file);
+  if (!root) {
+    return;
+  }
+  const source = await fs.readFile(path.join(getCompileDir(id), 'top.tlv'), 'utf8').catch(() => undefined);
+  if (source !== undefined) {
+    await vscode.commands.executeCommand('makerchip.busEmit', 'tt/compiled',
+      { tlv: path.relative(root, file).split(path.sep).join('/'), sha256: tlvHash(source) }, undefined, undefined, panel);
+  }
+  if (!success) {
     return;
   }
   // The generated Verilog, as announced for the compile (named for the top file; see compileCache.initCompile).
@@ -411,7 +428,7 @@ async function runTtFlow(uri?: vscode.Uri): Promise<void> {
     // In the design file's panel, where its compile just went.
     await showTtViews(await vscode.commands.executeCommand<string>('makerchip.panelForFile', file), gitHub, sha, vga);
     vscode.window.showInformationMessage(
-      `Pushed ${sha.slice(0, 7)}; the Tiny Tapeout flow is running on GitHub Actions (see the TT Progress view).`);
+      `Pushed ${sha.slice(0, 7)}; the Tiny Tapeout flow is running on GitHub Actions (see the TT Build view).`);
   } catch (error: any) {
     vscode.window.showErrorMessage(`Tiny Tapeout flow: ${error?.message ?? error}`);
   }

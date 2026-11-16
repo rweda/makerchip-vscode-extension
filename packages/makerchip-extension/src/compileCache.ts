@@ -115,6 +115,7 @@ interface CompileMetadata {
     sandpiper?: number;     // SandPiper compiler exit code
     verilator?: number;     // Verilator simulator exit code
   };
+  artifacts?: Record<string, boolean>; // SandPiper's artifact manifest (with its exit status), replayed at restore for views (compile-result's `artifacts`)
   error?: {                 // Compilation-level error (SandPiper-stage failure or denial). File-specific errors live in fileError.
     type: string;           // Error type: 'denied', 'compile-timeout', 'compile'
     timeout?: boolean;      // True for '*-timeout' errors
@@ -425,7 +426,8 @@ export async function recordFileError(id: string, errorType: string): Promise<vo
 /**
  * Record exit status from a compilation stage
  */
-export async function recordExitStatus(id: string, stage: 'sandpiper' | 'verilator', exitCode: number): Promise<void> {
+export async function recordExitStatus(id: string, stage: 'sandpiper' | 'verilator', exitCode: number,
+                                       artifacts?: Record<string, boolean>): Promise<void> {
   return serializeUpdate(async () => {
     const metadata = await loadMetadata(id);
     if (!metadata) return;
@@ -434,6 +436,9 @@ export async function recordExitStatus(id: string, stage: 'sandpiper' | 'verilat
       metadata.exitStatus = {};
     }
     metadata.exitStatus[stage] = exitCode;
+    if (artifacts) {
+      metadata.artifacts = artifacts;
+    }
 
     await saveMetadata(id, metadata);
   });
@@ -605,6 +610,8 @@ export interface RestoreData {
   fileComplete?: Partial<Record<RestoreFileName, boolean>>;
   /** Exit codes captured during the original compilation. */
   exitStatus?: { sandpiper?: number; verilator?: number };
+  /** SandPiper's artifact manifest (see CompileMetadata.artifacts). */
+  artifacts?: Record<string, boolean>;
   /**
    * The server's SandPiper pass/fail verdict, regenerated from the settled cache: a SandPiper-stage
    * failure was recorded as an 'err' event (metadata.error), so restore can replay the failure
@@ -678,6 +685,7 @@ export async function getRestoreData(id: string): Promise<RestoreData> {
     files: available ? files : undefined,
     fileComplete: metadata?.fileComplete,
     exitStatus: metadata?.exitStatus,
+    artifacts: metadata?.artifacts,
     // A SandPiper-stage failure was recorded at the compilation level (metadata.error); regenerate
     // the verdict from that settled state rather than storing it separately.
     sandpiperFailed: metadata?.error != null && SANDPIPER_ERROR_TYPES.has(metadata.error.type),
