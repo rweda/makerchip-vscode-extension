@@ -22,7 +22,7 @@ import * as path from 'path';
 import { initializeResources, updateResources } from './resourceManager';
 import { initMakerchipDir, DEV_MODE } from './populateResources';
 import { registerMakerchipTool } from './makerchipTool';
-import { registerTinyTapeout, onTtCompile } from './tinyTapeout';
+import { registerTinyTapeout, onTtCompile, sendTtCompiled } from './tinyTapeout';
 import { initToolActivation, getToolActivation } from './toolActivation';
 import { registerMakerchipParticipant } from './makerchipParticipant';
 import { reconcileClaudeSkill } from './claudeSkill';
@@ -829,6 +829,7 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string, isRestore: boo
     let readyTimeout: ReturnType<typeof setTimeout> | undefined;
     // Whether the webview's script has run (its 'booted' message), which tells the cause of a timeout.
     let booted = false;
+    let restoredCompileId: string | undefined;  // The compile this panel restored on reload, if any.
 
     const clearReadyTimeout = () => {
       if (readyTimeout) {
@@ -962,6 +963,11 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string, isRestore: boo
       if (msg.type === 'ready') {
         log(`✓ Connected to ${serverUrl}`);
         settleResolve();   // 🔹 resolve when IDE is ready
+        // A restored compile skips the compile hooks (compileExitStatus), so tell its TT views now that they exist.
+        const file = context.workspaceState.get<Record<string, string>>(PANEL_FILES_KEY, {})[panelKey];
+        if (restoredCompileId && file) {
+          sendTtCompiled(file, panelKey, restoredCompileId).catch(e => log(`TT views: ${e?.message ?? e}`));
+        }
       }
 
       if (msg.type === 'termsAccepted') {
@@ -1092,6 +1098,7 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string, isRestore: boo
       if (msg.type === 'restoreRequest') {
         // Webview reloaded and is asking for cached results to restore the IDE.
         log(`Restore requested for compile ${msg.compileId}`);
+        restoredCompileId = msg.compileId;
         try {
           const data = await compileCache.getRestoreData(msg.compileId);
           log(`Restore data for ${msg.compileId}: available=${data.available} files=[${data.files ? Object.keys(data.files).join(',') : ''}] hasSource=${data.source != null} exitStatus=${JSON.stringify(data.exitStatus)}`);

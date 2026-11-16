@@ -309,22 +309,26 @@ async function showTtViews(panel: string, repo: string, sha: string, vga: boolea
 }
 
 /**
- * After a Makerchip compile (`id`, on `serverUrl`; `success` if SandPiper succeeded) of `file` into `panel`, if `file`
- * is a TT design: tell the panel's TT views the compiled source's hash (`tt/compiled`), so they can show whether their
- * build is of it; and, if its Verilog is marked VGA, open TT VGA there (unless open), to show the design running
- * without a push.
+ * If `file` is a TT design, tell `panel`'s TT views the hash of its source as compiled (`id`; `tt/compiled`), so they
+ * can show whether their build is of it. After each compile, and after a panel restores a compile (on reload).
  */
-export async function onTtCompile(file: string, panel: string, id: string, serverUrl: string, success: boolean): Promise<void> {
+export async function sendTtCompiled(file: string, panel: string, id: string): Promise<void> {
   const root = await ttProjectRoot(file);
-  if (!root) {
-    return;
-  }
-  const source = await fs.readFile(path.join(getCompileDir(id), 'top.tlv'), 'utf8').catch(() => undefined);
-  if (source !== undefined) {
+  const source = root && await fs.readFile(path.join(getCompileDir(id), 'top.tlv'), 'utf8').catch(() => undefined);
+  if (root && source !== undefined) {
     await vscode.commands.executeCommand('makerchip.busEmit', 'tt/compiled',
       { tlv: path.relative(root, file).split(path.sep).join('/'), sha256: tlvHash(source) }, undefined, undefined, panel);
   }
-  if (!success) {
+}
+
+/**
+ * After a Makerchip compile (`id`, on `serverUrl`; `success` if SandPiper succeeded) of `file` into `panel`, if `file`
+ * is a TT design: send `tt/compiled` (see sendTtCompiled); and, if its Verilog is marked VGA, open TT VGA there
+ * (unless open), to show the design running without a push.
+ */
+export async function onTtCompile(file: string, panel: string, id: string, serverUrl: string, success: boolean): Promise<void> {
+  await sendTtCompiled(file, panel, id);
+  if (!success || !await ttProjectRoot(file)) {
     return;
   }
   // The generated Verilog, as announced for the compile (named for the top file; see compileCache.initCompile).
