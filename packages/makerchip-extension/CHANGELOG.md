@@ -6,6 +6,8 @@ uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.0.4] — 2026-11-16
+
 ### Added
 
 - `makerchip.tinyTapeout.runTestsBeforePush`: a setting (off by default) for "Run TT Flow" to run the project's
@@ -19,7 +21,10 @@ uses [semantic versioning](https://semver.org/).
 
 ### Fixed
 
-- After a reload, views that read the restored compile's files (such as TT VGA, which kept spinning) get its artifact list.
+- After a reload, views that read the restored compile's files (such as TT VGA, which kept spinning) get its artifact
+  list.
+- "Run TT Flow" after a failed push: it said the flow had already run, and could not retry the push. It now offers
+  to push the unpushed commit.
 - Links in Makerchip's third-party views (e.g. the TT views) open in the browser; VS Code had blocked them.
 
 ### Changed
@@ -27,11 +32,6 @@ uses [semantic versioning](https://semver.org/).
 - "Run TT Flow" refuses to push to a template repository, such as a clone of the template itself.
 - Agent tools return no sooner than 3 seconds after they are called, so the Claude harness no longer loses quick
   results (hanging the call).
-
-### Fixed
-
-- "Run TT Flow" after a failed push: it said the flow had already run, and could not retry the push. It now offers
-  to push the unpushed commit.
 
 ## [0.0.3] — 2026-11-10
 
