@@ -6,6 +6,8 @@ uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.0.5] — 2026-11-18
+
 ### Added
 
 - AI agents can run the Tiny Tapeout flow ("Run TT Flow") with the `makerchip_tt_run` tool. You confirm each push,
