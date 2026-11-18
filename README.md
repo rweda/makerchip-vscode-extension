@@ -86,7 +86,7 @@ npm version minor --workspace tlverilog   # bumps that manifest only
 #   ...update the package's CHANGELOG.md...
 git commit -am "tlverilog 0.1.0"
 git tag tlv-v0.1.0
-git push --follow-tags
+git push origin main tlv-v0.1.0   # (--follow-tags would skip this lightweight tag)
 ```
 
 The tag's publish run then waits for a reviewer: on the run's page, **Review deployments**

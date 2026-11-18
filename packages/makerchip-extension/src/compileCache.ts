@@ -115,6 +115,7 @@ interface CompileMetadata {
     sandpiper?: number;     // SandPiper compiler exit code
     verilator?: number;     // Verilator simulator exit code
   };
+  artifacts?: Record<string, boolean>; // SandPiper's artifact manifest (with its exit status), replayed at restore for views (compile-result's `artifacts`)
   error?: {                 // Compilation-level error (SandPiper-stage failure or denial). File-specific errors live in fileError.
     type: string;           // Error type: 'denied', 'compile-timeout', 'compile'
     timeout?: boolean;      // True for '*-timeout' errors
@@ -425,7 +426,8 @@ export async function recordFileError(id: string, errorType: string): Promise<vo
 /**
  * Record exit status from a compilation stage
  */
-export async function recordExitStatus(id: string, stage: 'sandpiper' | 'verilator', exitCode: number): Promise<void> {
+export async function recordExitStatus(id: string, stage: 'sandpiper' | 'verilator', exitCode: number,
+                                       artifacts?: Record<string, boolean>): Promise<void> {
   return serializeUpdate(async () => {
     const metadata = await loadMetadata(id);
     if (!metadata) return;
@@ -434,6 +436,9 @@ export async function recordExitStatus(id: string, stage: 'sandpiper' | 'verilat
       metadata.exitStatus = {};
     }
     metadata.exitStatus[stage] = exitCode;
+    if (artifacts) {
+      metadata.artifacts = artifacts;
+    }
 
     await saveMetadata(id, metadata);
   });
@@ -601,14 +606,23 @@ export interface RestoreData {
   available: boolean;
   /** Cached result file contents keyed by file name (only present when available). */
   files?: Partial<Record<RestoreFileName, string>>;
+  /** Which files were fully received; streamed files may otherwise be partial (e.g. cut off by an error). */
+  fileComplete?: Partial<Record<RestoreFileName, boolean>>;
   /** Exit codes captured during the original compilation. */
   exitStatus?: { sandpiper?: number; verilator?: number };
+  /** SandPiper's artifact manifest (see CompileMetadata.artifacts). */
+  artifacts?: Record<string, boolean>;
   /**
    * The server's SandPiper pass/fail verdict, regenerated from the settled cache: a SandPiper-stage
    * failure was recorded as an 'err' event (metadata.error), so restore can replay the failure
    * without re-deriving the exit-code threshold the server owns.
    */
   sandpiperFailed?: boolean;
+  /**
+   * The server `err` event types recorded for this compile (see recordFileError), so restore can
+   * replay them; otherwise views awaiting a failed stage (e.g. 'vcd') would restore as working.
+   */
+  errorTypes?: string[];
   /**
    * Original source for recompile fallback when results were pruned. A plain
    * string for single-file compiles, or a multi-file payload when sibling source
@@ -669,10 +683,16 @@ export async function getRestoreData(id: string): Promise<RestoreData> {
     id,
     available,
     files: available ? files : undefined,
+    fileComplete: metadata?.fileComplete,
     exitStatus: metadata?.exitStatus,
+    artifacts: metadata?.artifacts,
     // A SandPiper-stage failure was recorded at the compilation level (metadata.error); regenerate
     // the verdict from that settled state rather than storing it separately.
     sandpiperFailed: metadata?.error != null && SANDPIPER_ERROR_TYPES.has(metadata.error.type),
+    errorTypes: [
+      ...(metadata?.error ? [metadata.error.type] : []),
+      ...Object.values(metadata?.fileError ?? {}).map(e => e!.type),
+    ],
     source,
   };
 }

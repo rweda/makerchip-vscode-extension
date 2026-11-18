@@ -36,7 +36,7 @@ interface MakerchipToolInput {
    * for the top file).
    */
   additionalFiles?: string[];
-  /** Optional panel name to target. If not provided, uses the default panel. */
+  /** Optional panel name to target. If not provided, the source file's own panel (one-shot inline `code`: the current panel). */
   panelName?: string;
   /**
    * Development hook: open the panel against this explicit sandhost/server base URL
@@ -93,7 +93,7 @@ interface IdeFunctionCallInput {
   method: string;
   /** Arguments to pass to the IDE method */
   args?: any[];
-  /** Optional panel name to target. If not provided, uses the default panel. */
+  /** Optional panel name to target. If not provided, the current panel. */
   panelName?: string;
 }
 
@@ -422,7 +422,7 @@ export class MakerchipTool implements vscode.LanguageModelTool<MakerchipToolInpu
     token: vscode.CancellationToken
   ): Promise<vscode.LanguageModelToolResult> {
     try {
-      const { filePath, code, panelName, additionalFiles, oneShot, serverUrl } = options.input;
+      const { filePath, code, panelName: requestedPanel, additionalFiles, oneShot, serverUrl } = options.input;
 
       // Determine if we should create a new panel (only if code/filePath/files provided)
       const createIfNeeded = !!(code || filePath || (additionalFiles && additionalFiles.length > 0));
@@ -430,6 +430,8 @@ export class MakerchipTool implements vscode.LanguageModelTool<MakerchipToolInpu
       let sourceCode: string;
       let fileName: string;
       let staleBufferWarning = '';
+      // The source's own panel is the default target (see panelNameForFile in extension.ts).
+      let sourceFile: string | undefined;
 
       // If code is provided as a string, use it as the source. `code: true` loads the bundled minimal
       // scratch design. Unless one-shot, also open it in a new unsaved document so the user can view/edit it.
@@ -454,6 +456,7 @@ export class MakerchipTool implements vscode.LanguageModelTool<MakerchipToolInpu
         const bytes = await vscode.workspace.fs.readFile(uri);
         sourceCode = Buffer.from(bytes).toString('utf-8');
         fileName = path.basename(filePath);
+        sourceFile = uri.fsPath;
 
         // One-shot mode compiles the on-disk content without opening/showing an editor.
         // Otherwise keep the editor display consistent with what we compile: if the file
@@ -492,6 +495,7 @@ export class MakerchipTool implements vscode.LanguageModelTool<MakerchipToolInpu
         }
         sourceCode = editor.document.getText();
         fileName = path.basename(editor.document.fileName);
+        sourceFile = editor.document.isUntitled ? undefined : editor.document.uri.fsPath;
       }
 
       // Assemble the compile argument. With additionalFiles, build a multi-file
@@ -526,6 +530,8 @@ export class MakerchipTool implements vscode.LanguageModelTool<MakerchipToolInpu
       if (options.input.sim !== undefined) opts.sim = options.input.sim;
       if (options.input.dot !== undefined) opts.dot = options.input.dot;
 
+      const panelName = requestedPanel ??
+        await vscode.commands.executeCommand<string>('makerchip.panelForFile', sourceFile);
       const compileId = await vscode.commands.executeCommand<string>(
         'makerchip.callIdeMethodWithResult',
         'compile',
@@ -696,7 +702,7 @@ interface GetVizImageInput {
   format?: 'png' | 'jpeg' | 'webp';
   /** Image quality for jpeg/webp (0.0-1.0, default: 1.0) */
   quality?: number;
-  /** Optional panel name to target. If not provided, uses the default panel. */
+  /** Optional panel name to target. If not provided, the current panel. */
   panelName?: string;
   /** Save to file for user visibility. If true, saves to /tmp. If string, uses as file path. */
   saveToFile?: boolean | string;
@@ -985,7 +991,7 @@ interface ExtractPdfFigureInput {
    * Omitted: document information only.
    */
   clearance?: Clearance;
-  /** Optional panel name to target. If not provided, uses the default panel. */
+  /** Optional panel name to target. If not provided, the current panel. */
   panelName?: string;
 }
 
@@ -1335,7 +1341,7 @@ interface CaptureVideoInput {
    * fps, or resolution over raising the timeout.
    */
   timeout?: number;
-  /** Optional panel name to target. If not provided, uses the default panel. */
+  /** Optional panel name to target. If not provided, the current panel. */
   panelName?: string;
   /** Optional output file path. If omitted, a timestamped file is written to the OS temp dir. The video is always saved to a file (never inlined into the conversation). */
   filename?: string;
@@ -1567,6 +1573,13 @@ export class CaptureVideoTool implements vscode.LanguageModelTool<CaptureVideoIn
       // For image formats (single-frame GIF/APNG, e.g. a calibration capture) the saved file can be
       // viewed directly to inspect the frame; real videos are only referenced by path.
       const isImageFormat = actualFormat === 'gif' || actualFormat === 'apng' || actualFormat === 'png';
+      // A keyframe's width/height is easily mistaken for the recording size; say so when it may have been.
+      const kfSized = [...(Array.isArray(keyframes) ? keyframes : []), keyframeDefault ?? {}]
+        .some(kf => typeof kf?.width === 'number' || typeof kf?.height === 'number');
+      const sizeNote = typeof width !== 'number' && typeof height !== 'number' && kfSized
+        ? '\n\nNote: recorded at the VIZ view\'s size. A keyframe\'s (or `default`\'s) width/height only says what ' +
+          'size its absolute `scale` was measured at; to choose the recording size, set the top-level `width` and `height`.'
+        : '';
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
           `Successfully captured VIZ simulation${panelInfo} as ${actualFormat.toUpperCase()} video.\n` +
@@ -1575,7 +1588,8 @@ export class CaptureVideoTool implements vscode.LanguageModelTool<CaptureVideoIn
           `Duration: ${(cycles / cyclesPerSecond).toFixed(2)}s at ${cyclesPerSecond} cycle(s)/s (${Math.round(1000 / cyclesPerSecond)}ms/cycle)\n` +
           `File: ${savedPath}\n` +
           `Size: ${Math.round(videoBuffer.length / 1024)}KB` +
-          (isImageFormat ? `\n\nThis is an image format — view ${savedPath} to inspect the frame(s).` : '')
+          (isImageFormat ? `\n\nThis is an image format — view ${savedPath} to inspect the frame(s).` : '') +
+          sizeNote
         )
       ]);
 
@@ -1627,7 +1641,7 @@ export class CaptureVideoTool implements vscode.LanguageModelTool<CaptureVideoIn
 }
 
 interface GetAvailableViewsInput {
-  /** Optional panel name to target. If not provided, uses the default panel. */
+  /** Optional panel name to target. If not provided, the current panel. */
   panelName?: string;
 }
 
@@ -1749,7 +1763,7 @@ interface LayoutState {
 }
 
 interface GetLayoutStateInput {
-  /** Optional panel name to target. If not provided, uses the default panel. */
+  /** Optional panel name to target. If not provided, the current panel. */
   panelName?: string;
   /**
    * If true, include third-party views in the state for cross-instance recovery.
@@ -1810,7 +1824,7 @@ export class GetLayoutStateTool implements vscode.LanguageModelTool<GetLayoutSta
 interface SetLayoutStateInput {
   /** The layout state object to restore (matches FlexSplit/TabbedPane structure) */
   state: LayoutState;
-  /** Optional panel name to target. If not provided, uses the default panel. */
+  /** Optional panel name to target. If not provided, the current panel. */
   panelName?: string;
 }
 
@@ -1873,7 +1887,7 @@ interface OpenViewInput {
   mnemonic: string;
   /** If true, open in background without activating. Default is false (activate). */
   background?: boolean;
-  /** Optional panel name to target. If not provided, uses the default panel. */
+  /** Optional panel name to target. If not provided, the current panel. */
   panelName?: string;
 }
 
@@ -1885,7 +1899,7 @@ interface OpenThirdPartyViewInput {
   mnemonic: string;
   /** Content type: "pdf" for PDF viewer or "iframe" for embedded web content */
   contentType: 'pdf' | 'iframe';
-  /** Content parameters - must include either contentUrl or filePath */
+  /** Content parameters - must include exactly one of contentUrl, sourceUrl (iframe) and filePath */
   contentParams: {
     /**
      * URL to the content. The IDE sandbox CSP governs what is actually reachable:
@@ -1896,6 +1910,13 @@ interface OpenThirdPartyViewInput {
      * To show a local file, use `filePath` -- do not hand-build a file:// or data: URL.
      */
     contentUrl?: string;
+    /**
+     * Iframe only: URL of an HTML file not served as a page (e.g. on raw.githubusercontent.com),
+     * which the IDE fetches and frames at an opaque origin. Passed through to the IDE.
+     */
+    sourceUrl?: string;
+    /** With sourceUrl: resolve the page's relative URLs. Passed through to the IDE. */
+    rewriteRelativeUrls?: boolean;
     /**
      * Absolute path to a local file to load. Read by the extension, so the (potentially large)
      * contents never pass through the model context window. Takes precedence over contentUrl.
@@ -1932,7 +1953,7 @@ interface OpenThirdPartyViewInput {
      */
     params?: any;
   };
-  /** Optional panel name to target. If not provided, uses the default panel. */
+  /** Optional panel name to target. If not provided, the current panel. */
   panelName?: string;
 }
 
@@ -2018,7 +2039,7 @@ export class OpenViewTool implements vscode.LanguageModelTool<OpenViewInput> {
 interface FitViewInput {
   /** The mnemonic of the view to fit (e.g. "Viz", "Diagram", "Waveform"). */
   mnemonic: string;
-  /** Optional panel name to target. If not provided, uses the default panel. */
+  /** Optional panel name to target. If not provided, the current panel. */
   panelName?: string;
 }
 
@@ -2144,9 +2165,9 @@ export class OpenThirdPartyViewTool implements vscode.LanguageModelTool<OpenThir
         ]);
       }
 
-      if (!contentParams || (!contentParams.contentUrl && !contentParams.filePath)) {
+      if (!contentParams || (!contentParams.contentUrl && !contentParams.sourceUrl && !contentParams.filePath)) {
         return new vscode.LanguageModelToolResult([
-          new vscode.LanguageModelTextPart('contentParams must include either contentUrl or filePath')
+          new vscode.LanguageModelTextPart('contentParams must include one of contentUrl, sourceUrl and filePath')
         ]);
       }
 
@@ -2162,8 +2183,12 @@ export class OpenThirdPartyViewTool implements vscode.LanguageModelTool<OpenThir
       //             So the bytes are pushed to the viewer over the view channel instead, via the
       //             bridge's `openData` -- as base64, since extension->webview messages are
       //             JSON-serialized and a Uint8Array would not survive that hop.
-      const resolvedParams: { contentUrl?: string } = {};
+      const resolvedParams: { contentUrl?: string; sourceUrl?: string; rewriteRelativeUrls?: boolean } = {};
       if (contentParams.contentUrl) { resolvedParams.contentUrl = contentParams.contentUrl; }
+      if (contentParams.sourceUrl) {
+        resolvedParams.sourceUrl = contentParams.sourceUrl;
+        if (contentParams.rewriteRelativeUrls) { resolvedParams.rewriteRelativeUrls = true; }
+      }
       let pdfBase64: string | null = null;
       let fileBaseName: string | null = null;
       if (contentParams.filePath) {
@@ -2180,6 +2205,9 @@ export class OpenThirdPartyViewTool implements vscode.LanguageModelTool<OpenThir
         }
         const base64 = fs.readFileSync(filePath).toString('base64');
         fileBaseName = path.basename(filePath);
+        // filePath takes precedence; the IDE requires exactly one content source.
+        delete resolvedParams.sourceUrl;
+        delete resolvedParams.rewriteRelativeUrls;
         if (contentType === 'pdf') {
           pdfBase64 = base64;
           // No contentUrl: the viewer opens empty and we feed it below.
@@ -2313,7 +2341,7 @@ interface LoadVcdInput {
   filePath?: string;
   /** True to instead unlock the waveform, reenabling simulation. */
   release?: boolean;
-  /** Optional panel name to target. If not provided, uses the default panel. */
+  /** Optional panel name to target. If not provided, the current panel. */
   panelName?: string;
 }
 
@@ -2358,7 +2386,7 @@ export class LoadVcdTool implements vscode.LanguageModelTool<LoadVcdInput> {
 }
 
 interface GetCycleInput {
-  /** Optional panel name to target. If not provided, uses the default panel. */
+  /** Optional panel name to target. If not provided, the current panel. */
   panelName?: string;
 }
 
@@ -2416,7 +2444,7 @@ interface SetCycleInput {
   cycle?: number;
   /** Relative offset from current cycle (can be negative). Mutually exclusive with cycle. */
   offset?: number;
-  /** Optional panel name to target. If not provided, uses the default panel. */
+  /** Optional panel name to target. If not provided, the current panel. */
   panelName?: string;
 }
 
@@ -2508,7 +2536,7 @@ interface UpdatePlayStateInput {
   startCyc?: number;
   /** Optional ending cycle. If provided, playback stops at this cycle; otherwise plays to end of waveform. */
   endCyc?: number;
-  /** Optional panel name to target. If not provided, uses the default panel. */
+  /** Optional panel name to target. If not provided, the current panel. */
   panelName?: string;
 }
 
@@ -2607,7 +2635,7 @@ interface HighlightToolInput {
    * If false or omitted, replaces all existing highlights.
    */
   accumulate?: boolean;
-  /** Optional panel name to target. If not provided, uses the default panel. */
+  /** Optional panel name to target. If not provided, the current panel. */
   panelName?: string;
 }
 
@@ -2671,7 +2699,7 @@ export class HighlightTool implements vscode.LanguageModelTool<HighlightToolInpu
 }
 
 interface ClearHighlightsToolInput {
-  /** Optional panel name to target. If not provided, uses the default panel. */
+  /** Optional panel name to target. If not provided, the current panel. */
   panelName?: string;
 }
 
@@ -2725,7 +2753,7 @@ export class ClearHighlightsTool implements vscode.LanguageModelTool<ClearHighli
 interface SetDarkModeToolInput {
   /** Enable or disable dark mode (true for dark, false for light) */
   enabled: boolean;
-  /** Optional panel name to target. If not provided, uses the default panel. */
+  /** Optional panel name to target. If not provided, the current panel. */
   panelName?: string;
 }
 
@@ -2784,7 +2812,7 @@ interface SetLiveModeToolInput {
   mnemonic: string;
   /** Enable or disable live mode (true for live, false for dead/frozen) */
   enabled: boolean;
-  /** Optional panel name to target. If not provided, uses the default panel. */
+  /** Optional panel name to target. If not provided, the current panel. */
   panelName?: string;
 }
 
@@ -2870,8 +2898,8 @@ export class ListPanelsTool implements vscode.LanguageModelTool<ListPanelsToolIn
   ): Promise<vscode.LanguageModelToolResult> {
     try {
       // Get list of panels from the extension
-      const panels = await vscode.commands.executeCommand<string[]>(
-        'makerchip.getPanelNames'
+      const panels = await vscode.commands.executeCommand<{ name: string; file?: string; current: boolean }[]>(
+        'makerchip.getPanels'
       );
 
       if (!panels || panels.length === 0) {
@@ -2883,10 +2911,11 @@ export class ListPanelsTool implements vscode.LanguageModelTool<ListPanelsToolIn
       }
 
       let result = `**Open Makerchip Panels (${panels.length}):**\n\n`;
-      for (const panel of panels) {
-        result += `- ${panel}\n`;
+      for (const { name, file, current } of panels) {
+        result += `- ${name}${file ? ` — ${file}` : ''}${current ? ' (current)' : ''}\n`;
       }
-      result += `\nUse the \`panelName\` parameter in other tools to target a specific panel.`;
+      result += `\nUse the \`panelName\` parameter in other tools to target a specific panel; without it they use the ` +
+        `current panel (see makerchip_compile).`;
 
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(result)
@@ -2968,7 +2997,7 @@ interface BusEmitInput {
    * event is broadcast to every matching subscriber.
    */
   target?: string | string[];
-  /** Optional panel name to target. If not provided, uses the default panel. */
+  /** Optional panel name to target. If not provided, the current panel. */
   panelName?: string;
 }
 
@@ -3015,7 +3044,7 @@ interface ViewCallInput {
   args?: any[];
   /** Optional response timeout in milliseconds (default 30000). */
   timeoutMs?: number;
-  /** Optional panel name to target. If not provided, uses the default panel. */
+  /** Optional panel name to target. If not provided, the current panel. */
   panelName?: string;
 }
 
@@ -3094,7 +3123,7 @@ async function callWarpvView(
 interface WarpvViewInput {
   /** Target WARP-V view mnemonic. Default: `WARP-V`. */
   mnemonic?: string;
-  /** Optional panel name to target. Default: `default`. */
+  /** Optional panel name to target. If not provided, the current panel. */
   panelName?: string;
 }
 
@@ -3229,17 +3258,31 @@ interface InvokeToolInput extends InvokeToolCall {
    * top-level `name`/`input`/`describe`. See BATCHING on InvokeToolTool for why this exists.
    */
   calls?: InvokeToolCall[];
-  /**
-   * Hold the result until at least this many ms after the invocation started (capped at
-   * MAX_MIN_DURATION_MS). Lets the agent work around a harness that loses results returned before
-   * it finishes approving the call; see "Lost quick result" in claudeSkill.ts.
-   */
+  /** Overrides the result hold's DEFAULT_MIN_DURATION_MS; see registerMakerchipTool. */
   minDurationMs?: number;
 }
 
 /** Upper bound on a batch, so a runaway list cannot produce an unbounded single result. */
 const MAX_BATCH_CALLS = 100;
+/**
+ * Every (outermost) tool call's result hold, unless its `minDurationMs` overrides it (capped at
+ * MAX_MIN_DURATION_MS): the Claude harness loses a result that arrives before it has finished
+ * approving the call (~1 s, sometimes more), and the call hangs. See "Lost quick result" in
+ * claudeSkill.ts. Remove with issues/019-drop-quick-result-workaround.md.
+ */
+const DEFAULT_MIN_DURATION_MS = 3000;
 const MAX_MIN_DURATION_MS = 10000;
+
+/** Wait until `deadline` (ms since the epoch), or until `token` is cancelled. */
+async function holdUntil(deadline: number, token: vscode.CancellationToken): Promise<void> {
+  const wait = deadline - Date.now();
+  if (wait > 0) {
+    await new Promise<void>(resolve => {
+      const timer = setTimeout(resolve, wait);
+      token.onCancellationRequested(() => { clearTimeout(timer); resolve(); });
+    });
+  }
+}
 
 /**
  * Universal fallback tool: invoke (or describe) any registered Language Model tool by name —
@@ -3307,27 +3350,15 @@ export class InvokeToolTool implements vscode.LanguageModelTool<InvokeToolInput>
     options: vscode.LanguageModelToolInvocationOptions<InvokeToolInput>,
     token: vscode.CancellationToken
   ): Promise<vscode.LanguageModelToolResult> {
-    const start = Date.now();
-    const { calls, minDurationMs } = options.input;
-    // The hold applies to errors too: a quick error is lost just like a quick result.
-    try {
-      if (calls !== undefined && !Array.isArray(calls)) {
-        throw new Error(`\`calls\` must be an array, not a ${typeof calls}. (A JSON string here suggests ` +
-          'your harness had not loaded this tool\'s schema. Load it, e.g. via tool search, and resend.)');
-      }
-      return calls !== undefined
-        ? await this.invokeBatch(calls, options, token)
-        // Single call: return the target's result verbatim, unchanged from before batching existed.
-        : (await this.runCall(options.input, options, token)).result;
-    } finally {
-      const wait = Math.min(minDurationMs ?? 0, MAX_MIN_DURATION_MS) - (Date.now() - start);
-      if (wait > 0) {
-        await new Promise<void>(resolve => {
-          const timer = setTimeout(resolve, wait);
-          token.onCancellationRequested(() => { clearTimeout(timer); resolve(); });
-        });
-      }
+    const { calls } = options.input;
+    if (calls !== undefined && !Array.isArray(calls)) {
+      throw new Error(`\`calls\` must be an array, not a ${typeof calls}. (A JSON string here suggests ` +
+        'your harness had not loaded this tool\'s schema. Load it, e.g. via tool search, and resend.)');
     }
+    return calls !== undefined
+      ? await this.invokeBatch(calls, options, token)
+      // Single call: return the target's result verbatim, unchanged from before batching existed.
+      : (await this.runCall(options.input, options, token)).result;
   }
 
   /**
@@ -3512,10 +3543,28 @@ export function registerMakerchipTool(context: vscode.ExtensionContext): void {
   // active use keeps enabled tools alive (see toolActivation.ts), and (b) disposes with the
   // extension. Proxied makerchip_invoke_tool calls dispatch through the same wrapped impl, so they
   // touch too.
+  // It also holds each result (and error) for DEFAULT_MIN_DURATION_MS, or the call's own
+  // `minDurationMs` (declared only by makerchip_invoke_tool), but only for outermost calls: holding
+  // makerchip_invoke_tool's inner calls too would multiply a batch's time. (Calls are counted as inner while
+  // another is running; a harness's parallel calls are then not held, which is no worse than before.)
   let count = 0;
+  let running = 0;
   const reg = (name: string, tool: vscode.LanguageModelTool<any>): void => {
     const invoke = tool.invoke.bind(tool);
-    tool.invoke = (options, token) => { getToolActivation()?.touch(); return invoke(options, token); };
+    tool.invoke = async (options, token) => {
+      getToolActivation()?.touch();
+      const start = Date.now();
+      const outermost = running++ === 0;
+      try {
+        return await invoke(options, token);
+      } finally {
+        running--;
+        if (outermost) {
+          const ms = options.input?.minDurationMs ?? DEFAULT_MIN_DURATION_MS;
+          await holdUntil(start + Math.min(ms, MAX_MIN_DURATION_MS), token);
+        }
+      }
+    };
     context.subscriptions.push(vscode.lm.registerTool(name, tool));
     count++;
   };

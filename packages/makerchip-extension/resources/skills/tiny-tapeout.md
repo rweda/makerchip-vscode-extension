@@ -10,14 +10,15 @@ A TT project is a GitHub repo made from
 [stevehoover/tt-makerchip-template](https://github.com/stevehoover/tt-makerchip-template) (any TT process;
 `project.pdk` in `info.yaml`). The design is `src/project.tlv`; `src/project.sv` is generated from it and
 committed, and pushing runs TT's flow (`gds`, `test`, `docs` workflows) on GitHub Actions. The template README
-covers the project files.
+covers the project files. (A reference copy of the repo is in
+[resources/tt-makerchip-template/](../../resources/tt-makerchip-template/), but the one on GitHub may be newer).
 
 Your job is the one-time setup. After it, the user runs the flow with the "Run TT Flow" button, without you.
 
 ## Setup
 
-1. **GitHub CLI.** `gh auth status`. If not logged in, ask the user to run `gh auth login` (it needs them to
-   confirm a code in their browser).
+1. **GitHub CLI.** `gh auth status`. If `gh` is missing, offer to install it (https://cli.github.com/). If not
+   logged in, ask the user to run `gh auth login` (it needs them to confirm a code in their browser).
 2. **Create the repo** (public; TT requires it). First ask the user, suggesting defaults:
    - its name (e.g. from their project idea) and owner: their account (`gh api user --jq .login`) or an
      organization they belong to;
@@ -53,9 +54,12 @@ Your job is the one-time setup. After it, the user runs the flow with the "Run T
 ## Watching a run
 
 After pushing, the button opens (or reuses) two Makerchip views, whose tab status follows the run: **TT
-Progress** (runs, jobs, and current steps, polled anonymously from the GitHub API) and **TT Layout** (the
-render, TT's 3D viewer, and Tiny Tapeout Explorer, from the repo's GitHub Pages). For the status as data, call
-`getRunStatus` on TT Progress with `makerchip_view_call`. More detail is on GitHub:
+Build** (runs, jobs, and current steps, polled anonymously from the GitHub API, then the results: why a job failed,
+tests, precheck, layout metrics, and every published log and report) and **TT Layout** (the render, TT's 3D viewer,
+and Tiny Tapeout Explorer, from the repo's GitHub Pages). For a VGA design (the
+template's `vga` setting), a Makerchip compile opens **TT VGA**, which runs each compile live in VGA Playground,
+and the button first offers to fill in `info.yaml`'s VGA clock and pins. For the status as data, call `getRunStatus` on TT
+Build with `makerchip_view_call`. More detail is on GitHub:
 
 - `gh run list -R <owner>/<name>`, `gh run watch <id> -R <owner>/<name> --exit-status`.
 - Failures: `gh run view <id> -R <owner>/<name> --log-failed`. The first failing step is the cause; TT's summary
@@ -71,10 +75,24 @@ render, TT's 3D viewer, and Tiny Tapeout Explorer, from the repo's GitHub Pages)
   commit it with the `.tlv`.
 - Makerchip compiles of `project.tlv` define `MAKERCHIP`, which adds the TT demo-board VIZ and random stimulus;
   the TT compile does not, so the pushed Verilog contains only the design.
+- **Submitting** is the user's, in Tiny Tapeout's app (app.tinytapeout.com; GitHub sign-in, and buying tiles or
+  applying a coupon), once a commit's `gds` and `docs` runs pass; TT Build shows whether they do, and links the app.
+  The first time, they create a project from the repo; for each version to fabricate, they submit a new revision.
 - To retarget another shuttle's process, change `project.pdk` in `info.yaml` (and check that `tiles` is valid for
   it: `tech/<pdk>/tile_sizes.yaml` in TinyTapeout/tt-support-tools), then run the flow again. TT's app rejects a
   submission hardened for a different PDK than the shuttle's.
 - Missing project info (step 4) fails `gds` at "Fetch verilog and build config" and `docs` with "Errors in
   info.yaml"/"docs/info.md". Each build's tool and PDK versions are in its `tt_submission` artifact's `pdk.json`.
+- **Running the tests before each push** (optional): the setting `makerchip.tinyTapeout.runTestsBeforePush` makes
+  the button run the testbench locally first (`make` in `test/`, as TT's `test` workflow does) and warn if it
+  fails. It's off by default, since Makerchip's simulation is usually the test. Offer it when the user works on
+  `test/test.py`: install cocotb (`pip install -r test/requirements.txt`) and Icarus Verilog (`iverilog`), then
+  set it to `true` in the project's `.vscode/settings.json`.
+- **Seeing the design's VIZ.** In Makerchip, the design's `\viz_js` is drawn in the demo board's small, square
+  chip window, so a whole-board `makerchip_get_viz_image` is too small to read. Zoom in with a one-frame
+  `makerchip_capture_video` in `absolute` mode. The window is `BOARD_7_FPGA_WHERE` (in board-image pixels) in
+  Virtual-FPGA-Lab's `tlv_lib/fpga_includes.tlv`, at the commit included by the `tiny_tapeout_lib.tlv` that
+  `src/project.tlv` includes (follow the pinned `m4_include_lib` URLs; the resources copy of Virtual-FPGA-Lab is
+  newer and may differ).
 - Submitting to a shuttle happens at [app.tinytapeout.com](https://app.tinytapeout.com), not here.
 - The template's own `tt-makerchip-template-dev` skill is for maintaining the template, not for projects.

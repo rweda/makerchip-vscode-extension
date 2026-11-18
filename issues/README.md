@@ -31,6 +31,14 @@ with plain file edits (AI-friendly).
 - When you consciously defer a big or cross-cutting change, add an issue here rather than leaving a
   buried `TODO`, and reference it from related code (e.g. `// See issues/NNN-slug.md`).
 
+## TODO
+
+[`TODO.md`](TODO.md) is lighter weight than an issue: immediate work in this clone/worktree that
+should be finished before the clone is deleted. Add items below its placeholder text and delete them
+when done; work that won't be finished in this clone becomes an issue instead. **Never commit
+changes to `TODO.md`**, so items stay with the clone and remain visible as uncommitted changes.
+Stage other files explicitly (e.g. not `git commit -a`) while it has items.
+
 ## Index
 
 - [001: LM tool to open/restore a webview from the compile cache](001-restore-webview-from-compile-cache.md)
@@ -46,13 +54,21 @@ with plain file edits (AI-friendly).
 - [019: Drop the lost-quick-result workaround once the Claude harness fixes the race](019-drop-quick-result-workaround.md)
 - [020: Download resource repos on demand or just reference them](020-download-resource-repos-on-demand.md)
 - [021: Eliminate the need for SandPiper-SaaS in the TT flow](021-eliminate-sandpiper-saas-use.md)
-- [022: Investigate resize forwarding into the IDE iframe (cross-origin jQuery access)](022-webview-resize-forwarding.md)
-- [023: Reload a locked VCD when its file changes (`makerchip_load_vcd` `watch`)](023-load-vcd-watch.md)
+- [023: Help users see which Makerchip panel goes with which editor](023-pair-editors-with-panels.md)
+- [024: Link editor lines and Nav-TLV lines, as the Makerchip IDE does](024-editor-nav-tlv-line-linking.md)
+- [026: Reload a locked VCD when its file changes (`makerchip_load_vcd` `watch`)](026-load-vcd-watch.md)
 
 ## Closed
 
 Older entries link to deleted files; recover those with `git log --follow -- issues/NNN-slug.md`.
 
+- [025: Feedback from first test drive](https://github.com/rweda/makerchip-vscode-extension/blob/1e289e2/issues/025-test-drive-feedback.md)
+  - 2026-11-11: All findings resolved or declined. Run TT Flow: retryable push, template-repo refusal, an optional
+    pre-push test setting, SandPiper flags read from the project's `test/Makefile`. A 3 s hold on tool results.
+    Template testbench and output-connection fixes. VIZ fit is mono's issue 043.
+- [022: Investigate resize forwarding into the IDE iframe (cross-origin jQuery access)](https://github.com/rweda/makerchip-vscode-extension/blob/c8d5f4f/issues/022-webview-resize-forwarding.md)
+  - 2026-11-10: Forwarding was dead (cross-origin) and redundant; removed. The VIZ resize bug was a lone root
+    TabbedPane never getting resize() (no jQuery Layout); fixed in mono `IDE.coffee`.
 - [013: Large results from batched `makerchip_invoke_tool` calls overwrite each other](https://github.com/rweda/makerchip-vscode-extension/blob/7a1e27b/issues/013-batched-large-results-overwrite.md)
   Closed 2026-10-27: verified; a 5-entry, 78 KB batch returned one merged text part, spilled to one file.
 - [012: An IDE call made while a panel is still connecting times out](https://github.com/rweda/makerchip-vscode-extension/blob/7a1e27b/issues/012-ide-call-timeout-vs-panel-readiness.md)

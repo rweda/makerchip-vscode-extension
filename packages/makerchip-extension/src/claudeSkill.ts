@@ -18,10 +18,11 @@
  *
  *  1. MCP server `instructions` (the `InitializeResult` field intended for exactly this).
  *     Not available to us. We are not an MCP server — we register VS Code Language Model
- *     tools (`vscode.lm.registerTool` + `contributes.languageModelTools`). Anthropic's
- *     claude-code extension bridges all VS Code LM tools into the agent as a single pseudo
- *     server it names `client` (hence `mcp__client__makerchip*`). That server is theirs, not
- *     ours, and the `languageModelTools` contribution point has no server-level field.
+ *     tools (`vscode.lm.registerTool` + `contributes.languageModelTools`). Microsoft's Claude
+ *     harness bridges all VS Code LM tools into the agent as a single pseudo server it names
+ *     `client` (hence `mcp__client__makerchip*`); Anthropic's own Claude Code extension does
+ *     not get them at all. That server is theirs, not ours, and the `languageModelTools`
+ *     contribution point has no server-level field.
  *
  *  2. Tool `modelDescription`. This was the ORIGINAL mechanism: a "read the guidance first"
  *     pointer on `makerchip_invoke_tool`, chosen because that tool is always offered
@@ -94,8 +95,8 @@
  *    ~5 ms later), and the call hangs. Calls returning in <= 760 ms hung; >= 847 ms succeeded.
  *    In "Bypass Permissions" mode, 50 ms and similar calls succeeded (2 of 2), so the approval step
  *    is the slow side of the race. Workaround (verified 2026-10-19): makerchip_invoke_tool's
- *    top-level `minDurationMs`. Untested
- *    alternative: an allow rule for mcp__client__makerchip*.
+ *    top-level `minDurationMs`; since 2026-11-11 it defaults to 3 s for every call
+ *    (DEFAULT_MIN_DURATION_MS in makerchipTool.ts). Untested alternative: an allow rule for mcp__client__makerchip*.
  *  - Skill invocation is a model judgement, not an interlock. The description makes the
  *    common path correct; it cannot make it guaranteed.
  *
@@ -348,13 +349,19 @@ carefully; some result in HANGS.
   more). If the extension answers first, the result is dropped and the call hangs although it ran.
   Quick queries (\`makerchip_get_cycle\`, \`makerchip_get_viz_image\`,
   \`makerchip_get_available_views\`, small extractions: tens to hundreds of ms) hit this; calls of
-  a second or more (compiles, most PDF extractions) did not. The user's "Bypass Permissions" mode
-  avoids it. Otherwise, make any call that may return in under ~3 s through
-  \`makerchip_invoke_tool\` with \`minDurationMs\` (e.g. 3000; 1500 has proven too short; max
-  10000) as a TOP-LEVEL argument, a sibling of \`calls\`/\`name\`: \`{calls: [...], minDurationMs:
-  3000}\`. Inside any \`input\` it is silently ignored. It holds the result past the approval,
-  adding nothing to slower calls. Prefer file outputs (\`saveToFile\`, \`{file: true}\`) so a lost
-  result is recoverable.
+  a second or more (compiles, most PDF extractions) did not. The extension now holds every call's
+  result for at least 3 s, which has covered the approval so far, so quick calls need no special
+  handling. If one is still lost, raise the hold with \`makerchip_invoke_tool\`'s \`minDurationMs\`
+  (max 10000) as a TOP-LEVEL argument, a sibling of \`calls\`/\`name\`: \`{calls: [...],
+  minDurationMs: 6000}\`. Inside any \`input\` it is silently ignored. Prefer file outputs
+  (\`saveToFile\`, \`{file: true}\`) so a lost result is recoverable.
+- **This race is not Makerchip-specific: every \`mcp__client__*\` tool can lose a quick result**,
+  and only the Makerchip tools have the built-in hold. Seen with the integrated browser:
+  \`mcp__client__runPlaywrightCode\` returning in milliseconds hung, and
+  \`mcp__client__screenshotPage\` hung outright. Make such calls take at least 3 s yourself (for
+  Playwright, start the snippet with \`await page.waitForTimeout(3000)\`). Avoid tools that can't
+  be padded (\`screenshotPage\`: screenshot inside a padded \`runPlaywrightCode\` instead, saving
+  to a file), or drive a headless browser from the shell, which bypasses the bridge.
 
 ### Extension host reloads
 
@@ -381,9 +388,10 @@ Try to avoid hangs, but if you slip and hit one, rule out the turn-local causes 
 - **Same-turn set change** — HANGS; you released a set and called one of its tools in the same
   turn. Fix: let it settle to the next turn, or use \`makerchip_invoke_tool\`. No fresh chat.
 - **Lost quick result** — a LONE call that should return in under a second HANGS, yet its work
-  WAS done (file written, cycle set, ...). The user must cancel it. Do not redo it blindly: check
-  the side effect, and use \`minDurationMs\` from then on (see the call rules), or raise it if you
-  already did. Slow calls still work. No fresh chat.
+  WAS done (file written, cycle set, ...). Any \`mcp__client__*\` tool, not just Makerchip's. The
+  user must cancel it. Do not redo it blindly: check the side effect, and raise the hold with
+  \`minDurationMs\` (or pad a non-Makerchip call) from then on (see the call rules).
+  Slow calls still work. No fresh chat.
 - **Reload mid-turn** — a LONE, serial call HANGS, even a slow one like a compile, with no gating
   change this turn, after the extension host reloaded, updated or crashed; retrying this turn keeps
   hanging. Fix: stop and ask the user to reply (the next turn rebinds). Only if it still hangs at

@@ -1,4 +1,4 @@
-# 023: Reload a locked VCD when its file changes (`makerchip_load_vcd` `watch`)
+# 026: Reload a locked VCD when its file changes (`makerchip_load_vcd` `watch`)
 
 - Status: open
 - Area: makerchip-extension / `makerchip_load_vcd`, webview reload persistence

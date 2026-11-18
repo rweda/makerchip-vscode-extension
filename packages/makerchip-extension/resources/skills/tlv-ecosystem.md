@@ -69,6 +69,7 @@ When helping with TL-Verilog, **reference these primary sources** in the Makerch
 - **[resources/warp-v_includes/](../../resources/warp-v_includes/)** - RISC-V ISA definitions and library patterns
 - **[resources/tlv_lib/](../../resources/tlv_lib/)** - General-purpose TL-Verilog component libraries
 - **[resources/tlv_flow_lib/](../../resources/tlv_flow_lib/)** - Transaction flow components and `$ANY` patterns
+- **[resources/tt-makerchip-template/](../../resources/tt-makerchip-template/)** - Tiny Tapeout project template (see the `tiny-tapeout` skill)
 
 Note: For development, there may be a more recent working version of `Makerchip-public` in the workspace to reference instead.
 
@@ -137,11 +138,11 @@ The `~/.vscode-makerchip/tmp/` directory is specifically for temporary files and
 
 1. First, you may need to check which Makerchip IDE panels are open using the `makerchip_list_panels`.
 2. Code TL-Verilog (or old-school Verilog, if specifically requested) with a testbench, VIZ, and assertions [integrated formal verification to come].
-3. Use the `makerchip_compile` tool to, if necessary, open a new Makerchip IDE panel (webview), and initiate compilation/simulation. Name it to avoid conflicts with other ongoing work.
+3. Use the `makerchip_compile` tool to, if necessary, open a Makerchip IDE panel (webview), and initiate compilation/simulation. Each source file compiles into its own panel, named for the file, so other ongoing work isn't disturbed.
 4. Compilation and simulation run asynchronously. Monitor compilation status and logs.
 5. Read logs first to identify compilation and simulation issues. Examine trace data, VIZ visualizations, etc. as needed to debug simulations.
-6. Explain concepts and issues to the user using VIZ and by controlling the IDE layout, playback, signal highlighting,etc.
-7. Summarize your work. The user is likely not to read your prose explanations, so keep them succinct, favoring IDE visualizations to convey your points. Include a TL;DR summary.
+6. Explain concepts and issues to the user using VIZ and by controlling the IDE layout, playback, signal highlighting,etc. (Call LM tools with an explicit `panelName` to avoid reaching the wrong panel.)
+7. Summarize your work. The user is likely not to read your prose explanations, so keep them succinct, favoring IDE visualizations to convey your points.
 
 **Makerchip IDE Panel Lifecycle:**
 
@@ -154,10 +155,11 @@ The Makerchip IDE runs in webview panels within VS Code. Understanding panel man
   - Add `oneShot: true` to compile without opening any editor (nothing to edit, no editor tab left behind) — the cleanest way to open a panel purely for view/layout/IDE-tooling work. Applies equally to string `code` and `filePath`.
 - **Discovering Panels**: Use `makerchip_list_panels` to see which panels are currently open
   - Panel names can be passed to other tools via the `panelName` parameter
-  - If no `panelName` is specified, tools target the 'default' panel
+  - Each source file has its own panel, and tools given no `panelName` use the current panel; both are defined
+    in `makerchip_compile`'s description (PANELS)
   - Multiple panels enable side-by-side comparison of different designs
 
-- **Panel Naming**: Use descriptive panel names when working with multiple designs (e.g., "baseline", "optimized", "reference")
+- **Panel Naming**: To compare versions of one design, pass descriptive panel names (e.g., "baseline", "optimized")
 
 ### Makerchip Constraints
 
@@ -205,6 +207,8 @@ Complete API documentation available at:
 
 ### Managing IDE Views and Layout
 
+**Terminology:** views were called "panes" until November 2026 (e.g. `makerchip_open_third_party_pane`, `openPane`). Older docs, code, and users may still say "pane"; read it as "view". (Delete this note after June 2027.)
+
 **View Identification:**
 - Views are identified by **mnemonics** (unique identifiers like `"Diagram"`, `"Waveform"`, `"Log"`)
 - Mnemonics may include uniquifiers: `"Course Slides+Udemy"`, `"RISC-V Videos+Workshop"`. (The "+" uniquifier delimiter in mnemonics must be URL-encoded as "%2B" when used in URLs)
@@ -230,7 +234,7 @@ These file names **exactly match** the mnemonics returned by `makerchip_get_avai
 
 **Layout**: You can configure the layout of IDE views programmatically.
 
-**Details**: See `.vscode-makerchip/.vscode/skills/makerchip-api-features.md` for details on working with third-party views, managing the layout, and the layout data structure.
+**Details**: See `.vscode-makerchip/.vscode/skills/makerchip-api-features.md` for details on working with third-party views, managing the layout, and the layout data structure. To author a third-party view, or to wire one onto the IDE bus (`options.channel`, IDE events such as `compile-result`, view RPC), see `~/.vscode-makerchip/resources/Makerchip-public/docs/plugin_api/Third_Party_View_API.md`.
 
 ### Best Practices for Assistance
 

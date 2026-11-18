@@ -23,7 +23,7 @@ VS Code extension for Makerchip IDE integration and AI-collaborative Verilog/TL-
 - Desktop VS Code 1.110.0 or higher (not vscode.dev or github.dev)
 - An internet connection to Makerchip (and GitHub, for agent reference data)
 - `git`, to download agent reference data
-- GitHub Copilot or Microsoft's Claude/Codex harness (for AI features)
+- GitHub Copilot or Microsoft's Claude/Codex harness, in VS Code's Chat view (for AI features). Anthropic's Claude Code extension does not support the tools.
 
 VS Code also installs the companion [TL-Verilog](https://marketplace.visualstudio.com/items?itemName=RedwoodEDA.tlverilog) language extension, for syntax highlighting of `.tlv` files.
 
@@ -36,6 +36,15 @@ VS Code also installs the companion [TL-Verilog](https://marketplace.visualstudi
 2. Press `Ctrl+Shift+Enter`, click the Makerchip icon, or run "Makerchip: Compile/Simulate" from the command palette. (Use "Makerchip: Compile/Simulate in Panel..." to select or create named panels.)
 3. Explore the results in the Makerchip panel's views: Log, Diagram (a live logic diagram), Waveform, Nav-TLV (navigable, expanded source), and VIZ (custom visualizations)
 
+**Making a chip with [Tiny Tapeout](https://tinytapeout.com):** in a project made from
+[tt-makerchip-template](https://github.com/stevehoover/tt-makerchip-template), the design's `.tlv` file gets a
+"Run TT Flow" button (a rocket) next to the Makerchip icon. It checks the project information Tiny Tapeout
+requires, generates the Verilog, commits and pushes, which runs Tiny Tapeout's flow on GitHub Actions, and
+follows the run in the Makerchip panel's TT Build and TT Layout views. TT Build then shows the results,
+including every log and report, with a text search. For a VGA design (the template's `vga` setting), compiling it in Makerchip opens
+TT VGA, which runs each compile live in VGA Playground, and the button also checks `info.yaml`'s VGA clock and
+pins. An AI agent can set up the project for you (see below).
+
 ### With AI Agents
 
 AI Agents can:
@@ -47,12 +56,14 @@ AI Agents can:
 - Capture images and videos (GIF, MP4, WebM, APNG) of simulation visualizations, with camera pan and zoom
 - Compile C, C++, or assembly through Compiler Explorer and run it on a configurable [WARP-V](https://warp-v.org) RISC-V CPU
 - Build Live Docs: extract a figure from a PDF, such as a slide or a textbook diagram, and animate it with simulation values (asking first about your rights to the document)
+- Set up a [Tiny Tapeout](https://tinytapeout.com) chip project on GitHub, ready for the "Run TT Flow" button
 
 Example prompts:
 - "Show me how a UART controller works."
 - "Open my CPU in Makerchip and show the waveform and live logic diagram at the time of the first memory write, highlighting the write data signal."
 - "Demonstrate a pipeline design in TL-Verilog"
 - "Create a tic-tac-toe game in TL-Verilog with VIZ and show it in Makerchip"
+- "Set up a Tiny Tapeout project with Makerchip."
 - "I'm having trouble understanding 'when' conditions. Create a simple course with exercises to step me through it interactively in Makerchip."
 
 ## Agent Resources
@@ -64,7 +75,7 @@ The extension manages `~/.vscode-makerchip/` containing reference data for AI as
 
 `~/.vscode-makerchip/` can be large. It is left intact for future use when the extension is uninstalled, but it can be removed manually.
 
-If Claude Code is installed, the extension also writes a Makerchip skill to `~/.claude/skills/makerchip/`, so that Claude learns the rules for Makerchip tools before its first call. It is removed when the extension is uninstalled.
+For Microsoft's Claude harness, the extension also writes a Makerchip skill to `~/.claude/skills/makerchip/`, so that Claude learns the rules for Makerchip tools before its first call. It is removed when the extension is uninstalled.
 
 ## Contributing
 

@@ -16,6 +16,60 @@ uses [semantic versioning](https://semver.org/).
 - The Makerchip panel ignores IDE commands that do not come from the extension (e.g. from content within
   the IDE).
 
+## [0.0.4] — 2026-11-16
+
+### Added
+
+- `makerchip.tinyTapeout.runTestsBeforePush`: a setting (off by default) for "Run TT Flow" to run the project's
+  testbench locally before pushing.
+- Tiny Tapeout VGA designs (the template's `vga` setting): compiling one opens the TT VGA view, which runs each
+  Makerchip compile live in VGA Playground, and "Run TT Flow" offers to fill in `info.yaml`'s VGA clock and pins.
+- "Run TT Flow" stamps the generated `.sv` with its `.tlv`'s hash, so CI can tell whether a pushed `.sv` is stale.
+- The TT Progress view, renamed TT Build, shows a run's published results: why a job failed, tests, precheck,
+  layout metrics, and every published file (logs, reports, test results), with a text search.
+- TT Build's and TT Layout's check turns gray when the design compiled in Makerchip isn't the one built.
+
+### Fixed
+
+- After a reload, views that read the restored compile's files (such as TT VGA, which kept spinning) get its artifact
+  list.
+- "Run TT Flow" after a failed push: it said the flow had already run, and could not retry the push. It now offers
+  to push the unpushed commit.
+- Links in Makerchip's third-party views (e.g. the TT views) open in the browser; VS Code had blocked them.
+
+### Changed
+
+- "Run TT Flow" refuses to push to a template repository, such as a clone of the template itself.
+- Agent tools return no sooner than 3 seconds after they are called, so the Claude harness no longer loses quick
+  results (hanging the call).
+
+## [0.0.3] — 2026-11-10
+
+### Added
+
+- **Tiny Tapeout.** A "Run TT Flow" button on the `.tlv` design file of a Tiny Tapeout project (in `src/` of a
+  project with `info.yaml`, such as one made from
+  [tt-makerchip-template](https://github.com/stevehoover/tt-makerchip-template)). It checks the project
+  information Tiny Tapeout requires, compiles in Makerchip and, for Tiny Tapeout, with SandPiper-SaaS (no
+  install needed), commits and pushes, which runs the flow on GitHub Actions. TT Progress and TT Layout views
+  then follow the run.
+- An agent skill for setting up a Tiny Tapeout project on GitHub.
+
+### Changed
+
+- Each source file compiles into its own Makerchip panel, whose tab shows the file's name and the Makerchip icon
+  (with the file's folder added when two open files share a name). Code with no file (inline agent code, unsaved
+  editors) shares a `no file` panel. Agent tools given no panel name use the current panel: the one most
+  recently compiled into or focused.
+- Compiling brings the Makerchip panel to the front.
+- The "Makerchip Data" workspace folder replaces another Makerchip install's, rather than being added beside it.
+
+### Fixed
+
+- A console error on resizing the Makerchip panel (from resize forwarding that could not work, now removed).
+- After a window reload, views whose compile stage had failed (e.g. Waveform and VIZ on a simulation failure)
+  showed as still working.
+
 ## [0.0.2] — 2026-11-06
 
 ### Added

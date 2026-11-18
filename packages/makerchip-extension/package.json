@@ -2,7 +2,7 @@
   "name": "makerchip",
   "displayName": "Makerchip",
   "description": "Design, simulate, and visualize TL-Verilog and Verilog circuits in the Makerchip IDE, together with AI agents (GitHub Copilot, Claude). Pre-release; for open-source development.",
-  "version": "0.0.2",
+  "version": "0.0.4",
   "preview": true,
   "license": "MIT",
   "publisher": "RedwoodEDA",
@@ -23,7 +23,24 @@
     "AI",
     "Education"
   ],
-  "keywords": ["makerchip", "tl-verilog", "verilog", "systemverilog", "hdl", "rtl", "fpga", "asic", "risc-v", "simulation", "waveform", "eda", "hardware", "copilot", "claude", "ai-agents"],
+  "keywords": [
+    "makerchip",
+    "tl-verilog",
+    "verilog",
+    "systemverilog",
+    "hdl",
+    "rtl",
+    "fpga",
+    "asic",
+    "risc-v",
+    "simulation",
+    "waveform",
+    "eda",
+    "hardware",
+    "copilot",
+    "claude",
+    "ai-agents"
+  ],
   "activationEvents": [
     "onStartupFinished",
     "onWebviewPanel:makerchip"
@@ -129,6 +146,12 @@
               "fdc3": "https://your-clone-tunnel.trycloudflare.com"
             }
           ]
+        },
+        "makerchip.tinyTapeout.runTestsBeforePush": {
+          "type": "boolean",
+          "default": false,
+          "scope": "resource",
+          "markdownDescription": "Before \"Run TT Flow\" commits and pushes a Tiny Tapeout project, run its testbench locally (`make` in `test/`, as Tiny Tapeout's `test` workflow does), and say if it fails. Needs cocotb (`pip install -r test/requirements.txt`) and Icarus Verilog (`iverilog`). Off by default, since Makerchip's own simulation is usually the test; turn it on for a project in its workspace settings."
         }
       }
     },
@@ -180,7 +203,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(circuit-board)",
         "userDescription": "Compile and open TL-Verilog in Makerchip IDE.",
-        "modelDescription": "Opens/focuses a VS Code editor panel and a Makerchip panel for the given TL-Verilog file (`filePath` argument) and compiles the code into the Makerchip panel. The `.tlv` code can alternatively be given inline via the `code` argument. In this case the code will be loaded into a new, unsaved editor panel before compilation. `oneShot: true` can be used for quick experiments to avoid opening the code panel for editing to minimize clutter. This tool waits up to `waitSeconds` (default 30s) for the compilation and simulation and returns a status summary on completion or timeout. By default, this tool does NOT wait for the diagram (SVG) response, which can lag (controlled by the `waitForDiagram` argument). To continue waiting, call `makerchip_wait_compile` with the returned compile ID. Set `waitSeconds` to 0 to return immediately with just the compile ID. Return status includes SandPiper/Verilator exit codes, pass/fail, and a log excerpt on failure — no need to read `metadata.json` via the shell.",
+        "modelDescription": "Opens/focuses a VS Code editor panel and a Makerchip panel for the given TL-Verilog file (`filePath` argument) and compiles the code into the Makerchip panel. The `.tlv` code can alternatively be given inline via the `code` argument. In this case the code will be loaded into a new, unsaved editor panel before compilation. `oneShot: true` can be used for quick experiments to avoid opening the code panel for editing to minimize clutter. This tool waits up to `waitSeconds` (default 30s) for the compilation and simulation and returns a status summary on completion or timeout. By default, this tool does NOT wait for the diagram (SVG) response, which can lag (controlled by the `waitForDiagram` argument). To continue waiting, call `makerchip_wait_compile` with the returned compile ID. Set `waitSeconds` to 0 to return immediately with just the compile ID. Return status includes SandPiper/Verilator exit codes, pass/fail, and a log excerpt on failure — no need to read `metadata.json` via the shell.\n\nPANELS (the `panelName` parameter of every Makerchip tool): each source file compiles into its own Makerchip panel, named for the file (e.g. `project.tlv`; the nearest differing folder, or a number, is added when another open panel has that name). Code with no file (inline `code`, or an unsaved editor) compiles into the shared `no file` panel. The CURRENT PANEL is the one most recently compiled into or focused by the user (`no file` if none is open); tools given no `panelName` use it. makerchip_list_panels shows each panel's name, its file, and which is current.",
         "tags": [
           "makerchip",
           "tlv",
@@ -205,7 +228,10 @@
               "description": "Optional path to a TL-Verilog file to open and compile. The file is read from disk (not the editor buffer). If the open buffer has unsaved edits, a warning is returned. If not provided, uses the currently active editor."
             },
             "code": {
-              "type": ["string", "boolean"],
+              "type": [
+                "string",
+                "boolean"
+              ],
               "description": "Optional TL-Verilog code to compile. When a string is provided, creates a new unsaved file with this code and opens it in Makerchip. Use this to show examples or demonstrate TL-Verilog features. Pass boolean `true` to instead open the bundled minimal scratch design (`resources/minimal.tlv`) — the easy way to just open a Makerchip panel. Combine with `oneShot: true` to compile without opening any editor."
             },
             "oneShot": {
@@ -214,12 +240,14 @@
             },
             "additionalFiles": {
               "type": "array",
-              "items": { "type": "string" },
+              "items": {
+                "type": "string"
+              },
               "description": "Optional paths to additional TL-Verilog source files to compile alongside the top file (e.g. files pulled in via m4_include). Each is read from disk and made available to the compiler under its basename, so `m4_include(['lib.tlv'])` in the top file resolves. Basenames must be unique and none may be `top.tlv` (reserved for the top file)."
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`. Use this to open multiple Makerchip panels for different designs or comparisons."
+              "description": "Optional panel name to target. Default: the source file's own panel (see PANELS above). Name another panel to compare designs side by side."
             },
             "serverUrl": {
               "type": "string",
@@ -239,7 +267,7 @@
             },
             "dot": {
               "type": "boolean",
-              "description": "Whether to generate the diagram (SVG) (default true). Pass false to save unnecessary processing. Other results are unaffected. The IDE's diagram view shows no-result status."
+              "description": "Whether to generate the diagram (SVG) (default true). Pass false to save unnecessary processing (though the resulting no-result tab status in the Diagram view may confuse a user)."
             },
             "fetchIntermediateFiles": {
               "type": "boolean",
@@ -284,7 +312,9 @@
               "description": "When the compile completes or has already completed, fetch its SandPiper intermediate/output files (e.g., `top.m4.pre`, `top.m4`, `top.sv`, `top_gen.sv`) from the server into the compile's cache dir so the emitted M5 output and (System)Verilog can be read locally, and report their paths. Skipped if the wait times out (compile still running) — can call again to continue waiting."
             }
           },
-          "required": ["compileId"]
+          "required": [
+            "compileId"
+          ]
         }
       },
       {
@@ -329,7 +359,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           }
         }
@@ -383,7 +413,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           }
         }
@@ -439,7 +469,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           }
         }
@@ -469,7 +499,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           }
         }
@@ -511,7 +541,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           }
         }
@@ -541,7 +571,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           }
         }
@@ -620,7 +650,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target when delivering to WARP-V. Default: `default`."
+              "description": "Optional panel name to target when delivering to WARP-V. Default: the current panel (see makerchip_compile)."
             }
           }
         }
@@ -649,7 +679,11 @@
           "properties": {
             "format": {
               "type": "string",
-              "enum": ["png", "jpeg", "webp"],
+              "enum": [
+                "png",
+                "jpeg",
+                "webp"
+              ],
               "description": "Image format. Default is 'png'.",
               "default": "png"
             },
@@ -658,19 +692,25 @@
               "description": "Image quality for jpeg/webp formats (0.0-1.0). Default is 1.0.",
               "minimum": 0,
               "maximum": 1,
-              "default": 1.0
+              "default": 1
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             },
             "clearance": {
               "type": "string",
-              "enum": ["copy", "chat"],
+              "enum": [
+                "copy",
+                "chat"
+              ],
               "description": "Needed only while the VIZ shows PDF content (this tool says so): the user's answer to the Live Doc skill's copy question, as for makerchip_extract_pdf_figure. Never assume it. With \"chat\", the capture is not saved to a non-temp path."
             },
             "saveToFile": {
-              "type": ["boolean", "string"],
+              "type": [
+                "boolean",
+                "string"
+              ],
               "description": "Optional: also save the image to a file for the user to view. If true, saves to a temp file with an auto-generated name; if a string, uses it as the file path. (The image is also returned inline to the model unless `blind` is set.)"
             },
             "blind": {
@@ -679,7 +719,11 @@
             },
             "response": {
               "type": "string",
-              "enum": ["image", "keyframe", "both"],
+              "enum": [
+                "image",
+                "keyframe",
+                "both"
+              ],
               "description": "What to return. 'both' (default) captures the image AND the current camera as an absolute keyframe; 'image' returns only the image; 'keyframe' returns only the keyframe (no image render — cheap). The keyframe is {cycle, scale, focus:{x,y}, width, height}, ready to drop into makerchip_capture_video's `keyframes` with `mode: 'absolute'`.",
               "default": "both"
             }
@@ -729,16 +773,25 @@
             },
             "ignore": {
               "type": "array",
-              "items": { "type": "integer" },
+              "items": {
+                "type": "integer"
+              },
               "description": "As `extractFigure`'s `ignore`: page primitives that join no cluster, by their index in a `{mode: \"all\"}` extraction (as a summary's `largest` gives them). Use it for a frame or backdrop that still joins separate figures into one cluster (clustering leaves out most frames by itself). Only the cluster modes use it, and it changes which primitives a cluster holds, so `\\viz_js` code must pass the same value."
             },
             "text": {
               "type": "string",
-              "enum": ["labels", "all", "none"],
+              "enum": [
+                "labels",
+                "all",
+                "none"
+              ],
               "description": "As `extractFigure`'s `text`. Default \"labels\"."
             },
             "clip": {
-              "type": ["boolean", "number"],
+              "type": [
+                "boolean",
+                "number"
+              ],
               "description": "As `extractFigure`'s `clip`: true (pad 4), a pad in px, or omitted for none."
             },
             "caption": {
@@ -750,19 +803,39 @@
               "description": "With `caption`, pick among the reported candidates (0 = best match). Use when the best match turns out to be a running header or a cross-reference."
             },
             "render": {
-              "type": ["boolean", "object"],
+              "type": [
+                "boolean",
+                "object"
+              ],
               "properties": {
-                "scale": { "type": "number", "description": "Pixels per PDF px. Default 2." },
-                "annotate": { "type": "boolean", "description": "Outline each primitive (red) and label (blue) on the image, tagged with its `id` (`p<N>`, `t<N>`: N is its pool index, as `\\viz_js` selectors name it). With `group`, each group is outlined once instead of its members (green, `g<N>`). Default false." }
+                "scale": {
+                  "type": "number",
+                  "description": "Pixels per PDF px. Default 2."
+                },
+                "annotate": {
+                  "type": "boolean",
+                  "description": "Outline each primitive (red) and label (blue) on the image, tagged with its `id` (`p<N>`, `t<N>`: N is its pool index, as `\\viz_js` selectors name it). With `group`, each group is outlined once instead of its members (green, `g<N>`). Default false."
+                }
               },
               "description": "Output: an image of the figure box as pdf.js draws it (the original, not the extraction), to check the extraction against: true (scale 2) or {scale, annotate}. Returned inline where supported, else written to a temp file. Default false."
             },
             "extraction": {
-              "type": ["boolean", "object"],
+              "type": [
+                "boolean",
+                "object"
+              ],
               "properties": {
-                "file": { "type": "boolean", "enum": [true], "description": "Write the JSON to an auto-named temp file instead of returning it. Only the path is returned." }
+                "file": {
+                  "type": "boolean",
+                  "enum": [
+                    true
+                  ],
+                  "description": "Write the JSON to an auto-named temp file instead of returning it. Only the path is returned."
+                }
               },
-              "required": ["file"],
+              "required": [
+                "file"
+              ],
               "description": "Output: the records, i.e. the ExtractResult (see the Live Doc skill), in figure coordinates as `\\viz_js` code sees them, shaped by `includePaths` and `group`. Primitives also carry a tool-only `kind` (`line`, `rect`, `polygon`, `curve`), which, like the style fields, appears only where it changes from the previous primitive. Numbers are to 0.1 px, and an unrotated label omits `left`/`top` (its bbox's top-left). true returns it inline, false omits it, {file: true} writes it to a temp file. Default: inline, or omitted when `summary` is requested."
             },
             "includePaths": {
@@ -775,21 +848,35 @@
               "description": "Shapes the `extraction` records (and `render`'s annotation): collapse each set of same-paint primitives that reads as one shape into one `groups` entry `{id, kind, fill, stroke, strokeWidth, count, members, bbox}`, omitting the members from `primitives`. Only two kinds join: `line`s whose endpoint lies on another (corners and T-junctions, not crossings), so a set is a wire net; and unstroked filled `rect`s that touch without one mostly covering the other (a shape filled in pieces, not a backdrop). `members` are inclusive pool-index runs `[[from, to], ...]`; remaining primitives keep their `id`s, so indices still match the full pool `\\viz_js` code sees. Default false."
             },
             "summary": {
-              "type": ["boolean", "object"],
+              "type": [
+                "boolean",
+                "object"
+              ],
               "properties": {
-                "file": { "type": "boolean", "enum": [true], "description": "As `extraction`'s `file`." }
+                "file": {
+                  "type": "boolean",
+                  "enum": [
+                    true
+                  ],
+                  "description": "As `extraction`'s `file`."
+                }
               },
-              "required": ["file"],
+              "required": [
+                "file"
+              ],
               "description": "Output: a compact preview, to settle the options before requesting the (larger) records. Of the extraction, in figure coordinates as its records: `rows`, one per kind and paint, `{kind, fill, stroke, strokeWidth, count, members, bbox, shapes}`, largest first (`shapes` counts each set `group` would join as one; `members` are inclusive pool-index runs); `images` (bboxes); and `lines` (the selected text by line, `{bbox, text}`). Of the page, to choose a figure, in page coordinates as `select` takes them: `clusterCount`, `clusters` (the first 20, `{index, count, bbox}`, as `{mode: \"cluster\", index}` picks them) and `largest` (the 5 biggest primitives, `{index, bbox}`, by the index `ignore` takes). Add the figure box's origin to a figure coordinate for its page coordinate. To survey a page, use `select: {mode: \"all\"}`, with `text: \"all\"` for text beyond the vector art. true returns it inline, {file: true} writes it to a temp file. Default false."
             },
             "clearance": {
               "type": "string",
-              "enum": ["copy", "chat"],
+              "enum": [
+                "copy",
+                "chat"
+              ],
               "description": "The user's answer to the Live Doc skill's copy question, given in this conversation: \"copy\" (they may copy this PDF's content) or \"chat\" (their LLM provider neither retains nor trains on this conversation). Never assume it. Omitted: document information only."
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           },
           "required": []
@@ -830,7 +917,13 @@
             },
             "format": {
               "type": "string",
-              "enum": ["auto", "gif", "mp4", "webm", "apng"],
+              "enum": [
+                "auto",
+                "gif",
+                "mp4",
+                "webm",
+                "apng"
+              ],
               "description": "Output format. 'auto' (default) lets the IDE choose: GIF for one frame per cycle, MP4 otherwise. Set explicitly to force a codec (e.g. 'mp4' for a shareable video, 'webm' for VP9, 'gif'/'apng' for looping clips). Independent of the output `filename` and its extension.",
               "default": "auto"
             },
@@ -866,11 +959,14 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             },
             "clearance": {
               "type": "string",
-              "enum": ["copy", "chat"],
+              "enum": [
+                "copy",
+                "chat"
+              ],
               "description": "Needed only while the VIZ shows PDF content (this tool says so): the user's answer to the Live Doc skill's copy question, as for makerchip_extract_pdf_figure. Never assume it. With \"chat\", the capture is not saved to a non-temp path."
             },
             "filename": {
@@ -883,21 +979,44 @@
               "items": {
                 "type": "object",
                 "properties": {
-                  "cycle": { "type": "number", "description": "Cycle at which this keyframe applies. First/last default to startCyc/endCyc when omitted." },
-                  "scale": { "type": "number", "description": "Camera zoom (relative multiplier in the relative modes, or absolute pixels to canvas units in 'absolute' mode)." },
+                  "cycle": {
+                    "type": "number",
+                    "description": "Cycle at which this keyframe applies. First/last default to startCyc/endCyc when omitted."
+                  },
+                  "scale": {
+                    "type": "number",
+                    "description": "Camera zoom (relative multiplier in the relative modes, or absolute pixels to canvas units in 'absolute' mode)."
+                  },
                   "focus": {
                     "type": "object",
                     "description": "Camera center (relative fractional offset in the relative modes, or absolute VIZ coordinate in 'absolute' mode).",
-                    "properties": { "x": { "type": "number" }, "y": { "type": "number" } }
+                    "properties": {
+                      "x": {
+                        "type": "number"
+                      },
+                      "y": {
+                        "type": "number"
+                      }
+                    }
                   },
-                  "width": { "type": "number", "description": "Absolute mode only. Canvas width (px) that this keyframe's absolute `scale` was measured against — i.e. the `width` from `getKeyframe`. The recorder rescales `scale` by min(recordingWidth/width, recordingHeight/height) so the same framing holds when recording at a different resolution. Omit to assume the recording width (or `default.width`). Does not affect `focus`, which is a size-independent absolute coordinate." },
-                  "height": { "type": "number", "description": "Absolute mode only. Canvas height (px) that this keyframe's absolute `scale` was measured against — the `height` from `getKeyframe` (see `width`). Omit to assume the recording height (or `default.height`)." }
+                  "width": {
+                    "type": "number",
+                    "description": "Absolute mode only. Canvas width (px) that this keyframe's absolute `scale` was measured against — i.e. the `width` from `getKeyframe`. The recorder rescales `scale` by min(recordingWidth/width, recordingHeight/height) so the same framing holds when recording at a different resolution. Omit to assume the recording width (or `default.width`). Does not affect `focus`, which is a size-independent absolute coordinate."
+                  },
+                  "height": {
+                    "type": "number",
+                    "description": "Absolute mode only. Canvas height (px) that this keyframe's absolute `scale` was measured against — the `height` from `getKeyframe` (see `width`). Omit to assume the recording height (or `default.height`)."
+                  }
                 }
               }
             },
             "mode": {
               "type": "string",
-              "enum": ["viz-relative", "fit-relative", "absolute"],
+              "enum": [
+                "viz-relative",
+                "fit-relative",
+                "absolute"
+              ],
               "description": "Keyframe reference frame. 'viz-relative' (default): `scale` is a multiplier on the current VIZ scale and `focus` is a fraction of the current viewport; keyframes may be omitted to record the current camera. 'fit-relative': same relative math but the base is the whole-design contain-fit AT THE RECORDING SIZE rather than the current VIZ camera — the reliable way to frame a capture without hand-tuning scale (scale 1 / focus 0 = whole design framed; keyframes may be omitted for the whole-design fit). 'absolute': `scale`/`focus` are absolute VIZ scale/coordinates (as returned by getKeyframe / makerchip_get_viz_image) and keyframes are REQUIRED."
             },
             "default": {
@@ -905,7 +1024,10 @@
               "description": "Default values for any keyframe property except `cycle` (same shape as a `keyframes` entry — e.g. `scale`, `focus`, `width`, `height`). (Often `{width, height}`.) Supplies these to any keyframe that omits them; a keyframe's own value takes precedence. Does not remove the requirement to pass at least one `keyframes` entry in absolute mode."
             }
           },
-          "required": ["startCyc", "endCyc"]
+          "required": [
+            "startCyc",
+            "endCyc"
+          ]
         }
       },
       {
@@ -930,7 +1052,7 @@
           "properties": {
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           }
         }
@@ -957,7 +1079,9 @@
         ],
         "inputSchema": {
           "type": "object",
-          "required": ["state"],
+          "required": [
+            "state"
+          ],
           "properties": {
             "state": {
               "$ref": "#/$defs/layoutState",
@@ -965,27 +1089,38 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           },
           "$defs": {
             "layoutState": {
               "oneOf": [
-                { "$ref": "#/$defs/tabbedPaneState" },
-                { "$ref": "#/$defs/flexSplitState" }
+                {
+                  "$ref": "#/$defs/tabbedPaneState"
+                },
+                {
+                  "$ref": "#/$defs/flexSplitState"
+                }
               ]
             },
             "tabbedPaneState": {
               "type": "object",
-              "required": ["views"],
+              "required": [
+                "views"
+              ],
               "properties": {
                 "views": {
                   "type": "array",
-                  "items": { "type": "string" },
+                  "items": {
+                    "type": "string"
+                  },
                   "description": "Array of view mnemonics in tab order"
                 },
                 "activeView": {
-                  "type": ["string", "null"],
+                  "type": [
+                    "string",
+                    "null"
+                  ],
                   "description": "Mnemonic of active view (or null)"
                 }
               },
@@ -993,26 +1128,42 @@
             },
             "flexSplitState": {
               "type": "object",
-              "required": ["sides"],
+              "required": [
+                "sides"
+              ],
               "properties": {
                 "sides": {
                   "oneOf": [
                     {
                       "type": "object",
-                      "required": ["left", "right"],
+                      "required": [
+                        "left",
+                        "right"
+                      ],
                       "properties": {
-                        "left": { "$ref": "#/$defs/layoutState" },
-                        "right": { "$ref": "#/$defs/layoutState" }
+                        "left": {
+                          "$ref": "#/$defs/layoutState"
+                        },
+                        "right": {
+                          "$ref": "#/$defs/layoutState"
+                        }
                       },
                       "additionalProperties": false,
                       "description": "Horizontal split with left and right sides"
                     },
                     {
                       "type": "object",
-                      "required": ["top", "bottom"],
+                      "required": [
+                        "top",
+                        "bottom"
+                      ],
                       "properties": {
-                        "top": { "$ref": "#/$defs/layoutState" },
-                        "bottom": { "$ref": "#/$defs/layoutState" }
+                        "top": {
+                          "$ref": "#/$defs/layoutState"
+                        },
+                        "bottom": {
+                          "$ref": "#/$defs/layoutState"
+                        }
                       },
                       "additionalProperties": false,
                       "description": "Vertical split with top and bottom sides"
@@ -1053,7 +1204,7 @@
           "properties": {
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           }
         }
@@ -1078,7 +1229,9 @@
         ],
         "inputSchema": {
           "type": "object",
-          "required": ["mnemonic"],
+          "required": [
+            "mnemonic"
+          ],
           "properties": {
             "mnemonic": {
               "type": "string",
@@ -1091,7 +1244,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           }
         }
@@ -1117,7 +1270,9 @@
         ],
         "inputSchema": {
           "type": "object",
-          "required": ["mnemonic"],
+          "required": [
+            "mnemonic"
+          ],
           "properties": {
             "mnemonic": {
               "type": "string",
@@ -1125,7 +1280,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           }
         }
@@ -1138,7 +1293,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(new-file)",
         "userDescription": "Open custom content (PDFs, web pages) in IDE views.",
-        "modelDescription": "Opens third-party view with PDF or iframe content. PDF: uses built-in viewer, supports any URL. Iframe: embeds web pages, subject to CSP/X-Frame-Options. Provide content via either `contentUrl` (a URL/data URI) OR `filePath` (an absolute path to a local file). Prefer `filePath` for local files: the extension reads the file and builds a data: URI internally, so large file contents never pass through the model context. A data: URI view inherits the IDE's Content Security Policy, so it can run inline scripts but not load scripts from other origins (inline them). Mnemonic is tab label plus optional `+`-delimited uniquifier string (or allow auto-uniquification). Returns actual mnemonic used (same or uniquified).\n\nEXAMPLES:\n\nLocal file (preferred for local content): {\"mnemonic\": \"Guide\", \"contentType\": \"iframe\", \"contentParams\": {\"filePath\": \"/home/user/docs/guide.html\"}}\n\nPDF URL: {\"mnemonic\": \"Guide\", \"contentType\": \"pdf\", \"contentParams\": {\"contentUrl\": \"https://example.com/guide.pdf\"}}\n\nIframe URL: {\"mnemonic\": \"Docs\", \"contentType\": \"iframe\", \"contentParams\": {\"contentUrl\": \"https://docs.example.com\"}, \"options\": {\"background\": true}}\n\nConnected view (channel-wired onto the IDE bus, so one view's events drive another): pass `options.channel` (produces/subscribes/rpc) and optional `options.params`. E.g. a Compiler Explorer view with {\"options\": {\"channel\": {\"produces\": [\"sourceAsm\"], \"rpc\": true}, \"params\": {\"ce\": {\"language\": \"c\", \"compiler\": \"rv32-cgcc1430\"}}}} paired with a WARP-V view {\"options\": {\"channel\": {\"subscribes\": [{\"type\": \"sourceAsm\", \"sources\": [\"Compiler Explorer\"]}], \"rpc\": true}}}.",
+        "modelDescription": "Opens third-party view with PDF or iframe content. PDF: uses built-in viewer, supports any URL. Iframe: embeds web pages, subject to CSP/X-Frame-Options. Provide content via exactly one of `contentUrl` (a URL/data URI), `sourceUrl` (iframe only: an HTML file that isn't served as a page, e.g. on raw.githubusercontent.com; the IDE fetches it and frames it at an opaque origin) OR `filePath` (an absolute path to a local file). Prefer `filePath` for local files: the extension reads the file and builds a data: URI internally, so large file contents never pass through the model context. A data: URI or sourceUrl view inherits the IDE's Content Security Policy, so it can run inline and https: scripts. Mnemonic is tab label plus optional `+`-delimited uniquifier string (or allow auto-uniquification). Returns actual mnemonic used (same or uniquified).\n\nEXAMPLES:\n\nLocal file (preferred for local content): {\"mnemonic\": \"Guide\", \"contentType\": \"iframe\", \"contentParams\": {\"filePath\": \"/home/user/docs/guide.html\"}}\n\nPDF URL: {\"mnemonic\": \"Guide\", \"contentType\": \"pdf\", \"contentParams\": {\"contentUrl\": \"https://example.com/guide.pdf\"}}\n\nHTML file in a GitHub repo (pin a commit SHA): {\"mnemonic\": \"My View\", \"contentType\": \"iframe\", \"contentParams\": {\"sourceUrl\": \"https://raw.githubusercontent.com/<owner>/<repo>/<sha>/view/index.html\", \"rewriteRelativeUrls\": true}}\n\nIframe URL: {\"mnemonic\": \"Docs\", \"contentType\": \"iframe\", \"contentParams\": {\"contentUrl\": \"https://docs.example.com\"}, \"options\": {\"background\": true}}\n\nConnected view (channel-wired onto the IDE bus, so one view's events drive another): pass `options.channel` (produces/subscribes/rpc) and optional `options.params`. E.g. a Compiler Explorer view with {\"options\": {\"channel\": {\"produces\": [\"sourceAsm\"], \"rpc\": true}, \"params\": {\"ce\": {\"language\": \"c\", \"compiler\": \"rv32-cgcc1430\"}}}} paired with a WARP-V view {\"options\": {\"channel\": {\"subscribes\": [{\"type\": \"sourceAsm\", \"sources\": [\"Compiler Explorer\"]}], \"rpc\": true}}}. The channel is fixed when the view opens, and event types must match exactly (a misspelled type is silently never delivered). The IDE itself publishes `compile-result` and `theme` (subscribe with `\"sources\": [\"ide\"]`). Application event types and RPC method names are each view's own: take them from the view's documentation, not guesses. Spec: ~/.vscode-makerchip/resources/Makerchip-public/docs/plugin_api/Third_Party_View_API.md.",
         "tags": [
           "makerchip",
           "ide",
@@ -1153,7 +1308,11 @@
         ],
         "inputSchema": {
           "type": "object",
-          "required": ["mnemonic", "contentType", "contentParams"],
+          "required": [
+            "mnemonic",
+            "contentType",
+            "contentParams"
+          ],
           "properties": {
             "mnemonic": {
               "type": "string",
@@ -1161,7 +1320,10 @@
             },
             "contentType": {
               "type": "string",
-              "enum": ["pdf", "iframe"],
+              "enum": [
+                "pdf",
+                "iframe"
+              ],
               "description": "Type of content to display: 'pdf' for PDF viewer or 'iframe' for embedded web content."
             },
             "contentParams": {
@@ -1169,14 +1331,22 @@
               "properties": {
                 "contentUrl": {
                   "type": "string",
-                  "description": "URL to the content. For PDFs: supports https://, http://, file://, vscode-webview://, data URIs. For iframes: must support iframe embedding. Provide this OR filePath."
+                  "description": "URL to the content: https: (or blob:; data: for iframes only). An iframe page must permit framing. Not file:// (use filePath) and not http:. Provide exactly one of contentUrl, sourceUrl and filePath."
+                },
+                "sourceUrl": {
+                  "type": "string",
+                  "description": "Iframe only: URL of an HTML FILE that is not served as a page, e.g. https://raw.githubusercontent.com/<owner>/<repo>/<commit-sha>/view.html (pin a commit SHA, not a branch). The IDE fetches and frames it at an opaque origin: no localStorage/IndexedDB/cookies, and fetch reaches only CORS-* resources."
+                },
+                "rewriteRelativeUrls": {
+                  "type": "boolean",
+                  "description": "With sourceUrl: resolve the page's relative URLs (by default they don't resolve; only self-contained pages work). Adds a <base> for sourceUrl's directory; a GitHub raw source maps to its jsDelivr mirror, which serves JS/CSS with correct types."
                 },
                 "filePath": {
                   "type": "string",
                   "description": "Absolute path to a local file to load. The extension reads the file and builds a data: URI internally, so large file contents never pass through the model context. Preferred over contentUrl for local files. Takes precedence when both are provided."
                 }
               },
-              "description": "Content parameters. Provide either contentUrl or filePath."
+              "description": "Content parameters. Provide exactly one of contentUrl, sourceUrl (iframe) and filePath."
             },
             "options": {
               "type": "object",
@@ -1197,7 +1367,9 @@
                   "properties": {
                     "produces": {
                       "type": "array",
-                      "items": { "type": "string" },
+                      "items": {
+                        "type": "string"
+                      },
                       "description": "Event types this view may publish on the bus (e.g. [\"sourceAsm\"])."
                     },
                     "subscribes": {
@@ -1205,12 +1377,19 @@
                       "description": "Event types this view receives, optionally scoped to specific source agents.",
                       "items": {
                         "type": "object",
-                        "required": ["type"],
+                        "required": [
+                          "type"
+                        ],
                         "properties": {
-                          "type": { "type": "string", "description": "Event type to subscribe to (e.g. \"sourceAsm\", \"theme\")." },
+                          "type": {
+                            "type": "string",
+                            "description": "Event type to subscribe to (e.g. \"sourceAsm\", \"theme\")."
+                          },
                           "sources": {
                             "type": "array",
-                            "items": { "type": "string" },
+                            "items": {
+                              "type": "string"
+                            },
                             "description": "Source agent identities to accept this event from (e.g. the mnemonic of the producing view, or \"ide\")."
                           }
                         }
@@ -1231,7 +1410,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional VS Code panel name to target. Default: `default`."
+              "description": "Optional VS Code panel name to target. Default: the current panel (see makerchip_compile)."
             }
           }
         }
@@ -1278,7 +1457,7 @@
           "properties": {
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           }
         }
@@ -1316,12 +1495,20 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           },
           "oneOf": [
-            {"required": ["cycle"]},
-            {"required": ["offset"]}
+            {
+              "required": [
+                "cycle"
+              ]
+            },
+            {
+              "required": [
+                "offset"
+              ]
+            }
           ]
         }
       },
@@ -1356,7 +1543,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           }
         }
@@ -1383,7 +1570,9 @@
         ],
         "inputSchema": {
           "type": "object",
-          "required": ["isPlaying"],
+          "required": [
+            "isPlaying"
+          ],
           "properties": {
             "isPlaying": {
               "type": "boolean",
@@ -1406,7 +1595,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           }
         }
@@ -1434,7 +1623,9 @@
         ],
         "inputSchema": {
           "type": "object",
-          "required": ["id"],
+          "required": [
+            "id"
+          ],
           "properties": {
             "id": {
               "type": "string",
@@ -1447,7 +1638,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           }
         }
@@ -1473,7 +1664,7 @@
           "properties": {
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           }
         }
@@ -1504,7 +1695,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           },
           "required": [
@@ -1545,7 +1736,7 @@
             },
             "panelName": {
               "type": "string",
-              "description": "Optional panel name to target. Default: `default`."
+              "description": "Optional panel name to target. Default: the current panel (see makerchip_compile)."
             }
           },
           "required": [
@@ -1562,7 +1753,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(list-tree)",
         "userDescription": "List all currently open Makerchip IDE panels.",
-        "modelDescription": "Returns open panel names. Use these in 'panelName' parameter to target specific IDE instances. New panels are created only via makerchip_compile with a code or filePath argument.",
+        "modelDescription": "Lists the open Makerchip panels: each one's name (for the `panelName` parameter), the source file it compiles, and which is the current panel (defined in makerchip_compile, which also creates panels).",
         "tags": [
           "makerchip",
           "panels",
@@ -1655,7 +1846,7 @@
             },
             "minDurationMs": {
               "type": "number",
-              "description": "Return no sooner than this many ms after the call starts (max 10000; slower calls are not delayed further). Use only if your harness loses quick results (your Makerchip skill says when)."
+              "description": "Return no sooner than this many ms after the call starts (default 3000, max 10000; slower calls are not delayed further). The default covers harnesses that lose quick results; change it only if your Makerchip skill or the user says to."
             }
           }
         }
