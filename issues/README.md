@@ -56,6 +56,7 @@ Stage other files explicitly (e.g. not `git commit -a`) while it has items.
 - [021: Eliminate the need for SandPiper-SaaS in the TT flow](021-eliminate-sandpiper-saas-use.md)
 - [023: Help users see which Makerchip panel goes with which editor](023-pair-editors-with-panels.md)
 - [024: Link editor lines and Nav-TLV lines, as the Makerchip IDE does](024-editor-nav-tlv-line-linking.md)
+- [026: Reload a locked VCD when its file changes (`makerchip_load_vcd` `watch`)](026-load-vcd-watch.md)
 
 ## Closed
 

@@ -12,6 +12,14 @@ uses [semantic versioning](https://semver.org/).
   or always allow agent tools to change that repository (revoked with "Makerchip: Manage Repository
   Authorizations").
 
+- `makerchip_load_vcd` tool: load an external VCD waveform (e.g. from a Verilator or Icarus simulation)
+  so that VIZ can visualize it. Requires a Makerchip server with Plugin API 2.2.
+
+### Security
+
+- The Makerchip panel ignores IDE commands that do not come from the extension (e.g. from content within
+  the IDE).
+
 ## [0.0.4] — 2026-11-16
 
 ### Added

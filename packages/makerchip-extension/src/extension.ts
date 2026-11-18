@@ -21,7 +21,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { initializeResources, updateResources } from './resourceManager';
 import { initMakerchipDir, DEV_MODE } from './populateResources';
-import { registerMakerchipTool } from './makerchipTool';
+import { registerMakerchipTool, readVcdFile } from './makerchipTool';
 import { registerTinyTapeout, onTtCompile, sendTtCompiled } from './tinyTapeout';
 import { initToolActivation, getToolActivation } from './toolActivation';
 import { registerMakerchipParticipant } from './makerchipParticipant';
@@ -1098,28 +1098,29 @@ function setupPanel(panel: vscode.WebviewPanel, panelKey: string, isRestore: boo
       }
 
       if (msg.type === 'restoreRequest') {
-        // Webview reloaded and is asking for cached results to restore the IDE.
-        log(`Restore requested for compile ${msg.compileId}`);
+        // Webview reloaded and is asking for cached results (and/or its locked VCD) to restore the IDE.
+        log(`Restore requested for compile ${msg.compileId}, VCD ${msg.vcdPath}`);
         restoredCompileId = msg.compileId;
-        try {
-          const data = await compileCache.getRestoreData(msg.compileId);
-          log(`Restore data for ${msg.compileId}: available=${data.available} files=[${data.files ? Object.keys(data.files).join(',') : ''}] hasSource=${data.source != null} exitStatus=${JSON.stringify(data.exitStatus)}`);
-          panel.webview.postMessage({
-            type: 'restoreData',
-            compileId: msg.compileId,
-            available: data.available,
-            files: data.files,
-            fileComplete: data.fileComplete,
-            exitStatus: data.exitStatus,
-            artifacts: data.artifacts,
-            sandpiperFailed: data.sandpiperFailed,
-            errorTypes: data.errorTypes,
-            source: data.source
-          });
-        } catch (error) {
-          console.error('Failed to load restore data:', error);
-          panel.webview.postMessage({ type: 'restoreData', compileId: msg.compileId, available: false });
+        const reply: any = { type: 'restoreData', compileId: msg.compileId, available: false };
+        if (msg.compileId) {
+          try {
+            const data = await compileCache.getRestoreData(msg.compileId);
+            log(`Restore data for ${msg.compileId}: available=${data.available} files=[${data.files ? Object.keys(data.files).join(',') : ''}] hasSource=${data.source != null} exitStatus=${JSON.stringify(data.exitStatus)}`);
+            const { available, files, fileComplete, exitStatus, artifacts, sandpiperFailed, errorTypes, source } = data;
+            Object.assign(reply, { available, files, fileComplete, exitStatus, artifacts, sandpiperFailed, errorTypes, source });
+          } catch (error) {
+            console.error('Failed to load restore data:', error);
+          }
         }
+        if (msg.vcdPath) {
+          try {
+            // Without confirmation, as this is not an agent's request.
+            reply.vcd = (await readVcdFile(msg.vcdPath, false)).text;
+          } catch (error: any) {
+            log(`Not restoring locked VCD: ${error.message}`);
+          }
+        }
+        panel.webview.postMessage(reply);
       }
     });
 

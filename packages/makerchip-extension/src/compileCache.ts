@@ -101,7 +101,7 @@ interface IntermediateFileInfo {
 interface CompileMetadata {
   id: string;
   timestamp: string;
-  sim?: boolean;            // Simulation requested (default true) (from the compile-start hook). Gates vlt_dump.vcd (waveform).
+  sim?: boolean;            // Simulation requested (default true) (from the compile-start hook). Gates make.out and vlt_dump.vcd (Verilator isn't run).
   dot?: boolean;            // Diagram requested (default true) (from the compile-start hook). Gates graph.svg (diagram).
   fileComplete: Partial<Record<ResultFileName, boolean>>; // true = file fully received OK
   fileError?: Partial<Record<ResultFileName, FileErrorInfo>>; // Per-file error (streamed files may retain partial content; single-payload files have null content)
@@ -150,13 +150,13 @@ export type CompileSource = string | MultiFileSource;
  *   and simulation have finished. This is the flag agents should normally wait
  *   on to validate a compile.
  * - `complete`: true once every EXPECTED file is settled, INCLUDING the diagram
- *   (unless dot is disabled). Waveform (vlt_dump.vcd) is expected unless sim is
+ *   (unless dot is disabled). Verilator results (make.out, vlt_dump.vcd) are expected unless sim is
  *   disabled. When sim/dot are unknown (undefined) the file is assumed expected
  *   so completion is never reported prematurely.
  */
 function recomputeComplete(m: CompileMetadata): void {
-  const core: ResultFileName[] = ['stdall', 'make.out', 'parse_model.json', 'navtlv.html'];
-  if (m.sim !== false) { core.push('vlt_dump.vcd'); }
+  const core: ResultFileName[] = ['stdall', 'parse_model.json', 'navtlv.html'];
+  if (m.sim !== false) { core.push('make.out', 'vlt_dump.vcd'); }
   const settled = (f: ResultFileName): boolean =>
     !!(m.fileComplete[f] || m.fileError?.[f] || m.fileSkipped?.[f]);
   m.resultsComplete = core.every(settled);
@@ -293,7 +293,7 @@ export async function initCompile(id: string, sourceCode?: CompileSource, params
     hasSource: topContent != null,
   };
   if (siblingNames.length > 0) { metadata.sourceSiblings = siblingNames; }
-  if (params?.sim === false) { metadata.fileSkipped!['vlt_dump.vcd'] = true; }
+  if (params?.sim === false) { metadata.fileSkipped!['make.out'] = metadata.fileSkipped!['vlt_dump.vcd'] = true; }
   if (params?.dot === false) { metadata.fileSkipped!['graph.svg'] = true; }
   recomputeComplete(metadata);
 

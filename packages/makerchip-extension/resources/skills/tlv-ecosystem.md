@@ -93,6 +93,10 @@ Use `makerchip_get_viz_image` to grab the VIZ view's current image as a still, a
 
 The user may help guide your video framing. Use `makerchip_get_viz_image` to check the current VIZ camera framing: it returns the current framing as an image for your viewing and/or an absolute keyframe you can feed straight into the video capture. Before committing to a long video render, use reduced resolution and frames per second as you work out proper framing.
 
+### VIZ for external simulations
+
+VIZ can visualize a simulation run outside Makerchip, such as a Verilog/SystemVerilog model simulated with Verilator or Icarus. Load its VCD trace with `makerchip_load_vcd`, which locks the Waveform and VIZ views to it, and compile a TL-Verilog file whose `\viz_js` references the trace's signals by their VCD names (`this.sigVal("tb.dut.sig")`). Check the tool's returned summary (sample signal names, clk/reset, warnings) to get the names and timing right.
+
 ### Live Doc (PDF-driven VIZ)
 
 **Live Doc** extends VIZ so a `\viz_js` block can extract vector figures from a referenced PDF (a lecture slide, textbook page, or design spec) and overlay them with live simulation data — animating a static diagram to reflect circuit behavior. It's exposed to `\viz_js` code as `this.global.pdf` (`extractFigure`, `toFabric`, `buildFigure`).
