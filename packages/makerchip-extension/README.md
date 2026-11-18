@@ -38,7 +38,7 @@ VS Code also installs the companion [TL-Verilog](https://marketplace.visualstudi
 
 **Making a chip with [Tiny Tapeout](https://tinytapeout.com):** in a project made from
 [tt-makerchip-template](https://github.com/stevehoover/tt-makerchip-template), the design's `.tlv` file gets a
-"Run TT Flow" button (a rocket) next to the Makerchip icon. It checks the project information Tiny Tapeout
+"Run TT Flow" button (a chip) next to the Makerchip icon. It checks the project information Tiny Tapeout
 requires, generates the Verilog, commits and pushes, which runs Tiny Tapeout's flow on GitHub Actions, and
 follows the run in the Makerchip panel's TT Build and TT Layout views. TT Build then shows the results,
 including every log and report, with a text search. For a VGA design (the template's `vga` setting), compiling it in Makerchip opens
@@ -56,7 +56,8 @@ AI Agents can:
 - Capture images and videos (GIF, MP4, WebM, APNG) of simulation visualizations, with camera pan and zoom
 - Compile C, C++, or assembly through Compiler Explorer and run it on a configurable [WARP-V](https://warp-v.org) RISC-V CPU
 - Build Live Docs: extract a figure from a PDF, such as a slide or a textbook diagram, and animate it with simulation values (asking first about your rights to the document)
-- Set up a [Tiny Tapeout](https://tinytapeout.com) chip project on GitHub, ready for the "Run TT Flow" button
+- Set up a [Tiny Tapeout](https://tinytapeout.com) chip project on GitHub, ready for the "Run TT Flow" button, and run
+  its flow for you
 
 Example prompts:
 - "Show me how a UART controller works."
@@ -65,6 +66,9 @@ Example prompts:
 - "Create a tic-tac-toe game in TL-Verilog with VIZ and show it in Makerchip"
 - "Set up a Tiny Tapeout project with Makerchip."
 - "I'm having trouble understanding 'when' conditions. Create a simple course with exercises to step me through it interactively in Makerchip."
+
+Makerchip's agent tools ask before changing a remote repository on your behalf (so far, the Tiny Tapeout flow's
+push), and you may always allow it for that repository. "Makerchip: Manage Repository Authorizations" revokes that.
 
 ## Agent Resources
 

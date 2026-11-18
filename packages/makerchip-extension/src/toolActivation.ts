@@ -71,6 +71,7 @@ const NODES: Record<string, string[]> = {
     'makerchip_set_warpv_config', 'makerchip_get_warpv_tlv',
   ],
   dev: ['base', 'communicate', 'makerchip_reload_panels'],
+  tinytapeout: ['base', 'makerchip_tt_run'],
 };
 
 /** A child that isn't itself a node is a tool leaf; those leaves are the gated keys we manage. */

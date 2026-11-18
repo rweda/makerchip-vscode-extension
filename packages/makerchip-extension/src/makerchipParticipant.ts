@@ -51,7 +51,7 @@ export function registerMakerchipParticipant(context: vscode.ExtensionContext): 
     }
   });
 
-  participant.iconPath = vscode.Uri.file(context.asAbsolutePath('resources/icon.png'));
+  participant.iconPath = vscode.Uri.joinPath(context.extensionUri, 'resources', 'icons', 'makerchip-themed.svg');
   
   context.subscriptions.push(participant);
   console.log('Makerchip chat participant registered successfully');

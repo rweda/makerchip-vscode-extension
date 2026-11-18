@@ -7,11 +7,14 @@ import { promisify } from 'util';
 import { getCompileDir, loadMetadata } from './compileCache';
 import { log } from './logger';
 import { requireTermsAccepted } from './terms';
+import { confirmRepoChange } from './repoAuth';
+import { getToolActivation } from './toolActivation';
 
 /**
  * Tiny Tapeout (TT) support. A TL-Verilog file in a TT project (see ttProjectRoot), such as one made
  * from tt-makerchip-template, gets a "Run TT Flow" button in its editor title bar. The button
- * compiles the file for TT, commits and pushes it, and the push runs the TT flow on GitHub Actions.
+ * compiles the file for TT, commits and pushes it, and the push runs the TT flow on GitHub Actions. An agent runs the
+ * same flow with the `makerchip_tt_run` tool (TtRunTool).
  * Roadmap: mono's issues/036-tiny-tapeout-in-makerchip.md.
  */
 
@@ -48,11 +51,17 @@ async function ttProjectRoot(file: string): Promise<string | undefined> {
   return isDesign && await fs.access(path.join(root, 'info.yaml')).then(() => true, () => false) ? root : undefined;
 }
 
-/** Show the button for the visible editors' TT design files. */
+/**
+ * Show the button for the visible editors' TT design files. Once one is shown, offer agents the TT tools too (and keep
+ * offering them, so switching editors doesn't change the tool set).
+ */
 async function updateTtFiles(): Promise<void> {
-  const files = await Promise.all(vscode.window.visibleTextEditors.map(async ({ document: { uri } }) =>
-    uri.scheme === 'file' && await ttProjectRoot(uri.fsPath) ? uri.fsPath : undefined));
-  await vscode.commands.executeCommand('setContext', FILES_CONTEXT_KEY, files.filter(f => f !== undefined));
+  const files = (await Promise.all(vscode.window.visibleTextEditors.map(async ({ document: { uri } }) =>
+    uri.scheme === 'file' && await ttProjectRoot(uri.fsPath) ? uri.fsPath : undefined))).filter(f => f !== undefined);
+  await vscode.commands.executeCommand('setContext', FILES_CONTEXT_KEY, files);
+  if (files.length > 0) {
+    getToolActivation()?.setEnv('tinytapeout', 'ttFileShown', true);
+  }
 }
 
 interface GitApi {
@@ -62,7 +71,8 @@ interface GitApi {
 
 /**
  * The repo containing `file`, opening it in VS Code's Git support if needed: by default
- * (`git.openRepositoryInParentFolders`), it does not open repos outside the workspace folders itself.
+ * (`git.openRepositoryInParentFolders`), it does not open repos outside the workspace folders itself. Its state is
+ * current (a newly opened repo's state, e.g. its remotes, is empty until a status).
  */
 async function gitRepository(file: string): Promise<GitRepository> {
   const ext = vscode.extensions.getExtension<{ getAPI(version: 1): GitApi }>('vscode.git');
@@ -80,6 +90,7 @@ async function gitRepository(file: string): Promise<GitRepository> {
   if (!repo) {
     throw new Error(`${file} is not in a Git repository.`);
   }
+  await repo.status();
   return repo;
 }
 
@@ -152,6 +163,37 @@ function setYamlValue(yaml: string, key: string, value: string): string {
     (_m, head: string, tail: string) => head + value + tail);
 }
 
+const PUSH_ANYWAY = 'Push Anyway';
+
+/**
+ * How the flow consults the user: the button asks in modal dialogs, and the agent's tool (AgentUi) reports problems
+ * to the agent instead, and has the user confirm the push.
+ */
+interface FlowUi {
+  /** Raise a problem. Returns the choice: `proceed` (go ahead regardless) or one of `others`; undefined to stop. */
+  ask(message: string, detail: string, proceed: string, others?: string[]): Thenable<string | undefined>;
+  /**
+   * Confirm committing (if `commit`) and pushing `file`'s project to `gitHub`. `warnings` are SandPiper's. Returns the
+   * commit message (anything, if not `commit`), or undefined to stop.
+   */
+  confirm(gitHub: string, file: string, commit: boolean, warnings?: string): Thenable<string | undefined>;
+}
+
+/** The button's FlowUi. */
+const buttonUi: FlowUi = {
+  ask: (message, detail, proceed, others = []) =>
+    vscode.window.showWarningMessage(message, { modal: true, detail }, ...others, proceed),
+  confirm: (gitHub, file, commit, warnings) => commit
+    ? vscode.window.showInputBox({
+      title: `Commit and push to ${gitHub} to run the Tiny Tapeout flow`,
+      prompt: (warnings ? 'SandPiper reported warnings (see the Makerchip output channel). ' : '') + 'Commit message:',
+      value: `Update ${path.basename(file)}`,
+      ignoreFocusOut: true,
+    })
+    : vscode.window.showInformationMessage(`Nothing has changed, but your last commit isn't pushed to ${gitHub} yet.`,
+      { modal: true }, 'Push'),
+};
+
 /**
  * Check the project info that TT's templates leave blank for the user and TT's checks require, mirroring
  * tt-support-tools' project_info.py and project_checks.py (TT's own check needs Python and tt-support-tools,
@@ -159,7 +201,7 @@ function setYamlValue(yaml: string, key: string, value: string): string {
  * that fails a minute in on a cryptic step. Advisory: the user may push anyway, so a mirror that drifts from
  * TT's checks costs at most a warning. Deliberately minimal (CI is the real check). Returns whether to proceed.
  */
-async function checkProjectInfo(root: string): Promise<boolean> {
+async function checkProjectInfo(root: string, ui: FlowUi): Promise<boolean> {
   const yaml = await fs.readFile(path.join(root, 'info.yaml'), 'utf-8');
   const infoMissing = ['title', 'author', 'description'].filter(key => !yamlValue(yaml, key));
   const pins = ['ui', 'uo', 'uio'].flatMap(bus => [0, 1, 2, 3, 4, 5, 6, 7].map(i => `${bus}[${i}]`));
@@ -174,13 +216,11 @@ async function checkProjectInfo(root: string): Promise<boolean> {
     return true;
   }
   const open = 'Open Files';
-  const pushAnyway = 'Push Anyway';
-  const choice = await vscode.window.showWarningMessage('Your project\'s information looks incomplete.', {
-    modal: true,
-    detail: 'Tiny Tapeout requires it (its template leaves it blank for you), so the flow would fail without:\n' +
+  const choice = await ui.ask('Your project\'s information looks incomplete.',
+    'Tiny Tapeout requires it (its template leaves it blank for you), so the flow would fail without:\n' +
       missing.filter(([, items]) => items.length > 0).map(([f, items]) => `${f}: ${items.join(', ')}`).join('\n'),
-  }, open, pushAnyway);
-  if (choice === pushAnyway) {
+    PUSH_ANYWAY, [open]);
+  if (choice === PUSH_ANYWAY) {
     return true;
   }
   if (choice === open) {
@@ -204,7 +244,7 @@ const VGA_INFO: [string, string][] = [['clock_hz', '25175000'],
  * Explorer (its VGA panel) read, offering to fill in VGA_INFO. Advisory, like checkProjectInfo. Returns whether to
  * proceed, and whether it changed info.yaml.
  */
-async function checkVgaInfo(root: string): Promise<{ proceed: boolean; changed?: boolean }> {
+async function checkVgaInfo(root: string, ui: FlowUi): Promise<{ proceed: boolean; changed?: boolean }> {
   const file = path.join(root, 'info.yaml');
   const yaml = await fs.readFile(file, 'utf-8');
   if (yamlValue(yaml, 'clock_hz') === '25175000' && /hsync/i.test(yamlValue(yaml, 'uo[7]') ?? '') &&
@@ -212,24 +252,22 @@ async function checkVgaInfo(root: string): Promise<{ proceed: boolean; changed?:
     return { proceed: true };
   }
   const fill = 'Fill In';
-  const pushAnyway = 'Push Anyway';
-  const choice = await vscode.window.showWarningMessage('This is a VGA design, but info.yaml doesn\'t say so.', {
-    modal: true,
-    detail: 'Tiny Tapeout\'s datasheet and Tiny Tapeout Explorer read its clock and pins. Fill In sets ' +
+  const choice = await ui.ask('This is a VGA design, but info.yaml doesn\'t say so.',
+    'Tiny Tapeout\'s datasheet and Tiny Tapeout Explorer read its clock and pins. Fill In sets ' +
       VGA_INFO.map(([key, value]) => `${key}: ${value}`).join(', ') + '.',
-  }, fill, pushAnyway);
+    PUSH_ANYWAY, [fill]);
   if (choice === fill) {
     await fs.writeFile(file, VGA_INFO.reduce((y, [key, value]) => setYamlValue(y, key, value), yaml));
     return { proceed: true, changed: true };
   }
-  return { proceed: choice === pushAnyway };
+  return { proceed: choice === PUSH_ANYWAY };
 }
 
 /**
  * If the `makerchip.tinyTapeout.runTestsBeforePush` setting is on, run the project's testbench as TT's `test`
  * workflow does, and if it fails (or can't run), say so. Advisory, like checkProjectInfo. Returns whether to proceed.
  */
-async function runTests(root: string): Promise<boolean> {
+async function runTests(root: string, ui: FlowUi): Promise<boolean> {
   if (!vscode.workspace.getConfiguration('makerchip', vscode.Uri.file(root)).get<boolean>('tinyTapeout.runTestsBeforePush')) {
     return true;
   }
@@ -250,12 +288,9 @@ async function runTests(root: string): Promise<boolean> {
   if (!problem) {
     return true;
   }
-  const pushAnyway = 'Push Anyway';
-  const choice = await vscode.window.showWarningMessage(problem, {
-    modal: true,
-    detail: 'See the Makerchip output channel. (Tests run because makerchip.tinyTapeout.runTestsBeforePush is on.)',
-  }, pushAnyway);
-  return choice === pushAnyway;
+  return await ui.ask(problem,
+    'See the Makerchip output channel. (Tests run because makerchip.tinyTapeout.runTestsBeforePush is on.)',
+    PUSH_ANYWAY) === PUSH_ANYWAY;
 }
 
 /** Whether GitHub marks `gitHub` (`owner/name`) as a template repo. False if GitHub can't say (offline, rate limit). */
@@ -340,101 +375,182 @@ export async function onTtCompile(file: string, panel: string, id: string, serve
   }
 }
 
-/** The TT button: compile for Makerchip and TT, commit, and push (which runs the TT flow). */
+/** What a run of the flow did: `message` for the user and, if it pushed, which commit and where its views are. */
+interface FlowResult {
+  message: string;
+  pushed?: { gitHub: string; sha: string; panel: string };
+  warnings?: string;  // SandPiper's.
+}
+
+/**
+ * The TT flow, for the button and the agent's tool: compile `file` for Makerchip and TT, commit, and push (which runs
+ * the TT flow), consulting the user through `ui`. Returns undefined if `ui` stopped it.
+ */
+async function runFlow(file: string, ui: FlowUi): Promise<FlowResult | undefined> {
+  const root = await ttProjectRoot(file);
+  if (!root) {
+    throw new Error('The Tiny Tapeout flow runs on a .tlv file in the src/ folder of a project with info.yaml.');
+  }
+  const doc = await vscode.workspace.openTextDocument(file);
+  if (doc.isDirty) {
+    await doc.save();
+  }
+  const repo = await gitRepository(file);
+  const gitHub = gitHubRepo(repo);
+  // E.g. a clone of tt-makerchip-template rather than a project made from it.
+  if (await isTemplateRepo(gitHub)) {
+    throw new Error(`${gitHub} is a template repository. Make your own project from it, as its README describes, ` +
+      'and run the flow there.');
+  }
+  if (!await checkProjectInfo(root, ui)) {
+    return undefined;
+  }
+  // Keep the Makerchip views in step with what is pushed. Not a gate: the TT compile fails on errors.
+  await vscode.window.showTextDocument(doc);
+  vscode.commands.executeCommand('makerchip.compile').then(undefined, e => log(`TT flow: Makerchip compile failed: ${e}`));
+
+  const { svFile, warnings } = await vscode.window.withProgress(
+    { location: vscode.ProgressLocation.Notification, title: 'Tiny Tapeout: compiling with SandPiper-SaaS...' },
+    () => compileForTt(file, root));
+
+  const ours = [file, svFile];
+  const vga = VGA_MARKER.test(await fs.readFile(svFile, 'utf-8'));
+  if (vga) {
+    const { proceed, changed } = await checkVgaInfo(root, ui);
+    if (!proceed) {
+      return undefined;
+    }
+    if (changed) {
+      ours.push(path.join(root, 'info.yaml'));
+    }
+  }
+  await repo.status();
+  const { indexChanges, workingTreeChanges, untrackedChanges = [] } = repo.state;
+  if (indexChanges.length === 0 && ![...workingTreeChanges, ...untrackedChanges].some(c => ours.includes(c.uri.fsPath))) {
+    // Nothing to commit. A commit whose push failed is still to push.
+    if (!repo.state.HEAD?.ahead) {
+      return { message: 'Nothing has changed since your last push, so the Tiny Tapeout flow has already run on it.' };
+    }
+    if (await ui.confirm(gitHub, file, false) === undefined) {
+      return undefined;
+    }
+  } else {
+    if (!await runTests(root, ui)) {
+      return undefined;
+    }
+    const others = indexChanges.filter(c => !ours.includes(c.uri.fsPath));
+    if (others.length > 0 && await ui.ask(
+      `${others.length} other staged change(s) would be committed along with ${path.basename(file)}:`,
+      others.map(c => vscode.workspace.asRelativePath(c.uri)).join('\n'), 'Include Them') === undefined) {
+      return undefined;
+    }
+    const message = await ui.confirm(gitHub, file, true, warnings);
+    if (message === undefined) {
+      return undefined;
+    }
+    await repo.add(ours);
+    await repo.commit(message);
+  }
+  const sha = repo.state.HEAD?.commit ?? '';
+  await vscode.window.withProgress(
+    { location: vscode.ProgressLocation.Notification, title: `Tiny Tapeout: pushing to ${gitHub}...` },
+    () => repo.push().catch((e: any) => {
+      throw new Error(`Committed ${sha.slice(0, 7)}, but pushing it failed: ${e?.message ?? e} ` +
+        'Once that is fixed, run the flow again to push it.');
+    }));
+  // In the design file's panel, where its compile just went.
+  const panel = await vscode.commands.executeCommand<string>('makerchip.panelForFile', file);
+  await showTtViews(panel, gitHub, sha, vga);
+  return {
+    message: `Pushed ${sha.slice(0, 7)}; the Tiny Tapeout flow is running on GitHub Actions (see the TT Build view).`,
+    pushed: { gitHub, sha, panel },
+    warnings,
+  };
+}
+
+/** The TT button. */
 async function runTtFlow(uri?: vscode.Uri): Promise<void> {
   const file = (uri ?? vscode.window.activeTextEditor?.document.uri)?.fsPath;
-  const root = file ? await ttProjectRoot(file) : undefined;
-  if (!file || !root) {
-    vscode.window.showErrorMessage('The Tiny Tapeout flow runs on a .tlv file in the src/ folder of a project with info.yaml.');
-    return;
-  }
   try {
-    const doc = await vscode.workspace.openTextDocument(file);
-    if (doc.isDirty) {
-      await doc.save();
+    if (!file) {
+      throw new Error('Open the .tlv file to run the Tiny Tapeout flow on.');
     }
-    const repo = await gitRepository(file);
-    const gitHub = gitHubRepo(repo);
-    // E.g. a clone of tt-makerchip-template rather than a project made from it.
-    if (await isTemplateRepo(gitHub)) {
-      vscode.window.showErrorMessage(`${gitHub} is a template repository. Make your own project from it, as its README ` +
-        'describes, and run the flow there.');
-      return;
+    const result = await runFlow(file, buttonUi);
+    if (result) {
+      vscode.window.showInformationMessage(result.message);
     }
-    if (!await checkProjectInfo(root)) {
-      return;
-    }
-    // Keep the Makerchip views in step with what is pushed. Not a gate: the TT compile fails on errors.
-    await vscode.window.showTextDocument(doc);
-    vscode.commands.executeCommand('makerchip.compile').then(undefined, e => log(`TT flow: Makerchip compile failed: ${e}`));
-
-    const { svFile, warnings } = await vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Notification, title: 'Tiny Tapeout: compiling with SandPiper-SaaS...' },
-      () => compileForTt(file, root));
-
-    const ours = [file, svFile];
-    const vga = VGA_MARKER.test(await fs.readFile(svFile, 'utf-8'));
-    if (vga) {
-      const { proceed, changed } = await checkVgaInfo(root);
-      if (!proceed) {
-        return;
-      }
-      if (changed) {
-        ours.push(path.join(root, 'info.yaml'));
-      }
-    }
-    await repo.status();
-    const { indexChanges, workingTreeChanges, untrackedChanges = [] } = repo.state;
-    if (indexChanges.length === 0 && ![...workingTreeChanges, ...untrackedChanges].some(c => ours.includes(c.uri.fsPath))) {
-      // Nothing to commit. A commit whose push failed is still to push.
-      if (!repo.state.HEAD?.ahead) {
-        vscode.window.showInformationMessage('Nothing has changed since your last push, so the Tiny Tapeout flow has already run on it.');
-        return;
-      }
-      const push = 'Push';
-      if (await vscode.window.showInformationMessage(`Nothing has changed, but your last commit isn't pushed to ${gitHub} yet.`,
-        { modal: true }, push) !== push) {
-        return;
-      }
-    } else {
-      if (!await runTests(root)) {
-        return;
-      }
-      const others = indexChanges.filter(c => !ours.includes(c.uri.fsPath));
-      if (others.length > 0) {
-        const include = 'Include Them';
-        const choice = await vscode.window.showWarningMessage(
-          `${others.length} other staged change(s) would be committed along with ${path.basename(file)}:`,
-          { modal: true, detail: others.map(c => vscode.workspace.asRelativePath(c.uri)).join('\n') }, include);
-        if (choice !== include) {
-          return;
-        }
-      }
-      const message = await vscode.window.showInputBox({
-        title: `Commit and push to ${gitHub} to run the Tiny Tapeout flow`,
-        prompt: (warnings ? 'SandPiper reported warnings (see the Makerchip output channel). ' : '') + 'Commit message:',
-        value: `Update ${path.basename(file)}`,
-        ignoreFocusOut: true,
-      });
-      if (message === undefined) {
-        return;
-      }
-      await repo.add(ours);
-      await repo.commit(message);
-    }
-    const sha = repo.state.HEAD?.commit ?? '';
-    await vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Notification, title: `Tiny Tapeout: pushing to ${gitHub}...` },
-      () => repo.push().catch((e: any) => {
-        throw new Error(`Committed ${sha.slice(0, 7)}, but pushing it failed: ${e?.message ?? e} ` +
-          'Once that is fixed, click the button again to push it.');
-      }));
-    // In the design file's panel, where its compile just went.
-    await showTtViews(await vscode.commands.executeCommand<string>('makerchip.panelForFile', file), gitHub, sha, vga);
-    vscode.window.showInformationMessage(
-      `Pushed ${sha.slice(0, 7)}; the Tiny Tapeout flow is running on GitHub Actions (see the TT Build view).`);
   } catch (error: any) {
     vscode.window.showErrorMessage(`Tiny Tapeout flow: ${error?.message ?? error}`);
+  }
+}
+
+/**
+ * The agent's FlowUi: each problem stops the flow (to be reported to the agent) unless `pushAnyway`; the user
+ * confirms the push (see confirmRepoChange), even in an authorized repo if it goes ahead despite problems.
+ */
+class AgentUi implements FlowUi {
+  problems: string[] = [];
+  declined = false;
+
+  constructor(private message: string, private pushAnyway: boolean) {}
+
+  async ask(message: string, detail: string, proceed: string): Promise<string | undefined> {
+    this.problems.push(`${message}\n${detail}`);
+    return this.pushAnyway ? proceed : undefined;
+  }
+
+  async confirm(gitHub: string, file: string, commit: boolean, warnings?: string): Promise<string | undefined> {
+    const detail = [
+      commit ? `Commit ${path.basename(file)}: "${this.message}"` : 'Push the last commit, which is not yet pushed.',
+      ...this.problems.map(p => `Despite: ${p}`),
+      ...warnings ? ['SandPiper reported warnings (see the Makerchip output channel).'] : [],
+    ].join('\n\n');
+    const allowed = await confirmRepoChange(`github.com/${gitHub}`,
+      `${commit ? 'commit and push' : 'push'} to ${gitHub}, to run the Tiny Tapeout flow`, detail, this.problems.length > 0);
+    this.declined = !allowed;
+    return allowed ? this.message : undefined;
+  }
+}
+
+interface TtRunInput {
+  filePath: string;
+  message: string;
+  pushAnyway?: boolean;
+}
+
+/** `makerchip_tt_run`: the "Run TT Flow" button, for an agent (see AgentUi). */
+export class TtRunTool implements vscode.LanguageModelTool<TtRunInput> {
+  async prepareInvocation(
+    options: vscode.LanguageModelToolInvocationPrepareOptions<TtRunInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.PreparedToolInvocation> {
+    return { invocationMessage: `Running the Tiny Tapeout flow on ${path.basename(options.input.filePath)}...` };
+  }
+
+  async invoke(
+    options: vscode.LanguageModelToolInvocationOptions<TtRunInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.LanguageModelToolResult> {
+    const { filePath, message, pushAnyway = false } = options.input;
+    const ui = new AgentUi(message, pushAnyway);
+    let text: string;
+    try {
+      const result = await runFlow(filePath, ui);
+      const { gitHub, sha, panel } = result?.pushed ?? {};
+      text = !result ? (ui.declined ? 'Not pushed: the user declined.'
+        : `Not pushed, because of these problems:\n\n${ui.problems.join('\n\n')}\n\nFix them (asking the user for ` +
+          'project information only they can give), or call again with `pushAnyway: true` to push regardless (the ' +
+          'user is then asked to confirm).')
+        : !sha ? result.message
+        : `Pushed ${sha} to ${gitHub}: the Tiny Tapeout flow is running on GitHub Actions, and panel '${panel}' shows ` +
+          `it in its TT Build view (\`getRunStatus\` with makerchip_view_call). Follow it with ` +
+          `\`gh run list -R ${gitHub} --commit ${sha}\`, then \`gh run watch <id> -R ${gitHub} --exit-status\`.` +
+          (ui.problems.length > 0 ? `\n\nPushed despite:\n\n${ui.problems.join('\n\n')}` : '') +
+          (result.warnings ? `\n\nSandPiper's warnings:\n${result.warnings}` : '');
+    } catch (error: any) {
+      text = `The Tiny Tapeout flow failed: ${error?.message ?? error}`;
+    }
+    return new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(text)]);
   }
 }
 

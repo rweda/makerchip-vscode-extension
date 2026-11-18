@@ -13,7 +13,8 @@ committed, and pushing runs TT's flow (`gds`, `test`, `docs` workflows) on GitHu
 covers the project files. (A reference copy of the repo is in
 [resources/tt-makerchip-template/](../../resources/tt-makerchip-template/), but the one on GitHub may be newer).
 
-Your job is the one-time setup. After it, the user runs the flow with the "Run TT Flow" button, without you.
+The one-time setup is generally your job. After it, the user runs the flow with the "Run TT Flow" button or has
+you run it (see "Running the flow").
 
 ## Setup
 
@@ -46,14 +47,23 @@ Your job is the one-time setup. After it, the user runs the flow with the "Run T
    - Stage these edits (`git add`) without committing; the button's commit includes them (after asking).
 5. **Show the user the buttons:** open `src/project.tlv` in an editor. Its title bar has the Makerchip button and,
    because the file is in `src/` of a project with `info.yaml`, a "Run TT Flow" button. Describe both briefly,
-   e.g. "The Makerchip button compiles and simulates your design. The rocket next to it runs the Tiny Tapeout
+   e.g. "The Makerchip button compiles and simulates your design. The chip next to it runs the Tiny Tapeout
    flow: it checks for missing project information (`info.yaml` and `docs/info.md`), compiles in Makerchip,
    regenerates `src/project.sv` (with SandPiper-SaaS), asks for a commit message, commits (asking first if
    other files, such as the ones I edited for you, are staged), and pushes."
 
+## Running the flow
+
+When the user asks you to run the flow (or to commit and push the design), call `makerchip_tt_run` with the design
+file and a commit message (if it isn't offered, `makerchip_enable_tools` with target `tinytapeout`). Don't push
+yourself: the tool also regenerates and stamps `src/project.sv` and points the TT views at the commit. The user
+confirms each push, unless they chose "Always Allow" for the repository. The problems the button warns about stop
+the tool and come back to you, including files staged besides the design (such as your setup edits). Fix them, or,
+if the user agrees, call again with `pushAnyway: true`.
+
 ## Watching a run
 
-After pushing, the button opens (or reuses) two Makerchip views, whose tab status follows the run: **TT
+After pushing, the button (or tool) opens (or reuses) two Makerchip views, whose tab status follows the run: **TT
 Build** (runs, jobs, and current steps, polled anonymously from the GitHub API, then the results: why a job failed,
 tests, precheck, layout metrics, and every published log and report) and **TT Layout** (the render, TT's 3D viewer,
 and Tiny Tapeout Explorer, from the repo's GitHub Pages). For a VGA design (the

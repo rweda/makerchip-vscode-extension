@@ -26,6 +26,7 @@ import { registerTinyTapeout, onTtCompile, sendTtCompiled } from './tinyTapeout'
 import { initToolActivation, getToolActivation } from './toolActivation';
 import { registerMakerchipParticipant } from './makerchipParticipant';
 import { reconcileClaudeSkill } from './claudeSkill';
+import { initRepoAuth } from './repoAuth';
 import { initTerms, ensureTermsAccepted, requireTermsAccepted, termsAcceptedAt, recordTermsAccepted } from './terms';
 import { log } from './logger';
 import * as compileCache from './compileCache';
@@ -288,6 +289,7 @@ export function activate(ctx: vscode.ExtensionContext) {
   log('Makerchip extension activating...');
   logDevDiagnostics(context);
   initTerms(context, getServerUrl);
+  initRepoAuth(context);
 
   // Activation graph (see toolActivation.ts): gates tool availability so the Makerchip suite doesn't
   // pressure the request tool cap. Must init before any env signal or the enable tool is used.
