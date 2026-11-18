@@ -235,7 +235,7 @@
             },
             "sim": {
               "type": "boolean",
-              "description": "Whether to run the Verilator simulation after Verilog generation (default true). Pass false for a faster Verilog-only (model) run — the diagram and emitted (System)Verilog are still produced, but no waveform is generated."
+              "description": "Whether to run the Verilator simulation after Verilog generation (default true, or false while the waveform is locked by `makerchip_load_vcd`). Pass false for a faster Verilog-only (model) run — the diagram and emitted (System)Verilog are still produced, but no waveform is generated."
             },
             "dot": {
               "type": "boolean",
@@ -1323,6 +1323,42 @@
             {"required": ["cycle"]},
             {"required": ["offset"]}
           ]
+        }
+      },
+      {
+        "name": "makerchip_load_vcd",
+        "when": "makerchip.enabled.makerchip_load_vcd",
+        "displayName": "Load Waveform (VCD)",
+        "toolReferenceName": "makerchipLoadVcd",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(pulse)",
+        "userDescription": "Load an external VCD waveform into the Makerchip IDE, or release it.",
+        "modelDescription": "Loads an external VCD waveform trace (e.g. from simulating a Verilog/SystemVerilog model with Verilator or Icarus) into a Makerchip panel, locking the Waveform and VIZ views to it, or (`release`) unlocks it, reenabling simulation. The lock persists across window reloads. While locked, `makerchip_compile` skips simulation by default, and the VIZ (`\\viz_js`) of the compiled TL-Verilog renders from the locked trace; compile it before or after loading. VIZ references SV signals by their hierarchical VCD names, as `this.sigVal(\"tb.dut.sig\")`, except that a top-level Verilator `TOP` scope is dropped. TL-Verilog signal references (`'$sig`) need the trace's `DEBUG_SIGS` scope (from SandPiper's `--debugSigs` output). Cycle timing comes from `clk` and `reset` signals at the trace's top level or outermost scope (else it is inferred, with a warning). Returns a summary of the trace: cycle range, the clk/reset found, sample SV signal names (as for `sigVal`), and warnings. The trace is parsed within the panel, not uploaded.",
+        "tags": [
+          "makerchip",
+          "vcd",
+          "waveform",
+          "trace",
+          "simulation",
+          "viz",
+          "load"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "filePath": {
+              "type": "string",
+              "description": "Absolute path of the `.vcd` file to load (at most 50 MB). A file outside the workspace requires the user's approval, requested by a VS Code notification (tell the user to look for it); unless the user clicks Load within 2 minutes, it is refused. Omit with `release`."
+            },
+            "release": {
+              "type": "boolean",
+              "description": "True to unlock the waveform instead of loading one. The waveform is then empty until the next compilation."
+            },
+            "panelName": {
+              "type": "string",
+              "description": "Optional panel name to target. Default: `default`."
+            }
+          }
         }
       },
       {

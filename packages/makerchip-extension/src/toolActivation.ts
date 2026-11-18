@@ -52,6 +52,7 @@ const NODES: Record<string, string[]> = {
     'makerchip_list_panels', 'makerchip_compile', 'makerchip_wait_compile',
     'makerchip_get_available_views', 'makerchip_fit_view', 'makerchip_get_viz_image',
     'makerchip_get_cycle', 'makerchip_set_cycle', 'makerchip_ide_call', 'makerchip_get_late_reply',
+    'makerchip_load_vcd',
   ],
   communicate: ['makerchip_view_call', 'makerchip_emit'],
 

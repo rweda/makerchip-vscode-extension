@@ -30,16 +30,16 @@
  * ── Reload persistence & restore ────────────────────────────────────────────
  *
  * On a VS Code window reload the webview is destroyed and recreated fresh. We
- * persist { panelKey, compileId, layoutState, cycle } via vscode.setState() and, on
+ * persist { panelKey, compileId, vcdPath, layoutState, cycle } via vscode.setState() and, on
  * recreation, rebuild the previous IDE without recompiling:
  *
- *   a. Reload with a cached compile:
+ *   a. Reload with a cached compile and/or a locked external VCD:
  *        webview posts 'restoreRequest'  ->  extension reads cached result files
- *        + metadata from disk, posts 'restoreData'  ->  webview applies the saved
- *        layout (ide.api.setLayoutState) so the restored views exist, injects the
- *        payloads into the IDE (ide...ideMethods.compilation*), then restores the
- *        saved current cycle (ide.api.setCycle). Falls back to recompiling cached
- *        source if the cache was pruned.
+ *        + metadata (and the VCD) from disk, posts 'restoreData'  ->  webview applies
+ *        the saved layout (ide.api.setLayoutState) so the restored views exist, injects
+ *        the payloads into the IDE (ide...ideMethods.compilation*), relocks the VCD
+ *        (ide.api.loadVcd), then restores the saved current cycle (ide.api.setCycle).
+ *        Falls back to recompiling cached source if the cache was pruned.
  *   b. Reload with only a saved layout: apply the layout, nothing to inject.
  *   c. Inform extension that webview is ready (to gate requests from extension)
  *   d. Fresh load: nothing to restore.
@@ -207,13 +207,17 @@ interface InitErrorMessage {
  */
 interface RestoreRequestMessage {
   type: 'restoreRequest';
-  compileId: string;
+  compileId?: string;
+  /** The locked external VCD, to be reread (see makerchip_load_vcd). */
+  vcdPath?: string;
 }
 
 /** Reply from the extension carrying cached results (or source for recompile fallback). */
 interface RestoreDataMessage {
   type: 'restoreData';
-  compileId: string;
+  compileId?: string;
+  /** The text of the requested VCD, if it could be read. */
+  vcd?: string;
   /** True when cached result files are present and can be injected directly. */
   available: boolean;
   files?: Partial<Record<CompileFileName, string>>;
@@ -350,6 +354,8 @@ import(`${serverUrl}/dist/makerchip-plugin.js`).then((module: any) => {
     readonly panelKey: string = window.MAKERCHIP_PANEL_KEY;
     readonly saved: any = vscode.getState() || {};
     currentCompileId: string | undefined = this.saved.compileId;
+    /** The path of the external VCD to which the waveform is locked (by ide.api.loadVcd). */
+    vcdPath: string | undefined = this.saved.vcdPath;
 
     // Layout-watcher state.
     private allowPersist = false;
@@ -388,12 +394,14 @@ import(`${serverUrl}/dist/makerchip-plugin.js`).then((module: any) => {
     // Perform any needed restore, then signal readiness to the user (splash) and
     // extension. Single exit point: startLayoutWatcher + restoreGate + 'ready' always here.
     private async kickoffRestore() {
-      if (this.saved.compileId) {
-        console.log('[webview][restore] Reload detected, requesting cached results for compile:', this.saved.compileId);
-        vscode.postMessage({ type: 'restoreRequest', compileId: this.saved.compileId } as RestoreRequestMessage);
+      const { compileId } = this.saved;
+      if (compileId || this.vcdPath) {
+        console.log('[webview][restore] Reload detected, requesting restore data for compile/VCD:', compileId, this.vcdPath);
+        vscode.postMessage({ type: 'restoreRequest', compileId, vcdPath: this.vcdPath } as RestoreRequestMessage);
         const data = await this._restoreDataReceived;
         await this.applyLayout();
-        await this.restoreCompilation(data);
+        if (compileId) { await this.restoreCompilation(data); }
+        await this.restoreVcd(data);
         await this.restoreCycle();
       } else if (this.saved.layoutState) {
         console.log('[webview][restore] Reload detected, restoring layout only (no compile)');
@@ -424,7 +432,7 @@ import(`${serverUrl}/dist/makerchip-plugin.js`).then((module: any) => {
     // results (no server round-trip); falls back to recompiling cached source.
     private async restoreCompilation(data: RestoreDataMessage) {
       const ideMethods = (this as any).serverCompile?.instance?.ideMethods;
-      const id = data.compileId;
+      const id = data.compileId!;
       if (data.available && data.files && ideMethods) {
         try {
           const f = data.files;
@@ -461,6 +469,19 @@ import(`${serverUrl}/dist/makerchip-plugin.js`).then((module: any) => {
         }
       } else {
         console.warn('[webview] No cached data available to restore compile', id);
+      }
+    }
+
+    // Relock the waveform to the persisted external VCD. Run this AFTER results are injected, so the
+    // VIZ restored from them renders from this VCD. If the VCD is no longer available, it is dropped.
+    private async restoreVcd(data: RestoreDataMessage) {
+      if (!this.vcdPath) { return; }
+      try {
+        if (data.vcd === undefined) { throw new Error('VCD could not be read (see the Makerchip output log)'); }
+        await this.api.loadVcd(data.vcd, { name: this.vcdPath });
+      } catch (e: any) {
+        console.error('[webview][restoreVcd] Not relocking', this.vcdPath, e?.message || e);
+        this.vcdPath = undefined;
       }
     }
 
@@ -507,10 +528,11 @@ import(`${serverUrl}/dist/makerchip-plugin.js`).then((module: any) => {
         const c = await this.api.getCycle();
         if (typeof c === 'number') { cycle = c; }
       } catch { /* no waveform / cycle unavailable */ }
-      const json = JSON.stringify({ compileId: this.currentCompileId, layoutState, cycle });
+      const state = { compileId: this.currentCompileId, vcdPath: this.vcdPath, layoutState, cycle };
+      const json = JSON.stringify(state);
       if (json === this.lastPersistedJson) { return; }
       this.lastPersistedJson = json;
-      vscode.setState({ panelKey: this.panelKey, compileId: this.currentCompileId, layoutState, cycle });
+      vscode.setState({ panelKey: this.panelKey, ...state });
       // Keep the local snapshot current so a later restore uses the freshest values.
       this.saved.layoutState = layoutState;
       this.saved.cycle = cycle;
@@ -706,6 +728,10 @@ import(`${serverUrl}/dist/makerchip-plugin.js`).then((module: any) => {
     });
     // Handle messages from the extension host.
     window.addEventListener('message', async (event: MessageEvent) => {
+      // Accept only messages from the extension (relayed by VS Code's webview host, which shares our
+      // vscode-webview: origin), not from the IDE iframe or views within it (other origins), which must not
+      // be able to drive ide.api. (event.source is not a reliable test; it isn't window.parent.)
+      if (event.origin !== window.origin) { return; }
       const msg = event.data;
       if (msg.type === 'test') { return; }
       // Extension's reply to 'restoreRequest': hand off to the class to resolve the
@@ -726,6 +752,8 @@ import(`${serverUrl}/dist/makerchip-plugin.js`).then((module: any) => {
           await ide.restoreGate;
           const result = await ide.api[method](...args);
           if (method === 'compile' && typeof result === 'string') { ide.currentCompileId = result; }
+          if (method === 'loadVcd') { ide.vcdPath = args[1]?.name; }
+          if (method === 'unlockVcd') { ide.vcdPath = undefined; }
           ide.schedulePersist();
           if (result !== undefined || requestId !== undefined) {
             const serialized = await serializeIdeResult(result);

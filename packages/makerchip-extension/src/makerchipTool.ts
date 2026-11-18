@@ -64,7 +64,8 @@ interface MakerchipToolInput {
   waitForDiagram?: boolean;
   /**
    * A `compile` option, forwarded in the plugin's `compile(code, opts, settings)` `opts` object:
-   * whether to run the Verilator simulation after Verilog generation (default true). Pass false
+   * whether to run the Verilator simulation after Verilog generation (default true, or false while the
+   * waveform is locked by `makerchip_load_vcd`). Pass false
    * for a faster Verilog-only (model) run — the diagram and emitted (System)Verilog are still
    * produced, but no waveform (vlt_dump.vcd) is generated.
    */
@@ -132,7 +133,7 @@ export class IdeFunctionCallTool implements vscode.LanguageModelTool<IdeFunction
     try {
       const { method, args = [], panelName } = options.input;
 
-      // Methods with dedicated tools, which also gate PDF content (see the Live Doc skill).
+      // Methods with dedicated tools, which also gate PDF content (see the Live Doc skill) or file access.
       // captureVideo: its tool sizes the render timeout to the request (here, a 30s timeout leaves
       // long renders running, uncancelled) and saves correctly (here, `filename` triggers a browser
       // download / Save dialog). getVizImage: its tool returns the image inline, not as a base64
@@ -141,6 +142,7 @@ export class IdeFunctionCallTool implements vscode.LanguageModelTool<IdeFunction
         captureVideo: 'makerchip_capture_video',
         getVizImage: 'makerchip_get_viz_image',
         extractPdfFigure: 'makerchip_extract_pdf_figure',
+        loadVcd: 'makerchip_load_vcd',
       };
       if (Object.hasOwn(dedicated, method)) {
         return new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(
@@ -2253,6 +2255,108 @@ export class OpenThirdPartyViewTool implements vscode.LanguageModelTool<OpenThir
   }
 }
 
+/** The largest VCD accepted, matching the browser IDE's "Open Waveform". */
+const MAX_VCD_BYTES = 50 * 1024 * 1024;
+/** How long to wait for the user to approve loading a VCD from outside the workspace. */
+const VCD_APPROVAL_TIMEOUT_MS = 2 * 60 * 1000;
+
+/**
+ * Read a VCD file for the IDE (which is served from a remote origin), allowing only: a trusted workspace;
+ * an absolute path to a regular `.vcd` file of at most MAX_VCD_BYTES that looks like a VCD; and, unless the
+ * user approves, a location within a workspace folder (after resolving symlinks).
+ * @param confirm whether to ask the user to approve a file outside the workspace (else refused)
+ */
+export async function readVcdFile(filePath: string, confirm: boolean): Promise<{ realPath: string; text: string }> {
+  if (!vscode.workspace.isTrusted) { throw new Error('Loading a VCD requires a trusted workspace.'); }
+  if (!path.isAbsolute(filePath)) { throw new Error(`Path is not absolute: ${filePath}`); }
+  if (path.extname(filePath).toLowerCase() !== '.vcd') { throw new Error(`Not a .vcd file: ${filePath}`); }
+  const realPath = await fs.promises.realpath(filePath);
+  const roots = await Promise.all((vscode.workspace.workspaceFolders ?? [])
+    .filter(f => f.uri.scheme === 'file')
+    .map(f => fs.promises.realpath(f.uri.fsPath).catch(() => f.uri.fsPath)));
+  const inWorkspace = roots.some(root => {
+    const rel = path.relative(root, realPath);
+    return rel !== '' && rel.split(path.sep)[0] !== '..' && !path.isAbsolute(rel);
+  });
+  if (!inWorkspace) {
+    // A notification, not a modal dialog: a modal takes keyboard focus, so typing could approve it unseen.
+    // Unanswered, it times out as declined, rather than leaving the agent's call hanging.
+    if (!confirm) { throw new Error(`${realPath} is outside the workspace.`); }
+    const choice = await Promise.race([
+      vscode.window.showWarningMessage(
+        `An agent asks to load a waveform from outside the workspace into Makerchip (parsed in the panel, ` +
+        `not uploaded): ${realPath}`,
+        'Load', 'Refuse'
+      ).then(c => c ?? 'dismissed'),
+      new Promise<string>(resolve => setTimeout(() => resolve('timed out'), VCD_APPROVAL_TIMEOUT_MS)),
+    ]);
+    log(`Loading ${realPath} from outside the workspace: ${choice}`);
+    if (choice !== 'Load') {
+      const why = choice === 'Refuse' ? 'the user refused' : `the approval request was ${choice}`;
+      throw new Error(`${realPath} is outside the workspace, and ${why}.`);
+    }
+  }
+  const stat = await fs.promises.stat(realPath);
+  if (!stat.isFile()) { throw new Error(`Not a file: ${realPath}`); }
+  if (stat.size > MAX_VCD_BYTES) {
+    throw new Error(`${realPath} is too large (${stat.size} bytes; the maximum is ${MAX_VCD_BYTES}).`);
+  }
+  const text = await fs.promises.readFile(realPath, 'utf-8');
+  if (!/^\s*\$(date|version|timescale|comment|scope|var)\b/.test(text)) {
+    throw new Error(`${realPath} does not look like a VCD file.`);
+  }
+  return { realPath, text };
+}
+
+interface LoadVcdInput {
+  /** Absolute path of the VCD file to load (omit with `release`). */
+  filePath?: string;
+  /** True to instead unlock the waveform, reenabling simulation. */
+  release?: boolean;
+  /** Optional panel name to target. If not provided, uses the default panel. */
+  panelName?: string;
+}
+
+/**
+ * Language Model tool to load an external VCD trace, locking the waveform to it (IDE `loadVcd`), or to
+ * release the lock (IDE `unlockVcd`). The webview persists the lock (see webview.ts).
+ */
+export class LoadVcdTool implements vscode.LanguageModelTool<LoadVcdInput> {
+
+  async prepareInvocation(
+    options: vscode.LanguageModelToolInvocationPrepareOptions<LoadVcdInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.PreparedToolInvocation> {
+    const { filePath, release } = options.input;
+    return { invocationMessage: release ? 'Unlocking the Makerchip waveform...' : `Loading waveform ${filePath}...` };
+  }
+
+  async invoke(
+    options: vscode.LanguageModelToolInvocationOptions<LoadVcdInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.LanguageModelToolResult> {
+    const { filePath, release, panelName } = options.input;
+    const panelInfo = panelName ? ` in panel '${panelName}'` : '';
+    const reply = (text: string) => new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(text)]);
+    try {
+      if (!release === !filePath) { throw new Error('Provide exactly one of filePath and release.'); }
+      if (release) {
+        await vscode.commands.executeCommand('makerchip.callIdeMethodWithResult', 'unlockVcd', [], panelName);
+        return reply(`Unlocked the waveform${panelInfo}, reenabling simulation. ` +
+          `The waveform is empty until the next compilation (makerchip_compile).`);
+      }
+      const { realPath, text } = await readVcdFile(filePath!, true);
+      // Parsing a large trace can take a while.
+      const summary = await vscode.commands.executeCommand(
+        'makerchip.callIdeMethodWithResult', 'loadVcd', [text, { name: realPath }], panelName, true, 120000
+      );
+      return reply(`Loaded ${realPath}${panelInfo}, locking the waveform to it.\nSummary: ${JSON.stringify(summary)}`);
+    } catch (error: any) {
+      return reply(`Failed to ${release ? 'unlock' : 'load'} the waveform: ${error.message}`);
+    }
+  }
+}
+
 interface GetCycleInput {
   /** Optional panel name to target. If not provided, uses the default panel. */
   panelName?: string;
@@ -3434,6 +3538,7 @@ export function registerMakerchipTool(context: vscode.ExtensionContext): void {
 
   reg('makerchip_get_cycle', new GetCycleTool());
   reg('makerchip_set_cycle', new SetCycleTool());
+  reg('makerchip_load_vcd', new LoadVcdTool());
   reg('makerchip_update_play_state', new UpdatePlayStateTool());
   reg('makerchip_highlight', new HighlightTool());
   reg('makerchip_clear_highlights', new ClearHighlightsTool());
