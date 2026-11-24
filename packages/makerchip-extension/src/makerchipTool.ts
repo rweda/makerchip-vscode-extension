@@ -3548,6 +3548,8 @@ export function registerMakerchipTool(context: vscode.ExtensionContext): void {
   // `minDurationMs` (declared only by makerchip_invoke_tool), but only for outermost calls: holding
   // makerchip_invoke_tool's inner calls too would multiply a batch's time. (Calls are counted as inner while
   // another is running; a harness's parallel calls are then not held, which is no worse than before.)
+  // Each call is logged, so a hung call can be diagnosed from the Makerchip output channel: no
+  // "start" line means it never reached the extension; a "returned" line means the harness lost it.
   let count = 0;
   let running = 0;
   const reg = (name: string, tool: vscode.LanguageModelTool<any>): void => {
@@ -3556,13 +3558,20 @@ export function registerMakerchipTool(context: vscode.ExtensionContext): void {
       getToolActivation()?.touch();
       const start = Date.now();
       const outermost = running++ === 0;
+      const tag = `[tool] ${outermost ? '' : '  (inner) '}${name}`;
+      log(`${tag} start`);
+      let outcome = 'threw';
       try {
-        return await invoke(options, token);
+        const result = await invoke(options, token);
+        outcome = 'ok';
+        return result;
       } finally {
         running--;
+        log(`${tag} done (${outcome}) in ${Date.now() - start} ms`);
         if (outermost) {
           const ms = options.input?.minDurationMs ?? DEFAULT_MIN_DURATION_MS;
           await holdUntil(start + Math.min(ms, MAX_MIN_DURATION_MS), token);
+          log(`${tag} returned at ${Date.now() - start} ms${token.isCancellationRequested ? ' (cancelled)' : ''}`);
         }
       }
     };

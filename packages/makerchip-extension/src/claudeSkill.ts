@@ -290,7 +290,8 @@ Consequences worth acting on:
 - **Stay on the lookout, not just when asked.** This applies throughout the session, to anything
   you touch — not only to the task you were given. Experimental features in particular want
   feedback: where a tool's description says so, that is an explicit invitation.
-- Extension logs go to the \`Makerchip\` output channel; compilation artifacts to
+- Extension logs go to the \`Makerchip\` output channel, whose file is \`<N>-Makerchip.log\` under
+  the VS Code profile's newest \`logs/<session>/window<N>/exthost/output_logging_*/\`; compilation artifacts to
   \`${makerchipDir}/compile-cache/\`.
 
 `;
@@ -396,6 +397,11 @@ Try to avoid hangs, but if you slip and hit one, rule out the turn-local causes 
   change this turn, after the extension host reloaded, updated or crashed; retrying this turn keeps
   hanging. Fix: stop and ask the user to reply (the next turn rebinds). Only if it still hangs at
   the start of a fresh turn, direct the user to start a fresh chat.
+
+To tell these apart, read the \`[tool]\` lines the extension logs for every call (see the
+\`Makerchip\` output channel below): no \`start\` line means the call never reached the extension
+(reload, gating, or a dropped concurrent call); a \`returned\` line means the extension answered and
+the harness lost the result.
 
 ## Further guidance
 
