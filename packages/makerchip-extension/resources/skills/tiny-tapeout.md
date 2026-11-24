@@ -47,7 +47,7 @@ you run it (see "Running the flow").
    - Stage these edits (`git add`) without committing; the button's commit includes them (after asking).
 5. **Show the user the buttons:** open `src/project.tlv` in an editor. Its title bar has the Makerchip button and,
    because the file is in `src/` of a project with `info.yaml`, a "Run TT Flow" button. Describe both briefly,
-   e.g. "The Makerchip button compiles and simulates your design. The chip next to it runs the Tiny Tapeout
+   e.g. "The Makerchip button compiles and simulates your design. The Tiny Tapeout logo next to it runs the Tiny Tapeout
    flow: it checks for missing project information (`info.yaml` and `docs/info.md`), compiles in Makerchip,
    regenerates `src/project.sv` (with SandPiper-SaaS), asks for a commit message, commits (asking first if
    other files, such as the ones I edited for you, are staged), and pushes."

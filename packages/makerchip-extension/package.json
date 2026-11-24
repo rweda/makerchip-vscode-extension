@@ -59,7 +59,10 @@
       {
         "command": "makerchip.ttRun",
         "title": "Makerchip: Run TT Flow (Tiny Tapeout)",
-        "icon": "$(chip)"
+        "icon": {
+          "light": "resources/icons/tt-light.svg",
+          "dark": "resources/icons/tt-dark.svg"
+        }
       },
       {
         "command": "makerchip.compileNew",
@@ -233,9 +236,13 @@
               "description": "Optional path to a TL-Verilog file to open and compile. The file is read from disk (not the editor buffer). If the open buffer has unsaved edits, a warning is returned. If not provided, uses the currently active editor."
             },
             "code": {
-              "type": [
-                "string",
-                "boolean"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "boolean"
+                }
               ],
               "description": "Optional TL-Verilog code to compile. When a string is provided, creates a new unsaved file with this code and opens it in Makerchip. Use this to show examples or demonstrate TL-Verilog features. Pass boolean `true` to instead open the bundled minimal scratch design (`resources/minimal.tlv`) — the easy way to just open a Makerchip panel. Combine with `oneShot: true` to compile without opening any editor."
             },
@@ -351,16 +358,7 @@
             "args": {
               "type": "array",
               "description": "Arguments to pass to the method. Order matters.",
-              "items": {
-                "type": [
-                  "string",
-                  "number",
-                  "boolean",
-                  "object",
-                  "array",
-                  "null"
-                ]
-              }
+              "items": {}
             },
             "panelName": {
               "type": "string",
@@ -396,25 +394,21 @@
               "description": "The application-event type to publish (e.g. 'sourceAsm'). Views subscribe by this type."
             },
             "payload": {
-              "type": [
-                "string",
-                "number",
-                "boolean",
-                "object",
-                "array",
-                "null"
-              ],
               "description": "The event payload delivered to subscribers. Any JSON-serializable value."
             },
             "target": {
-              "type": [
-                "string",
-                "array"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
               ],
-              "description": "Optional recipient filter (e.g. a view mnemonic or 'ide') or an array of them. Omit to broadcast.",
-              "items": {
-                "type": "string"
-              }
+              "description": "Optional recipient filter (e.g. a view mnemonic or 'ide') or an array of them. Omit to broadcast."
             },
             "panelName": {
               "type": "string",
@@ -457,16 +451,7 @@
             "args": {
               "type": "array",
               "description": "Positional arguments passed to the view method. Any JSON-serializable values.",
-              "items": {
-                "type": [
-                  "string",
-                  "number",
-                  "boolean",
-                  "object",
-                  "array",
-                  "null"
-                ]
-              }
+              "items": {}
             },
             "timeoutMs": {
               "type": "number",
@@ -587,7 +572,10 @@
         "displayName": "Run TT Flow",
         "toolReferenceName": "makerchipTtRun",
         "canBeReferencedInPrompt": true,
-        "icon": "$(chip)",
+        "icon": {
+          "light": "resources/icons/tt-light.svg",
+          "dark": "resources/icons/tt-dark.svg"
+        },
         "userDescription": "Run the Tiny Tapeout flow on a TT project (commit and push, with your confirmation).",
         "modelDescription": "Does what the \"Run TT Flow\" button does for a Tiny Tapeout (TT) project's design (`src/<name>.tlv` in a project with `info.yaml`; see the tiny-tapeout skill): checks the project information TT requires, compiles in Makerchip, regenerates the `.sv` with SandPiper-SaaS, commits the design (with any staged changes) and pushes, which runs TT's flow on GitHub Actions, and points the Makerchip panel's TT views at the pushed commit. The user confirms each push, unless they have authorized Makerchip's agent tools for the repository. A problem the button would warn about (missing project information, a VGA design whose info.yaml lacks its VGA pins, failing local tests, other staged changes) stops the flow, and is returned to you, so you can fix it; or call again with `pushAnyway: true` to push regardless, which always asks the user. On success, returns the pushed commit's SHA and how to follow its run.",
         "tags": [
@@ -751,9 +739,13 @@
               "description": "Needed only while the VIZ shows PDF content (this tool says so): the user's answer to the Live Doc skill's copy question, as for makerchip_extract_pdf_figure. Never assume it. With \"chat\", the capture is not saved to a non-temp path."
             },
             "saveToFile": {
-              "type": [
-                "boolean",
-                "string"
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string"
+                }
               ],
               "description": "Optional: also save the image to a file for the user to view. If true, saves to a temp file with an auto-generated name; if a string, uses it as the file path. (The image is also returned inline to the model unless `blind` is set.)"
             },
@@ -832,9 +824,13 @@
               "description": "As `extractFigure`'s `text`. Default \"labels\"."
             },
             "clip": {
-              "type": [
-                "boolean",
-                "number"
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "number"
+                }
               ],
               "description": "As `extractFigure`'s `clip`: true (pad 4), a pad in px, or omitted for none."
             },
@@ -847,38 +843,46 @@
               "description": "With `caption`, pick among the reported candidates (0 = best match). Use when the best match turns out to be a running header or a cross-reference."
             },
             "render": {
-              "type": [
-                "boolean",
-                "object"
-              ],
-              "properties": {
-                "scale": {
-                  "type": "number",
-                  "description": "Pixels per PDF px. Default 2."
+              "anyOf": [
+                {
+                  "type": "boolean"
                 },
-                "annotate": {
-                  "type": "boolean",
-                  "description": "Outline each primitive (red) and label (blue) on the image, tagged with its `id` (`p<N>`, `t<N>`: N is its pool index, as `\\viz_js` selectors name it). With `group`, each group is outlined once instead of its members (green, `g<N>`). Default false."
+                {
+                  "type": "object",
+                  "properties": {
+                    "scale": {
+                      "type": "number",
+                      "description": "Pixels per PDF px. Default 2."
+                    },
+                    "annotate": {
+                      "type": "boolean",
+                      "description": "Outline each primitive (red) and label (blue) on the image, tagged with its `id` (`p<N>`, `t<N>`: N is its pool index, as `\\viz_js` selectors name it). With `group`, each group is outlined once instead of its members (green, `g<N>`). Default false."
+                    }
+                  }
                 }
-              },
+              ],
               "description": "Output: an image of the figure box as pdf.js draws it (the original, not the extraction), to check the extraction against: true (scale 2) or {scale, annotate}. Returned inline where supported, else written to a temp file. Default false."
             },
             "extraction": {
-              "type": [
-                "boolean",
-                "object"
-              ],
-              "properties": {
-                "file": {
-                  "type": "boolean",
-                  "enum": [
-                    true
-                  ],
-                  "description": "Write the JSON to an auto-named temp file instead of returning it. Only the path is returned."
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "file": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ],
+                      "description": "Write the JSON to an auto-named temp file instead of returning it. Only the path is returned."
+                    }
+                  },
+                  "required": [
+                    "file"
+                  ]
                 }
-              },
-              "required": [
-                "file"
               ],
               "description": "Output: the records, i.e. the ExtractResult (see the Live Doc skill), in figure coordinates as `\\viz_js` code sees them, shaped by `includePaths` and `group`. Primitives also carry a tool-only `kind` (`line`, `rect`, `polygon`, `curve`), which, like the style fields, appears only where it changes from the previous primitive. Numbers are to 0.1 px, and an unrotated label omits `left`/`top` (its bbox's top-left). true returns it inline, false omits it, {file: true} writes it to a temp file. Default: inline, or omitted when `summary` is requested."
             },
@@ -892,21 +896,25 @@
               "description": "Shapes the `extraction` records (and `render`'s annotation): collapse each set of same-paint primitives that reads as one shape into one `groups` entry `{id, kind, fill, stroke, strokeWidth, count, members, bbox}`, omitting the members from `primitives`. Only two kinds join: `line`s whose endpoint lies on another (corners and T-junctions, not crossings), so a set is a wire net; and unstroked filled `rect`s that touch without one mostly covering the other (a shape filled in pieces, not a backdrop). `members` are inclusive pool-index runs `[[from, to], ...]`; remaining primitives keep their `id`s, so indices still match the full pool `\\viz_js` code sees. Default false."
             },
             "summary": {
-              "type": [
-                "boolean",
-                "object"
-              ],
-              "properties": {
-                "file": {
-                  "type": "boolean",
-                  "enum": [
-                    true
-                  ],
-                  "description": "As `extraction`'s `file`."
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "file": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ],
+                      "description": "As `extraction`'s `file`."
+                    }
+                  },
+                  "required": [
+                    "file"
+                  ]
                 }
-              },
-              "required": [
-                "file"
               ],
               "description": "Output: a compact preview, to settle the options before requesting the (larger) records. Of the extraction, in figure coordinates as its records: `rows`, one per kind and paint, `{kind, fill, stroke, strokeWidth, count, members, bbox, shapes}`, largest first (`shapes` counts each set `group` would join as one; `members` are inclusive pool-index runs); `images` (bboxes); and `lines` (the selected text by line, `{bbox, text}`). Of the page, to choose a figure, in page coordinates as `select` takes them: `clusterCount`, `clusters` (the first 20, `{index, count, bbox}`, as `{mode: \"cluster\", index}` picks them) and `largest` (the 5 biggest primitives, `{index, bbox}`, by the index `ignore` takes). Add the figure box's origin to a figure coordinate for its page coordinate. To survey a page, use `select: {mode: \"all\"}`, with `text: \"all\"` for text beyond the vector art. true returns it inline, {file: true} writes it to a temp file. Default false."
             },
@@ -1161,9 +1169,13 @@
                   "description": "Array of view mnemonics in tab order"
                 },
                 "activeView": {
-                  "type": [
-                    "string",
-                    "null"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
                   ],
                   "description": "Mnemonic of active view (or null)"
                 }

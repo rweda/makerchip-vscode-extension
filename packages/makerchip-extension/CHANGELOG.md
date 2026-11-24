@@ -6,6 +6,14 @@ uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- The "Run TT Flow" button (and agent tool) now shows the Tiny Tapeout logo, with Matt Venn's permission, instead of a chip.
+
+### Fixed
+
+- With Microsoft's Claude agent, tool arguments that accept more than one type reached the tool as their first type, so e.g. `makerchip_compile`'s `code: true` compiled the text "true" instead of the minimal design.
+
 ## [0.0.5] — 2026-11-18
 
 ### Added

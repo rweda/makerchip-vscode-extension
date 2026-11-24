@@ -25,6 +25,14 @@ Key constraints to preserve when making changes:
   genuinely cross-argument behavior (how options interact, ordering, gating); document each argument
   once in its `inputSchema` property `description`. The mirror TypeScript input interface (e.g.
   `MakerchipToolInput`) is the source the property descriptions track.
+- **LM tool schemas — write unions as `anyOf`, not `type` arrays; "any JSON value" by omitting
+  `type`; `$ref` only where recursion needs it:** VS Code's Claude agent host rebuilds each tool
+  schema and keeps only the first type of a `type` array (coercing values to it: `code: true`
+  arrived as `"true"`), and turns a `$ref` into "any" (so the recursive `makerchip_set_layout_state`
+  `state` relies on the examples in its `modelDescription`); `anyOf` and an absent `type` survive. The `anyOf` form is equivalent, so it can stay after a fix. To check for one:
+  `grep -oE 'isArray\([a-zA-Z_$]+\.type\)\?[a-zA-Z_$]+\.type\[0\]'` in VS Code's
+  `resources/app/out/vs/platform/agentHost/node/agentHostMain.js` (a match means the bug remains).
+  A chat keeps the schemas it started with, so test schema changes in a new chat.
 
 ## Internal Development
 

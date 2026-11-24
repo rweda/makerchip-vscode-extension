@@ -38,7 +38,7 @@ VS Code also installs the companion [TL-Verilog](https://marketplace.visualstudi
 
 **Making a chip with [Tiny Tapeout](https://tinytapeout.com):** in a project made from
 [tt-makerchip-template](https://github.com/stevehoover/tt-makerchip-template), the design's `.tlv` file gets a
-"Run TT Flow" button (a chip) next to the Makerchip icon. It checks the project information Tiny Tapeout
+"Run TT Flow" button (the Tiny Tapeout logo) next to the Makerchip icon. It checks the project information Tiny Tapeout
 requires, generates the Verilog, commits and pushes, which runs Tiny Tapeout's flow on GitHub Actions, and
 follows the run in the Makerchip panel's TT Build and TT Layout views. TT Build then shows the results,
 including every log and report, with a text search. For a VGA design (the template's `vga` setting), compiling it in Makerchip opens
